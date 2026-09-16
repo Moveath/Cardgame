@@ -14,12 +14,12 @@ namespace CardGameClient
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Launch()
         {
-            if (Object.FindFirstObjectByType<DurakTableController>() != null)
+            if (Object.FindAnyObjectByType<DurakTableController>() != null)
             {
                 return;
             }
 
-            if (Object.FindFirstObjectByType<EventSystem>() == null)
+            if (Object.FindAnyObjectByType<EventSystem>() == null)
             {
                 var eventSystem = new GameObject("EventSystem", typeof(EventSystem));
                 var module = eventSystem.AddComponent<InputSystemUIInputModule>();

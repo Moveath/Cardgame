@@ -26,13 +26,18 @@ namespace CardGameClient
         private RectTransform _tableRow;
         private RectTransform _handRow;
         private RectTransform _opponentsPanel;
+        private RectTransform _deckStackArea;
+        private RectTransform _discardStackArea;
         private CardView _trumpCard;
         private Text _status;
         private Text _deckInfo;
+        private Text _discardInfo;
+        private Text _log;
         private Button _passButton;
         private Button _takeButton;
         private Button _restartButton;
 
+        private readonly List<string> _logLines = new List<string>();
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
 
@@ -50,6 +55,9 @@ namespace CardGameClient
             _game = DurakGame.Create(PlayerNames, UnityEngine.Random.Range(0, int.MaxValue));
             _pendingMove = null;
             _waitingForHuman = false;
+
+            _logLines.Clear();
+            _log.text = string.Empty;
 
             _trumpCard.ShowFace(_game.TrumpCard);
             _trumpCard.SetPlain();
@@ -81,7 +89,11 @@ namespace CardGameClient
                     _waitingForHuman = false;
                     _pendingMove = null;
 
-                    if (!_game.TryApplyMove(HumanIndex, move, out var error))
+                    if (_game.TryApplyMove(HumanIndex, move, out var error))
+                    {
+                        AddLog(_game.Players[HumanIndex].Name + " " + move);
+                    }
+                    else
                     {
                         Debug.LogWarning("Ход отклонён: " + error);
                     }
@@ -91,7 +103,7 @@ namespace CardGameClient
                 else
                 {
                     Refresh();
-                    yield return new WaitForSeconds(0.8f);
+                    yield return new WaitForSeconds(1.1f);
 
                     var move = _bot.ChooseMove(_game, actor.Value);
                     if (move == null)
@@ -99,7 +111,12 @@ namespace CardGameClient
                         break;
                     }
 
-                    _game.TryApplyMove(actor.Value, move.Value, out _);
+                    var moverName = _game.Players[actor.Value].Name;
+                    if (_game.TryApplyMove(actor.Value, move.Value, out _))
+                    {
+                        AddLog(moverName + " " + move.Value);
+                    }
+
                     Refresh();
                 }
             }
@@ -116,10 +133,45 @@ namespace CardGameClient
             RefreshHand(legalMoves);
             RefreshOpponents();
             RefreshControls(legalMoves);
+            RefreshDeckPile();
+            RefreshDiscardPile();
+        }
 
-            _deckInfo.text = _game.DeckCount > 0
-                ? "в колоде: " + _game.DeckCount
-                : "колода пуста";
+        private void AddLog(string line)
+        {
+            _logLines.Insert(0, line);
+            if (_logLines.Count > 5)
+            {
+                _logLines.RemoveAt(_logLines.Count - 1);
+            }
+
+            _log.text = string.Join("\n", _logLines);
+        }
+
+        private void RefreshDeckPile()
+        {
+            CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(4f, 5f), 0.85f);
+            _deckInfo.text = _game.DeckCount > 0 ? "в колоде: " + _game.DeckCount : "колода пуста";
+        }
+
+        private void RefreshDiscardPile()
+        {
+            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(3f, -4f), 0.85f);
+            _discardInfo.text = _game.DiscardCount > 0 ? "бита: " + _game.DiscardCount : "бита пуста";
+        }
+
+        private void CreateCardBackStack(RectTransform container, int count, Vector2 step, float scale, int maxVisible = 5)
+        {
+            Clear(container);
+            var visible = Mathf.Clamp(count, 0, maxVisible);
+
+            for (var i = 0; i < visible; i++)
+            {
+                var back = CardView.Create(container, _font, scale);
+                back.Rect.anchoredPosition = step * i;
+                back.ShowBack();
+                back.SetPlain();
+            }
         }
 
         private void RefreshTable()
@@ -323,8 +375,22 @@ namespace CardGameClient
             _trumpCard = CardView.Create(trumpArea, _font, 0.9f);
             _trumpCard.Rect.anchoredPosition = new Vector2(0f, 30f);
 
+            _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 58f), new Vector2(100f, 100f));
+
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
             Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(220f, 50f));
+
+            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, 0f), new Vector2(220f, 320f));
+            _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 30f), new Vector2(100f, 100f));
+
+            _discardInfo = CreateText(discardArea, string.Empty, 26, TextAnchor.MiddleCenter);
+            Place((RectTransform)_discardInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(220f, 50f));
+
+            var logArea = CreatePanel("Log", root, new Vector2(0f, 1f), new Vector2(40f, -390f), new Vector2(650f, 220f));
+            logArea.pivot = new Vector2(0f, 1f);
+            _log = CreateText(logArea, string.Empty, 24, TextAnchor.UpperLeft);
+            Stretch((RectTransform)_log.transform);
+            _log.color = new Color(0.85f, 0.92f, 0.85f, 0.85f);
 
             _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());
