@@ -9,7 +9,13 @@ obj/
 .idea/
 .vscode/
 
-# Unity (появится на следующем этапе)
+# Unity
+# Логика собирается скриптом scripts/build-for-unity.ps1, в репозиторий не кладём
+unity/*/Assets/Plugins/CardGame/
+unity/*/Assets/Plugins/CardGame.meta
+unity/*/*.csproj
+unity/*/*.sln
+unity/*/.vsconfig
 unity/*/Library/
 unity/*/Temp/
 unity/*/Obj/

@@ -11,6 +11,7 @@
 | `src/CardGame.Bots` | Боты: автотесты, игра с компьютером, добор пустых мест в комнатах. |
 | `src/CardGame.ConsoleDemo` | Прогон партии в консоли — быстрая проверка логики без редактора. |
 | `tests/CardGame.Core.Tests` | Юнит-тесты и прогон сотен партий ботами. |
+| `unity/CardGameClient` | Unity-клиент: только отображение, правила берёт из `CardGame.Core`. |
 
 `CardGame.Core` таргетит `netstandard2.1` — эту же сборку подключит Unity-клиент и будущий сервер,
 поэтому правила пишутся один раз.
@@ -22,6 +23,15 @@ dotnet test                                  # прогнать тесты
 dotnet run --project src/CardGame.ConsoleDemo         # случайная партия
 dotnet run --project src/CardGame.ConsoleDemo -- 777  # партия по seed 777 (воспроизводимая)
 ```
+
+После правок в `CardGame.Core` или `CardGame.Bots` нужно пересобрать логику для Unity:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-for-unity.ps1
+```
+
+Скрипт кладёт свежие DLL в `unity/CardGameClient/Assets/Plugins/CardGame/`. Эти файлы —
+результат сборки, поэтому в репозиторий не попадают: после клонирования запусти скрипт.
 
 Seed определяет перемешивание колоды, поэтому любой баг воспроизводится по номеру раздачи.
 
