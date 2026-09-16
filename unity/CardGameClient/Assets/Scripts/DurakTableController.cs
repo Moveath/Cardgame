@@ -25,19 +25,18 @@ namespace CardGameClient
 
         private RectTransform _tableRow;
         private RectTransform _handRow;
-        private RectTransform _opponentsPanel;
+        private RectTransform[] _opponentSlots;
         private RectTransform _deckStackArea;
         private RectTransform _discardStackArea;
         private CardView _trumpCard;
         private Text _status;
         private Text _deckInfo;
         private Text _discardInfo;
-        private Text _log;
+        private Text _lastAction;
         private Button _passButton;
         private Button _takeButton;
         private Button _restartButton;
 
-        private readonly List<string> _logLines = new List<string>();
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
 
@@ -56,8 +55,7 @@ namespace CardGameClient
             _pendingMove = null;
             _waitingForHuman = false;
 
-            _logLines.Clear();
-            _log.text = string.Empty;
+            _lastAction.text = string.Empty;
 
             _trumpCard.ShowFace(_game.TrumpCard);
             _trumpCard.SetPlain();
@@ -91,7 +89,7 @@ namespace CardGameClient
 
                     if (_game.TryApplyMove(HumanIndex, move, out var error))
                     {
-                        AddLog(_game.Players[HumanIndex].Name + " " + move);
+                        SetLastAction(_game.Players[HumanIndex].Name + ": " + move);
                     }
                     else
                     {
@@ -114,7 +112,7 @@ namespace CardGameClient
                     var moverName = _game.Players[actor.Value].Name;
                     if (_game.TryApplyMove(actor.Value, move.Value, out _))
                     {
-                        AddLog(moverName + " " + move.Value);
+                        SetLastAction(moverName + ": " + move.Value);
                     }
 
                     Refresh();
@@ -137,15 +135,9 @@ namespace CardGameClient
             RefreshDiscardPile();
         }
 
-        private void AddLog(string line)
+        private void SetLastAction(string line)
         {
-            _logLines.Insert(0, line);
-            if (_logLines.Count > 5)
-            {
-                _logLines.RemoveAt(_logLines.Count - 1);
-            }
-
-            _log.text = string.Join("\n", _logLines);
+            _lastAction.text = line;
         }
 
         private void RefreshDeckPile()
@@ -227,26 +219,19 @@ namespace CardGameClient
 
         private void RefreshOpponents()
         {
-            Clear(_opponentsPanel);
+            var actingIndex = _waitingForHuman ? (int?)HumanIndex : DurakTurnOrder.GetActingPlayer(_game);
+            var slotIndex = 0;
 
             foreach (var player in _game.Players)
             {
-                if (player.Index == HumanIndex)
+                if (player.Index == HumanIndex || slotIndex >= _opponentSlots.Length)
                 {
                     continue;
                 }
 
-                var row = new GameObject("Opponent", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-                row.transform.SetParent(_opponentsPanel, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(700f, 70f);
-
-                var layout = row.GetComponent<HorizontalLayoutGroup>();
-                layout.spacing = 4f;
-                layout.childAlignment = TextAnchor.MiddleLeft;
-                layout.childControlWidth = false;
-                layout.childControlHeight = false;
-                layout.childForceExpandWidth = false;
-                layout.childForceExpandHeight = false;
+                var container = _opponentSlots[slotIndex];
+                slotIndex++;
+                Clear(container);
 
                 var role = string.Empty;
                 if (player.Index == _game.DefenderIndex)
@@ -258,15 +243,29 @@ namespace CardGameClient
                     role = " — атакует";
                 }
 
-                var label = CreateText(row.transform, player.Name + role, 26, TextAnchor.MiddleLeft);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(260f, 60f);
+                var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
+                var label = CreateText(container, player.Name + role, 26, TextAnchor.UpperLeft);
+                label.color = isActing ? new Color(1f, 0.85f, 0.3f) : new Color(0.94f, 0.95f, 0.93f);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(340f, 34f);
 
                 if (player.IsOut)
                 {
-                    var outText = CreateText(row.transform, "вышел", 24, TextAnchor.MiddleLeft);
-                    outText.GetComponent<RectTransform>().sizeDelta = new Vector2(120f, 60f);
+                    var outText = CreateText(container, "вышел", 22, TextAnchor.UpperLeft);
+                    outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f, 30f);
                     continue;
                 }
+
+                var row = new GameObject("Cards", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+                row.transform.SetParent(container, false);
+                ((RectTransform)row.transform).sizeDelta = new Vector2(340f, 70f);
+
+                var rowLayout = row.GetComponent<HorizontalLayoutGroup>();
+                rowLayout.spacing = 4f;
+                rowLayout.childAlignment = TextAnchor.MiddleLeft;
+                rowLayout.childControlWidth = false;
+                rowLayout.childControlHeight = false;
+                rowLayout.childForceExpandWidth = false;
+                rowLayout.childForceExpandHeight = false;
 
                 foreach (var unused in player.Hand)
                 {
@@ -343,15 +342,24 @@ namespace CardGameClient
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
 
-            _opponentsPanel = CreatePanel("Opponents", root, new Vector2(0f, 1f), new Vector2(40f, -150f), new Vector2(700f, 220f));
-            _opponentsPanel.pivot = new Vector2(0f, 1f);
-            var opponentsLayout = _opponentsPanel.gameObject.AddComponent<VerticalLayoutGroup>();
-            opponentsLayout.spacing = 10f;
-            opponentsLayout.childAlignment = TextAnchor.UpperLeft;
-            opponentsLayout.childControlWidth = false;
-            opponentsLayout.childControlHeight = false;
-            opponentsLayout.childForceExpandWidth = false;
-            opponentsLayout.childForceExpandHeight = false;
+            _opponentSlots = new RectTransform[2];
+
+            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -140f), new Vector2(360f, 150f));
+            _opponentSlots[0].pivot = new Vector2(0f, 1f);
+
+            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -140f), new Vector2(360f, 150f));
+            _opponentSlots[1].pivot = new Vector2(1f, 1f);
+
+            foreach (var slot in _opponentSlots)
+            {
+                var layout = slot.gameObject.AddComponent<VerticalLayoutGroup>();
+                layout.spacing = 8f;
+                layout.childAlignment = TextAnchor.UpperLeft;
+                layout.childControlWidth = false;
+                layout.childControlHeight = false;
+                layout.childForceExpandWidth = false;
+                layout.childForceExpandHeight = false;
+            }
 
             _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 240f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -371,26 +379,24 @@ namespace CardGameClient
             handLayout.childForceExpandWidth = false;
             handLayout.childForceExpandHeight = false;
 
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, 0f), new Vector2(220f, 320f));
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 420f));
             _trumpCard = CardView.Create(trumpArea, _font, 0.9f);
-            _trumpCard.Rect.anchoredPosition = new Vector2(0f, 30f);
+            _trumpCard.Rect.anchoredPosition = new Vector2(0f, -20f);
 
-            _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 58f), new Vector2(100f, 100f));
+            _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 150f), new Vector2(100f, 100f));
 
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
-            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(220f, 50f));
+            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -160f), new Vector2(220f, 50f));
 
-            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, 0f), new Vector2(220f, 320f));
-            _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 30f), new Vector2(100f, 100f));
+            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, -20f), new Vector2(220f, 320f));
+            _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(100f, 100f));
 
             _discardInfo = CreateText(discardArea, string.Empty, 26, TextAnchor.MiddleCenter);
             Place((RectTransform)_discardInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(220f, 50f));
 
-            var logArea = CreatePanel("Log", root, new Vector2(0f, 1f), new Vector2(40f, -390f), new Vector2(650f, 220f));
-            logArea.pivot = new Vector2(0f, 1f);
-            _log = CreateText(logArea, string.Empty, 24, TextAnchor.UpperLeft);
-            Stretch((RectTransform)_log.transform);
-            _log.color = new Color(0.85f, 0.92f, 0.85f, 0.85f);
+            _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
+            _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
+            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(900f, 40f));
 
             _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());
