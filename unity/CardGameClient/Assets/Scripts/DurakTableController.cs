@@ -18,6 +18,8 @@ namespace CardGameClient
     {
         private const int HumanIndex = 0;
         private static readonly string[] PlayerNames = { "Ты", "Борис", "Вера" };
+        private static readonly Color[] OpponentColors = { new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f) };
+        private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -180,6 +182,7 @@ namespace CardGameClient
                 attack.Rect.anchoredPosition = new Vector2(-14f, 16f);
                 attack.ShowFace(slot.Attack);
                 attack.SetPlain();
+                attack.PlayAppearAnimation();
 
                 if (slot.Defense.HasValue)
                 {
@@ -187,6 +190,7 @@ namespace CardGameClient
                     defense.Rect.anchoredPosition = new Vector2(16f, -18f);
                     defense.ShowFace(slot.Defense.Value);
                     defense.SetPlain();
+                    defense.PlayAppearAnimation();
                 }
             }
         }
@@ -195,10 +199,26 @@ namespace CardGameClient
         {
             Clear(_handRow);
 
-            foreach (var card in _game.Players[HumanIndex].Hand)
+            var hand = _game.Players[HumanIndex].Hand;
+            var count = hand.Count;
+            if (count == 0)
             {
+                return;
+            }
+
+            var angleStep = Mathf.Min(6f, 26f / Mathf.Max(count - 1, 1));
+            var spacing = Mathf.Min(CardView.Width * 0.62f, 900f / count);
+            var mid = (count - 1) / 2f;
+
+            for (var i = 0; i < count; i++)
+            {
+                var card = hand[i];
                 var view = CardView.Create(_handRow, _font);
                 view.ShowFace(card);
+
+                var offset = i - mid;
+                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f);
+                view.SetRestTransform(position, -offset * angleStep);
 
                 var move = FindMoveForCard(legalMoves, card);
                 if (move.HasValue)
@@ -230,8 +250,25 @@ namespace CardGameClient
                 }
 
                 var container = _opponentSlots[slotIndex];
+                var colorIndex = slotIndex;
                 slotIndex++;
                 Clear(container);
+
+                var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
+
+                var header = new GameObject("Header", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+                header.transform.SetParent(container, false);
+                ((RectTransform)header.transform).sizeDelta = new Vector2(340f, 64f);
+
+                var headerLayout = header.GetComponent<HorizontalLayoutGroup>();
+                headerLayout.spacing = 10f;
+                headerLayout.childAlignment = TextAnchor.MiddleLeft;
+                headerLayout.childControlWidth = false;
+                headerLayout.childControlHeight = false;
+                headerLayout.childForceExpandWidth = false;
+                headerLayout.childForceExpandHeight = false;
+
+                CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing);
 
                 var role = string.Empty;
                 if (player.Index == _game.DefenderIndex)
@@ -243,10 +280,9 @@ namespace CardGameClient
                     role = " — атакует";
                 }
 
-                var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
-                var label = CreateText(container, player.Name + role, 26, TextAnchor.UpperLeft);
-                label.color = isActing ? new Color(1f, 0.85f, 0.3f) : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(340f, 34f);
+                var label = CreateText(header.transform, player.Name + role, 26, TextAnchor.MiddleLeft);
+                label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(260f, 60f);
 
                 if (player.IsOut)
                 {
@@ -274,6 +310,40 @@ namespace CardGameClient
                     back.SetPlain();
                 }
             }
+        }
+
+        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing)
+        {
+            const float ringSize = 58f;
+            const float avatarSize = 48f;
+
+            var wrapper = new GameObject("Avatar", typeof(RectTransform));
+            wrapper.transform.SetParent(parent, false);
+            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(ringSize, ringSize);
+
+            var ring = new GameObject("Ring", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            ring.transform.SetParent(wrapper.transform, false);
+            var ringRect = (RectTransform)ring.transform;
+            ringRect.anchorMin = ringRect.anchorMax = ringRect.pivot = new Vector2(0.5f, 0.5f);
+            ringRect.sizeDelta = new Vector2(ringSize, ringSize);
+            var ringImage = ring.GetComponent<Image>();
+            ringImage.sprite = UiTextures.Circle(64, Color.white);
+            ringImage.type = Image.Type.Sliced;
+            ringImage.color = isActing ? ActiveGlow : new Color(0f, 0f, 0f, 0f);
+
+            var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            circle.transform.SetParent(wrapper.transform, false);
+            var circleRect = (RectTransform)circle.transform;
+            circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
+            circleRect.sizeDelta = new Vector2(avatarSize, avatarSize);
+            var circleImage = circle.GetComponent<Image>();
+            circleImage.sprite = UiTextures.Circle(64, color);
+            circleImage.type = Image.Type.Sliced;
+
+            var label = CreateText(circle.transform, initial.ToUpperInvariant(), 24, TextAnchor.MiddleCenter);
+            Stretch((RectTransform)label.transform);
+            label.color = Color.white;
+            label.fontStyle = FontStyle.Bold;
         }
 
         private void RefreshControls(IReadOnlyList<DurakMove> legalMoves)
@@ -334,10 +404,32 @@ namespace CardGameClient
         {
             var root = (RectTransform)transform;
 
-            var background = new GameObject("Background", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            background.transform.SetParent(root, false);
-            Stretch((RectTransform)background.transform);
-            background.GetComponent<Image>().color = new Color(0.07f, 0.26f, 0.17f);
+            var room = new GameObject("Room", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            room.transform.SetParent(root, false);
+            Stretch((RectTransform)room.transform);
+            room.GetComponent<Image>().color = new Color(0.11f, 0.08f, 0.07f);
+
+            var frame = new GameObject("Frame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            frame.transform.SetParent(root, false);
+            var frameRect = (RectTransform)frame.transform;
+            frameRect.anchorMin = Vector2.zero;
+            frameRect.anchorMax = Vector2.one;
+            frameRect.offsetMin = new Vector2(24f, 24f);
+            frameRect.offsetMax = new Vector2(-24f, -24f);
+            var frameImage = frame.GetComponent<Image>();
+            frameImage.sprite = UiTextures.RoundedRect(64, 64, 24f, new Color(0.36f, 0.22f, 0.12f));
+            frameImage.type = Image.Type.Sliced;
+
+            var felt = new GameObject("Felt", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            felt.transform.SetParent(root, false);
+            var feltRect = (RectTransform)felt.transform;
+            feltRect.anchorMin = Vector2.zero;
+            feltRect.anchorMax = Vector2.one;
+            feltRect.offsetMin = new Vector2(38f, 38f);
+            feltRect.offsetMax = new Vector2(-38f, -38f);
+            var feltImage = felt.GetComponent<Image>();
+            feltImage.sprite = UiTextures.RoundedRect(64, 64, 20f, new Color(0.08f, 0.32f, 0.20f));
+            feltImage.type = Image.Type.Sliced;
 
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
@@ -371,13 +463,6 @@ namespace CardGameClient
             tableLayout.childForceExpandHeight = false;
 
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 140f), new Vector2(1600f, 200f));
-            var handLayout = _handRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            handLayout.spacing = 14f;
-            handLayout.childAlignment = TextAnchor.MiddleCenter;
-            handLayout.childControlWidth = false;
-            handLayout.childControlHeight = false;
-            handLayout.childForceExpandWidth = false;
-            handLayout.childForceExpandHeight = false;
 
             var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 420f));
             _trumpCard = CardView.Create(trumpArea, _font, 0.9f);
@@ -410,7 +495,7 @@ namespace CardGameClient
 
         private Button CreateButton(Transform parent, string label, Vector2 anchor, Vector2 position, Color color, Action onClick)
         {
-            var go = new GameObject("Button", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+            var go = new GameObject("Button", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow), typeof(Button));
             go.transform.SetParent(parent, false);
 
             var rect = (RectTransform)go.transform;
@@ -421,10 +506,22 @@ namespace CardGameClient
             rect.sizeDelta = new Vector2(280f, 76f);
 
             var image = go.GetComponent<Image>();
-            image.color = color;
+            image.sprite = UiTextures.RoundedRect(140, 76, 18f, color);
+            image.type = Image.Type.Sliced;
+
+            var shadow = go.GetComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
+            shadow.effectDistance = new Vector2(3f, -4f);
 
             var button = go.GetComponent<Button>();
             button.targetGraphic = image;
+            button.transition = Selectable.Transition.ColorTint;
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.15f, 1.15f, 1.15f, 1f);
+            colors.pressedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
+            colors.fadeDuration = 0.08f;
+            button.colors = colors;
             button.onClick.AddListener(() => onClick());
 
             var text = CreateText(rect, label, 30, TextAnchor.MiddleCenter);
