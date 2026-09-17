@@ -206,14 +206,16 @@ namespace CardGameClient
                 return;
             }
 
-            var angleStep = Mathf.Min(6f, 26f / Mathf.Max(count - 1, 1));
-            var spacing = Mathf.Min(CardView.Width * 0.62f, 900f / count);
+            const float handCardScale = 1.15f;
+            var cardWidth = CardView.Width * handCardScale;
+            var angleStep = Mathf.Min(5f, 22f / Mathf.Max(count - 1, 1));
+            var spacing = Mathf.Min(cardWidth * 0.82f, 1500f / count);
             var mid = (count - 1) / 2f;
 
             for (var i = 0; i < count; i++)
             {
                 var card = hand[i];
-                var view = CardView.Create(_handRow, _font);
+                var view = CardView.Create(_handRow, _font, handCardScale);
                 view.ShowFace(card);
 
                 var offset = i - mid;
