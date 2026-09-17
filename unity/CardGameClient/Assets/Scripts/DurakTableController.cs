@@ -293,23 +293,29 @@ namespace CardGameClient
                     continue;
                 }
 
-                var row = new GameObject("Cards", typeof(RectTransform), typeof(HorizontalLayoutGroup));
+                var row = new GameObject("Cards", typeof(RectTransform));
                 row.transform.SetParent(container, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(340f, 90f);
+                ((RectTransform)row.transform).sizeDelta = new Vector2(380f, 110f);
 
-                var rowLayout = row.GetComponent<HorizontalLayoutGroup>();
-                rowLayout.spacing = 3f;
-                rowLayout.childAlignment = TextAnchor.MiddleLeft;
-                rowLayout.childControlWidth = false;
-                rowLayout.childControlHeight = false;
-                rowLayout.childForceExpandWidth = false;
-                rowLayout.childForceExpandHeight = false;
-
-                foreach (var unused in player.Hand)
+                var oppCount = player.Hand.Count;
+                if (oppCount > 0)
                 {
-                    var back = CardView.Create(row.transform, _font, 0.45f);
-                    back.ShowBack();
-                    back.SetPlain();
+                    const float oppScale = 0.6f;
+                    var oppWidth = CardView.Width * oppScale;
+                    var oppAngleStep = Mathf.Min(6f, 24f / Mathf.Max(oppCount - 1, 1));
+                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, 360f / oppCount);
+                    var oppMid = (oppCount - 1) / 2f;
+
+                    for (var h = 0; h < oppCount; h++)
+                    {
+                        var back = CardView.Create(row.transform, _font, oppScale);
+                        back.ShowBack();
+                        back.SetPlain();
+
+                        var oppOffset = h - oppMid;
+                        var oppPos = new Vector2(oppOffset * oppSpacing, -Mathf.Abs(oppOffset) * 4f);
+                        back.SetRestTransform(oppPos, -oppOffset * oppAngleStep);
+                    }
                 }
             }
         }
@@ -470,7 +476,7 @@ namespace CardGameClient
             _trumpCard = CardView.Create(trumpArea, _font, 0.9f);
             _trumpCard.Rect.anchoredPosition = new Vector2(0f, -20f);
 
-            _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 150f), new Vector2(100f, 100f));
+            _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 60f), new Vector2(100f, 100f));
 
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
             Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -160f), new Vector2(220f, 50f));
