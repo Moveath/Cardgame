@@ -144,13 +144,13 @@ namespace CardGameClient
 
         private void RefreshDeckPile()
         {
-            CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(4f, 5f), 0.85f);
+            CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(5f, 6f), 1.05f);
             _deckInfo.text = _game.DeckCount > 0 ? "в колоде: " + _game.DeckCount : "колода пуста";
         }
 
         private void RefreshDiscardPile()
         {
-            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(3f, -4f), 0.85f);
+            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(4f, -5f), 1.05f);
             _discardInfo.text = _game.DiscardCount > 0 ? "бита: " + _game.DiscardCount : "бита пуста";
         }
 
@@ -295,10 +295,10 @@ namespace CardGameClient
 
                 var row = new GameObject("Cards", typeof(RectTransform), typeof(HorizontalLayoutGroup));
                 row.transform.SetParent(container, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(340f, 70f);
+                ((RectTransform)row.transform).sizeDelta = new Vector2(340f, 90f);
 
                 var rowLayout = row.GetComponent<HorizontalLayoutGroup>();
-                rowLayout.spacing = 4f;
+                rowLayout.spacing = 3f;
                 rowLayout.childAlignment = TextAnchor.MiddleLeft;
                 rowLayout.childControlWidth = false;
                 rowLayout.childControlHeight = false;
@@ -307,7 +307,7 @@ namespace CardGameClient
 
                 foreach (var unused in player.Hand)
                 {
-                    var back = CardView.Create(row.transform, _font, 0.32f);
+                    var back = CardView.Create(row.transform, _font, 0.45f);
                     back.ShowBack();
                     back.SetPlain();
                 }
