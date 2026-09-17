@@ -28,5 +28,8 @@ unity/*/MemoryCaptures/
 *.aab
 *.unitypackage
 
+# Скриншоты, вставленные в чат (кэш редактора, не часть проекта)
+/screens/
+
 # Прочее
 *.log
