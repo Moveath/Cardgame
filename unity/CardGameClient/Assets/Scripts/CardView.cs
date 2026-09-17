@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using CardGame.Core.Cards;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -25,6 +26,8 @@ namespace CardGameClient
         private static readonly Color RedInk = new Color(0.78f, 0.13f, 0.15f);
         private static readonly Color BlackInk = new Color(0.13f, 0.13f, 0.16f);
         private static readonly Color TrumpGlow = new Color(1f, 0.82f, 0.25f);
+
+        private static readonly Dictionary<string, Sprite> ArtCache = new Dictionary<string, Sprite>();
 
         private Image _background;
         private Outline _outline;
@@ -83,6 +86,19 @@ namespace CardGameClient
 
         public void ShowFace(Card card)
         {
+            var art = LoadArt(RankToken(card.Rank) + "_" + SuitToken(card.Suit));
+            if (art != null)
+            {
+                _background.sprite = art;
+                _background.type = Image.Type.Simple;
+                _background.color = Color.white;
+                _corner.text = string.Empty;
+                _center.text = string.Empty;
+                return;
+            }
+
+            _background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
+            _background.type = Image.Type.Sliced;
             _background.color = FaceColor;
             var ink = card.Suit == Suit.Hearts || card.Suit == Suit.Diamonds ? RedInk : BlackInk;
 
@@ -94,10 +110,49 @@ namespace CardGameClient
 
         public void ShowBack()
         {
+            var art = LoadArt("back");
+            if (art != null)
+            {
+                _background.sprite = art;
+                _background.type = Image.Type.Simple;
+                _background.color = Color.white;
+                _corner.text = string.Empty;
+                _center.text = string.Empty;
+                return;
+            }
+
+            _background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
+            _background.type = Image.Type.Sliced;
             _background.color = BackColor;
             _corner.text = string.Empty;
             _center.text = string.Empty;
         }
+
+        private static Sprite LoadArt(string key)
+        {
+            if (ArtCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var sprite = Resources.Load<Sprite>("Cards/" + key);
+            ArtCache[key] = sprite;
+            return sprite;
+        }
+
+        private static string RankToken(Rank rank)
+        {
+            switch (rank)
+            {
+                case Rank.Jack: return "j";
+                case Rank.Queen: return "q";
+                case Rank.King: return "k";
+                case Rank.Ace: return "a";
+                default: return ((int)rank).ToString();
+            }
+        }
+
+        private static string SuitToken(Suit suit) => suit.ToString().ToLowerInvariant();
 
         public void SetClickable(Action onClick)
         {
