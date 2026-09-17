@@ -20,7 +20,10 @@ namespace CardGameClient.EditorTools
             var importer = (TextureImporter)assetImporter;
             importer.textureType = TextureImporterType.Sprite;
             importer.spriteImportMode = SpriteImportMode.Single;
-            importer.mipmapEnabled = false;
+            // Мипмапы нужны, чтобы GPU аккуратно уменьшал мелкий орнамент рубашки
+            // (колода/бита/карты в руках соперников показывают карту мельче оригинала) —
+            // без них плотный узор превращается в шум вместо гладкого уменьшения.
+            importer.mipmapEnabled = true;
             importer.filterMode = FilterMode.Bilinear;
             importer.alphaIsTransparency = true;
             importer.spritePixelsPerUnit = 100f;
