@@ -24,6 +24,12 @@ namespace CardGameClient.EditorTools
             importer.filterMode = FilterMode.Bilinear;
             importer.alphaIsTransparency = true;
             importer.spritePixelsPerUnit = 100f;
+
+            // Без этого Unity по умолчанию жмёт спрайты блочным сжатием (DXT/BC) —
+            // на плоской векторной графике с тонкими линиями это даёт заметные "пиксельные"
+            // артефакты. Карт немного, лишние пара МБ на прототипе не критичны.
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.crunchedCompression = false;
         }
     }
 }
