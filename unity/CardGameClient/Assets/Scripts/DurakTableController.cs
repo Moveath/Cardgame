@@ -49,6 +49,8 @@ namespace CardGameClient
         private readonly List<TablePair> _tableSnapshot = new List<TablePair>();
         private string _tableSignature;
         private int? _lastActorIndex;
+        private static Sprite[] _avatarPool;
+        private Sprite[] _playerPortraits;
 
         private struct TablePair
         {
@@ -74,6 +76,7 @@ namespace CardGameClient
             _tableCardsShown.Clear();
             _tableSnapshot.Clear();
             _tableSignature = null;
+            ShuffleAvatars();
 
             _lastAction.text = string.Empty;
 
@@ -423,7 +426,7 @@ namespace CardGameClient
                 headerLayout.childForceExpandWidth = false;
                 headerLayout.childForceExpandHeight = false;
 
-                CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing);
+                CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index));
 
                 var label = CreateText(header.transform, player.Name, 26, TextAnchor.MiddleLeft);
                 label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
@@ -490,7 +493,49 @@ namespace CardGameClient
             label.fontStyle = FontStyle.Bold;
         }
 
-        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing)
+        /// <summary>
+        /// Портреты берутся из Resources/Avatars и раздаются игрокам случайно на партию.
+        /// Пока картинок нет, всё работает по-старому — цветной кружок с буквой.
+        /// </summary>
+        private void ShuffleAvatars()
+        {
+            if (_avatarPool == null)
+            {
+                _avatarPool = Resources.LoadAll<Sprite>("Avatars");
+            }
+
+            _playerPortraits = new Sprite[_game.Players.Count];
+            if (_avatarPool.Length == 0)
+            {
+                return;
+            }
+
+            var order = new List<int>();
+            for (var i = 0; i < _avatarPool.Length; i++)
+            {
+                order.Add(i);
+            }
+
+            for (var i = order.Count - 1; i > 0; i--)
+            {
+                var j = UnityEngine.Random.Range(0, i + 1);
+                (order[i], order[j]) = (order[j], order[i]);
+            }
+
+            for (var player = 0; player < _playerPortraits.Length; player++)
+            {
+                _playerPortraits[player] = _avatarPool[order[player % order.Count]];
+            }
+        }
+
+        private Sprite PortraitFor(int playerIndex)
+        {
+            return _playerPortraits != null && playerIndex < _playerPortraits.Length
+                ? _playerPortraits[playerIndex]
+                : null;
+        }
+
+        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait)
         {
             const float ringSize = 58f;
             const float avatarSize = 48f;
@@ -520,13 +565,30 @@ namespace CardGameClient
             circleShadow.effectDistance = new Vector2(2f, -3f);
 
             var circleImage = circle.GetComponent<Image>();
-            circleImage.sprite = UiTextures.Circle(64, color);
+            circleImage.sprite = UiTextures.Circle(64, portrait != null ? Color.white : color);
             circleImage.type = Image.Type.Sliced;
 
-            var label = CreateText(circle.transform, initial.ToUpperInvariant(), 24, TextAnchor.MiddleCenter);
-            Stretch((RectTransform)label.transform);
-            label.color = Color.white;
-            label.fontStyle = FontStyle.Bold;
+            if (portrait == null)
+            {
+                var label = CreateText(circle.transform, initial.ToUpperInvariant(), 24, TextAnchor.MiddleCenter);
+                Stretch((RectTransform)label.transform);
+                label.color = Color.white;
+                label.fontStyle = FontStyle.Bold;
+                return;
+            }
+
+            // Портрет квадратный, поэтому обрезаем его кругом-маской: так любая присланная
+            // картинка становится круглой аватаркой без подготовки файла.
+            circle.AddComponent<Mask>().showMaskGraphic = true;
+
+            var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            portraitGo.transform.SetParent(circle.transform, false);
+            Stretch((RectTransform)portraitGo.transform);
+
+            var portraitImage = portraitGo.GetComponent<Image>();
+            portraitImage.sprite = portrait;
+            portraitImage.preserveAspect = true;
+            portraitImage.raycastTarget = false;
         }
 
         private void RefreshControls(IReadOnlyList<DurakMove> legalMoves)
