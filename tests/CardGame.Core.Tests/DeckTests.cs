@@ -46,6 +46,47 @@ public class DeckTests
         Assert.Equal(52, DrawAll(Deck.Standard52(7)).Count);
     }
 
+    [Fact]
+    public void Standard24_ContainsOnlyNineAndAbove()
+    {
+        var drawn = DrawAll(Deck.Standard24(3));
+
+        Assert.Equal(24, drawn.Count);
+        Assert.Equal(24, drawn.Distinct().Count());
+        Assert.All(drawn, card => Assert.True(card.Rank >= Rank.Nine));
+    }
+
+    [Fact]
+    public void Standard54_Contains52CardsAndTwoDistinctJokers()
+    {
+        var drawn = DrawAll(Deck.Standard54(5));
+
+        Assert.Equal(54, drawn.Count);
+        Assert.Equal(54, drawn.Distinct().Count());
+        Assert.Equal(2, drawn.Count(c => c.IsJoker));
+    }
+
+    [Fact]
+    public void Standard54_JokersAreShuffledAmongOtherCards()
+    {
+        // Джокеры не должны всегда оседать на одной и той же позиции (например в конце) —
+        // это означало бы, что они не участвуют в общем перемешивании.
+        var positions = new HashSet<int>();
+        for (var seed = 0; seed < 20; seed++)
+        {
+            var drawn = DrawAll(Deck.Standard54(seed));
+            for (var i = 0; i < drawn.Count; i++)
+            {
+                if (drawn[i].IsJoker)
+                {
+                    positions.Add(i);
+                }
+            }
+        }
+
+        Assert.True(positions.Count > 5);
+    }
+
     private static List<Card> DrawAll(Deck deck)
     {
         var cards = new List<Card>();

@@ -6,7 +6,7 @@ using CardGame.Core.Cards;
 namespace CardGame.Core.Games.Durak
 {
     /// <summary>
-    /// Подкидной дурак на 2-6 игроков. Чистая логика без привязки к движку:
+    /// Подкидной дурак на 2-8 игроков. Чистая логика без привязки к движку:
     /// один и тот же класс работает в Unity, на сервере и в тестах.
     /// </summary>
     public sealed class DurakGame
@@ -43,14 +43,17 @@ namespace CardGame.Core.Games.Durak
         public DurakPlayer Attacker => _players[AttackerIndex];
         public DurakPlayer Defender => _players[DefenderIndex];
 
-        public static DurakGame Create(IReadOnlyList<string> playerNames, int seed)
+        public static DurakGame Create(IReadOnlyList<string> playerNames, int seed) =>
+            Create(playerNames, Deck.Standard36(seed));
+
+        /// <summary>Та же партия, но с колодой на выбор (24/36/52/54 карты) — например из настроек комнаты.</summary>
+        public static DurakGame Create(IReadOnlyList<string> playerNames, Deck deck)
         {
-            if (playerNames.Count < 2 || playerNames.Count > 6)
+            if (playerNames.Count < 2 || playerNames.Count > 8)
             {
-                throw new ArgumentException("Дурак поддерживает от 2 до 6 игроков.", nameof(playerNames));
+                throw new ArgumentException("Дурак поддерживает от 2 до 8 игроков.", nameof(playerNames));
             }
 
-            var deck = Deck.Standard36(seed);
             var trumpCard = deck.Bottom!.Value;
             var players = playerNames.Select((name, i) => new DurakPlayer(i, name)).ToList();
 

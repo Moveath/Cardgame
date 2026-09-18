@@ -6,7 +6,7 @@ using UnityEngine.UI;
 namespace CardGameClient
 {
     /// <summary>
-    /// Поднимает стол дурака при запуске игры, не требуя настройки сцены руками.
+    /// Поднимает главное меню при запуске игры, не требуя настройки сцены руками.
     /// Временное решение на период прототипа: позже сцену соберём из префабов.
     /// </summary>
     public static class DurakBootstrap
@@ -14,7 +14,7 @@ namespace CardGameClient
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Launch()
         {
-            if (Object.FindAnyObjectByType<DurakTableController>() != null)
+            if (Object.FindAnyObjectByType<AppFlowController>() != null)
             {
                 return;
             }
@@ -37,7 +37,7 @@ namespace CardGameClient
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
 
-            canvasObject.AddComponent<DurakTableController>();
+            canvasObject.AddComponent<AppFlowController>();
         }
     }
 }

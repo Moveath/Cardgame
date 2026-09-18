@@ -147,6 +147,39 @@ public class DurakGameTests
         }
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(4)]
+    public void FullBotGame_Deck24_FinishesWithoutDeadlock(int playerCount)
+    {
+        var names = Enumerable.Range(0, playerCount).Select(i => "P" + i).ToList();
+
+        for (var seed = 0; seed < 30; seed++)
+        {
+            var game = DurakGame.Create(names, Deck.Standard24(seed));
+            PlayToCompletion(game);
+
+            Assert.True(game.IsFinished, $"Партия не завершилась: 24 карты, seed {seed}, игроков {playerCount}");
+        }
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public void FullBotGame_Deck54WithJokers_FinishesWithoutDeadlock(int playerCount)
+    {
+        var names = Enumerable.Range(0, playerCount).Select(i => "P" + i).ToList();
+
+        for (var seed = 0; seed < 30; seed++)
+        {
+            var game = DurakGame.Create(names, Deck.Standard54(seed));
+            PlayToCompletion(game);
+
+            Assert.True(game.IsFinished, $"Партия не завершилась: 54 карты, seed {seed}, игроков {playerCount}");
+        }
+    }
+
     [Fact]
     public void CardsAreNeverLostOrDuplicated()
     {

@@ -87,7 +87,11 @@ namespace CardGameClient
 
         public void ShowFace(Card card)
         {
-            var art = LoadArt(RankToken(card.Rank) + "_" + SuitToken(card.Suit));
+            var artKey = card.IsJoker
+                ? (card.Suit == Suit.Hearts ? "joker_red" : "joker_black")
+                : RankToken(card.Rank) + "_" + SuitToken(card.Suit);
+
+            var art = LoadArt(artKey);
             if (art != null)
             {
                 _background.sprite = art;
@@ -101,6 +105,17 @@ namespace CardGameClient
             _background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
             _background.type = Image.Type.Sliced;
             _background.color = FaceColor;
+
+            if (card.IsJoker)
+            {
+                var jokerInk = card.Suit == Suit.Hearts ? RedInk : BlackInk;
+                _corner.text = "🃏";
+                _corner.color = jokerInk;
+                _center.text = "🃏";
+                _center.color = jokerInk;
+                return;
+            }
+
             var ink = card.Suit == Suit.Hearts || card.Suit == Suit.Diamonds ? RedInk : BlackInk;
 
             _corner.text = RankText(card.Rank) + SuitText(card.Suit);

@@ -18,9 +18,20 @@ namespace CardGameClient
     public sealed class DurakTableController : MonoBehaviour
     {
         private const int HumanIndex = 0;
-        private static readonly string[] PlayerNames = { "Ты", "Борис", "Вера" };
-        private static readonly Color[] OpponentColors = { new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f) };
+
+        // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
+        private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
+
+        private static readonly Color[] OpponentColors =
+        {
+            new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f), new Color(0.36f, 0.62f, 0.42f),
+            new Color(0.80f, 0.55f, 0.24f), new Color(0.55f, 0.42f, 0.78f), new Color(0.75f, 0.30f, 0.30f),
+            new Color(0.30f, 0.68f, 0.70f)
+        };
+
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
+
+        private DurakMatchSettings _settings = DurakMatchSettings.Default;
 
         private const float AvatarWidth = 126f;
         private const float AvatarHeight = 158f;
@@ -31,7 +42,7 @@ namespace CardGameClient
 
         private RectTransform _tableRow;
         private RectTransform _handRow;
-        private RectTransform[] _opponentSlots;
+        private RectTransform _opponentsRow;
         private RectTransform _deckStackArea;
         private RectTransform _discardStackArea;
         private CardView _trumpCard;
@@ -61,6 +72,12 @@ namespace CardGameClient
             public Card? Defense;
         }
 
+        /// <summary>Вызывается лобби до включения экрана игры, поэтому Start() уже видит нужные настройки.</summary>
+        public void Configure(DurakMatchSettings settings)
+        {
+            _settings = settings;
+        }
+
         private void Start()
         {
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -72,7 +89,9 @@ namespace CardGameClient
 
         private void StartNewGame()
         {
-            _game = DurakGame.Create(PlayerNames, UnityEngine.Random.Range(0, int.MaxValue));
+            var seed = UnityEngine.Random.Range(0, int.MaxValue);
+            var playerNames = BuildPlayerNames(_settings.PlayerCount);
+            _game = DurakGame.Create(playerNames, _settings.BuildDeck(seed));
             _pendingMove = null;
             _waitingForHuman = false;
             _lastActorIndex = null;
@@ -166,6 +185,17 @@ namespace CardGameClient
             RefreshControls(legalMoves);
             RefreshDeckPile();
             RefreshDiscardPile();
+        }
+
+        private static List<string> BuildPlayerNames(int playerCount)
+        {
+            var names = new List<string> { "Ты" };
+            for (var i = 0; i < playerCount - 1; i++)
+            {
+                names.Add(BotNamePool[i % BotNamePool.Length]);
+            }
+
+            return names;
         }
 
         private void SetLastAction(string line)
@@ -326,16 +356,24 @@ namespace CardGameClient
             view.PlayFlyIn(SeatOffset(_lastActorIndex));
         }
 
-        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху слева/справа — от соперников.</summary>
-        private static Vector2 SeatOffset(int? playerIndex)
+        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху по позиции в ряду соперников.</summary>
+        private Vector2 SeatOffset(int? playerIndex)
         {
             if (!playerIndex.HasValue || playerIndex.Value == HumanIndex)
             {
                 return new Vector2(0f, -380f);
             }
 
-            var seat = playerIndex.Value < HumanIndex ? playerIndex.Value : playerIndex.Value - 1;
-            return seat == 0 ? new Vector2(-700f, 300f) : new Vector2(700f, 300f);
+            var opponentCount = _game.Players.Count - 1;
+            if (opponentCount <= 1)
+            {
+                return new Vector2(0f, 300f);
+            }
+
+            var seat = playerIndex.Value - 1;
+            var t = seat / (float)(opponentCount - 1);
+            var x = Mathf.Lerp(-800f, 800f, t);
+            return new Vector2(x, 300f);
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -400,80 +438,70 @@ namespace CardGameClient
 
         private void RefreshOpponents()
         {
+            Clear(_opponentsRow);
+
             var actingIndex = _waitingForHuman ? (int?)HumanIndex : DurakTurnOrder.GetActingPlayer(_game);
-            var slotIndex = 0;
+            var opponentCount = _game.Players.Count - 1;
+            var scale = OpponentVisualScale(opponentCount);
+            var seat = 0;
 
             foreach (var player in _game.Players)
             {
-                if (player.Index == HumanIndex || slotIndex >= _opponentSlots.Length)
+                if (player.Index == HumanIndex)
                 {
                     continue;
                 }
 
-                var container = _opponentSlots[slotIndex];
-                var colorIndex = slotIndex;
-                slotIndex++;
-                Clear(container);
+                var colorIndex = seat;
+                seat++;
+
+                var container = new GameObject("Opponent", typeof(RectTransform), typeof(VerticalLayoutGroup));
+                container.transform.SetParent(_opponentsRow, false);
+                ((RectTransform)container.transform).sizeDelta = new Vector2(200f * scale, 220f * scale);
+
+                var containerLayout = container.GetComponent<VerticalLayoutGroup>();
+                containerLayout.spacing = 6f * scale;
+                containerLayout.childAlignment = TextAnchor.UpperCenter;
+                containerLayout.childControlWidth = false;
+                containerLayout.childControlHeight = false;
+                containerLayout.childForceExpandWidth = false;
+                containerLayout.childForceExpandHeight = false;
 
                 var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
 
-                var header = new GameObject("Header", typeof(RectTransform), typeof(HorizontalLayoutGroup));
-                header.transform.SetParent(container, false);
-                ((RectTransform)header.transform).sizeDelta = new Vector2(340f, AvatarHeight + 12f);
+                CreateAvatar(container.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index), scale);
 
-                var headerLayout = header.GetComponent<HorizontalLayoutGroup>();
-                headerLayout.spacing = 14f;
-                headerLayout.childAlignment = TextAnchor.MiddleLeft;
-                headerLayout.childControlWidth = false;
-                headerLayout.childControlHeight = false;
-                headerLayout.childForceExpandWidth = false;
-                headerLayout.childForceExpandHeight = false;
-
-                CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index));
-
-                var info = new GameObject("Info", typeof(RectTransform), typeof(VerticalLayoutGroup));
-                info.transform.SetParent(header.transform, false);
-                ((RectTransform)info.transform).sizeDelta = new Vector2(190f, 90f);
-
-                var infoLayout = info.GetComponent<VerticalLayoutGroup>();
-                infoLayout.spacing = 8f;
-                infoLayout.childAlignment = TextAnchor.MiddleLeft;
-                infoLayout.childControlWidth = false;
-                infoLayout.childControlHeight = false;
-                infoLayout.childForceExpandWidth = false;
-                infoLayout.childForceExpandHeight = false;
-
-                var label = CreateText(info.transform, player.Name, 28, TextAnchor.MiddleLeft);
+                var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(26 * scale), TextAnchor.MiddleCenter);
                 label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(190f, 40f);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 34f * scale);
 
                 if (player.Index == _game.DefenderIndex)
                 {
-                    CreateRoleChip(info.transform, "защита", new Color(0.24f, 0.45f, 0.78f));
+                    CreateRoleChip(container.transform, "защита", new Color(0.24f, 0.45f, 0.78f), scale);
                 }
                 else if (player.Index == _game.AttackerIndex)
                 {
-                    CreateRoleChip(info.transform, "атака", new Color(0.72f, 0.31f, 0.20f));
+                    CreateRoleChip(container.transform, "атака", new Color(0.72f, 0.31f, 0.20f), scale);
                 }
 
                 if (player.IsOut)
                 {
-                    var outText = CreateText(container, "вышел", 22, TextAnchor.UpperLeft);
-                    outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f, 30f);
+                    var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
+                    outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f * scale, 28f * scale);
                     continue;
                 }
 
                 var row = new GameObject("Cards", typeof(RectTransform));
-                row.transform.SetParent(container, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(380f, 110f);
+                row.transform.SetParent(container.transform, false);
+                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 90f * scale);
 
                 var oppCount = player.Hand.Count;
                 if (oppCount > 0)
                 {
-                    const float oppScale = 0.6f;
+                    var oppScale = 0.6f * scale;
                     var oppWidth = CardView.Width * oppScale;
                     var oppAngleStep = Mathf.Min(6f, 24f / Mathf.Max(oppCount - 1, 1));
-                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, 360f / oppCount);
+                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, 200f * scale / oppCount);
                     var oppMid = (oppCount - 1) / 2f;
 
                     for (var h = 0; h < oppCount; h++)
@@ -490,20 +518,28 @@ namespace CardGameClient
             }
         }
 
-        private void CreateRoleChip(Transform parent, string text, Color color)
+        /// <summary>Чем больше соперников за столом, тем меньше места на каждого — ужимаем фигуру и карты.</summary>
+        private static float OpponentVisualScale(int opponentCount)
+        {
+            if (opponentCount <= 2) return 1f;
+            if (opponentCount <= 4) return 0.85f;
+            return 0.7f;
+        }
+
+        private void CreateRoleChip(Transform parent, string text, Color color, float scale)
         {
             var go = new GameObject("RoleChip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             go.transform.SetParent(parent, false);
 
             var rect = (RectTransform)go.transform;
-            rect.sizeDelta = new Vector2(118f, 40f);
+            rect.sizeDelta = new Vector2(108f * scale, 36f * scale);
 
             var image = go.GetComponent<Image>();
             image.sprite = UiTextures.RoundedRect(64, 40, 14f, color);
             image.type = Image.Type.Sliced;
             image.raycastTarget = false;
 
-            var label = CreateText(rect, text, 22, TextAnchor.MiddleCenter);
+            var label = CreateText(rect, text, Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
             Stretch((RectTransform)label.transform);
             label.fontStyle = FontStyle.Bold;
         }
@@ -550,11 +586,14 @@ namespace CardGameClient
                 : null;
         }
 
-        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait)
+        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait, float scale)
         {
+            var width = AvatarWidth * scale;
+            var height = AvatarHeight * scale;
+
             var wrapper = new GameObject("Avatar", typeof(RectTransform));
             wrapper.transform.SetParent(parent, false);
-            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
+            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(width, height);
 
             if (isActing)
             {
@@ -564,7 +603,7 @@ namespace CardGameClient
                 glow.transform.SetParent(wrapper.transform, false);
                 var glowRect = (RectTransform)glow.transform;
                 glowRect.anchorMin = glowRect.anchorMax = glowRect.pivot = new Vector2(0.5f, 0.5f);
-                glowRect.sizeDelta = new Vector2(AvatarWidth * 1.35f, AvatarHeight * 0.95f);
+                glowRect.sizeDelta = new Vector2(width * 1.35f, height * 0.95f);
                 var glowImage = glow.GetComponent<Image>();
                 glowImage.sprite = UiTextures.RadialGlow(96, ActiveGlow);
                 glowImage.color = new Color(1f, 1f, 1f, 0.55f);
@@ -577,7 +616,7 @@ namespace CardGameClient
                 circle.transform.SetParent(wrapper.transform, false);
                 var circleRect = (RectTransform)circle.transform;
                 circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
-                circleRect.sizeDelta = new Vector2(AvatarWidth * 0.75f, AvatarWidth * 0.75f);
+                circleRect.sizeDelta = new Vector2(width * 0.75f, width * 0.75f);
 
                 var circleShadow = circle.GetComponent<Shadow>();
                 circleShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
@@ -587,7 +626,7 @@ namespace CardGameClient
                 circleImage.sprite = UiTextures.Circle(64, color);
                 circleImage.type = Image.Type.Sliced;
 
-                var label = CreateText(circle.transform, initial.ToUpperInvariant(), 36, TextAnchor.MiddleCenter);
+                var label = CreateText(circle.transform, initial.ToUpperInvariant(), Mathf.RoundToInt(36 * scale), TextAnchor.MiddleCenter);
                 Stretch((RectTransform)label.transform);
                 label.color = Color.white;
                 label.fontStyle = FontStyle.Bold;
@@ -600,7 +639,7 @@ namespace CardGameClient
 
             var portraitRect = (RectTransform)portraitGo.transform;
             portraitRect.anchorMin = portraitRect.anchorMax = portraitRect.pivot = new Vector2(0.5f, 0.5f);
-            portraitRect.sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
+            portraitRect.sizeDelta = new Vector2(width, height);
 
             var portraitShadow = portraitGo.GetComponent<Shadow>();
             portraitShadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
@@ -705,24 +744,18 @@ namespace CardGameClient
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
 
-            _opponentSlots = new RectTransform[2];
-
-            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -80f), new Vector2(360f, 150f));
-            _opponentSlots[0].pivot = new Vector2(0f, 1f);
-
-            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -80f), new Vector2(360f, 150f));
-            _opponentSlots[1].pivot = new Vector2(1f, 1f);
-
-            foreach (var slot in _opponentSlots)
-            {
-                var layout = slot.gameObject.AddComponent<VerticalLayoutGroup>();
-                layout.spacing = 8f;
-                layout.childAlignment = TextAnchor.UpperLeft;
-                layout.childControlWidth = false;
-                layout.childControlHeight = false;
-                layout.childForceExpandWidth = false;
-                layout.childForceExpandHeight = false;
-            }
+            // Соперников от 1 до 7 — единый ряд сверху вместо двух жёстко зашитых углов,
+            // чтобы стол одинаково работал и на двоих, и на восьмерых. Пивот сверху,
+            // чтобы ряд рос только вниз и не наезжал на статус-строку над ним.
+            _opponentsRow = CreatePanel("Opponents", root, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(1800f, 220f));
+            _opponentsRow.pivot = new Vector2(0.5f, 1f);
+            var opponentsLayout = _opponentsRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+            opponentsLayout.spacing = 18f;
+            opponentsLayout.childAlignment = TextAnchor.UpperCenter;
+            opponentsLayout.childControlWidth = false;
+            opponentsLayout.childControlHeight = false;
+            opponentsLayout.childForceExpandWidth = false;
+            opponentsLayout.childForceExpandHeight = false;
 
             _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 280f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();

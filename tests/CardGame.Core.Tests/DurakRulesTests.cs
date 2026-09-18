@@ -59,4 +59,40 @@ public class DurakRulesTests
             new Card(Rank.King, Suit.Spades),
             Suit.Spades));
     }
+
+    [Fact]
+    public void Joker_BeatsAnyPlainCard()
+    {
+        Assert.True(DurakRules.Beats(
+            new Card(Rank.Joker, Suit.Clubs),
+            new Card(Rank.Ace, Suit.Hearts),
+            Suit.Spades));
+    }
+
+    [Fact]
+    public void Joker_BeatsTrumpToo()
+    {
+        Assert.True(DurakRules.Beats(
+            new Card(Rank.Joker, Suit.Clubs),
+            new Card(Rank.Ace, Suit.Spades),
+            Suit.Spades));
+    }
+
+    [Fact]
+    public void PlainCard_CannotBeatJoker()
+    {
+        Assert.False(DurakRules.Beats(
+            new Card(Rank.Ace, Suit.Spades),
+            new Card(Rank.Joker, Suit.Clubs),
+            Suit.Spades));
+    }
+
+    [Fact]
+    public void Joker_CanBeBeatenByAnotherJoker()
+    {
+        Assert.True(DurakRules.Beats(
+            new Card(Rank.Joker, Suit.Hearts),
+            new Card(Rank.Joker, Suit.Clubs),
+            Suit.Spades));
+    }
 }

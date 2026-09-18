@@ -56,6 +56,16 @@ namespace CardGame.Bots
             return cheapest;
         }
 
-        private static int Cost(Card card, Suit trump) => (card.Suit == trump ? 100 : 0) + (int)card.Rank;
+        private static int Cost(Card card, Suit trump)
+        {
+            // Джокер — самая сильная карта в игре, а не "дешёвая" из-за случайно низкого ранга.
+            // Без этого бот радостно скидывал бы его на первом же ходу.
+            if (card.IsJoker)
+            {
+                return 1000;
+            }
+
+            return (card.Suit == trump ? 100 : 0) + (int)card.Rank;
+        }
     }
 }

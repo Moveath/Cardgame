@@ -14,6 +14,9 @@ namespace CardGame.Core.Cards
         Jack = 11,
         Queen = 12,
         King = 13,
-        Ace = 14
+        Ace = 14,
+
+        /// <summary>Джокер: выше любой обычной карты, суть определяется правилами конкретной игры.</summary>
+        Joker = 20
     }
 }

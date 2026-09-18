@@ -13,6 +13,9 @@ namespace CardGame.Core.Cards
         public Rank Rank { get; }
         public Suit Suit { get; }
 
+        /// <summary>Двух джокеров различаем через Suit (Clubs — чёрный, Hearts — красный), масти у них нет.</summary>
+        public bool IsJoker => Rank == Rank.Joker;
+
         public bool Equals(Card other) => Rank == other.Rank && Suit == other.Suit;
 
         public override bool Equals(object? obj) => obj is Card other && Equals(other);
@@ -32,6 +35,7 @@ namespace CardGame.Core.Cards
             Rank.Queen => "Q",
             Rank.King => "K",
             Rank.Ace => "A",
+            Rank.Joker => "🃏",
             _ => ((int)Rank).ToString()
         };
 

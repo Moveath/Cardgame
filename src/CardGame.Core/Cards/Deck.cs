@@ -35,9 +35,31 @@ namespace CardGame.Core.Cards
             return deck;
         }
 
+        public static Deck Standard24(int seed) => Standard(Rank.Nine, seed);
+
         public static Deck Standard36(int seed) => Standard(Rank.Six, seed);
 
         public static Deck Standard52(int seed) => Standard(Rank.Two, seed);
+
+        /// <summary>52 карты плюс два джокера — джокеры перемешиваются вместе со всеми, а не лежат сверху.</summary>
+        public static Deck Standard54(int seed)
+        {
+            var cards = new List<Card>();
+            for (var rank = Rank.Two; rank <= Rank.Ace; rank++)
+            {
+                for (var suit = Suit.Clubs; suit <= Suit.Spades; suit++)
+                {
+                    cards.Add(new Card(rank, suit));
+                }
+            }
+
+            cards.Add(new Card(Rank.Joker, Suit.Clubs));
+            cards.Add(new Card(Rank.Joker, Suit.Hearts));
+
+            var deck = new Deck(cards);
+            deck.Shuffle(seed);
+            return deck;
+        }
 
         public void Shuffle(int seed)
         {
