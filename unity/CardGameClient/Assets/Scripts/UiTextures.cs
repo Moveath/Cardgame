@@ -88,6 +88,41 @@ namespace CardGameClient
             return sprite;
         }
 
+        /// <summary>Мягкое пятно света: в центре плотное, к краю плавно уходит в ноль.</summary>
+        public static Sprite RadialGlow(int diameter, Color color)
+        {
+            var key = "glow_" + diameter + "_" + color;
+            if (Cache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var texture = new Texture2D(diameter, diameter, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            var center = diameter / 2f;
+            var pixels = new Color[diameter * diameter];
+            for (var y = 0; y < diameter; y++)
+            {
+                for (var x = 0; x < diameter; x++)
+                {
+                    var distance = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(center, center)) / center;
+                    var falloff = Mathf.Clamp01(1f - distance);
+                    pixels[y * diameter + x] = new Color(color.r, color.g, color.b, color.a * falloff * falloff);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+
+            var sprite = Sprite.Create(texture, new Rect(0, 0, diameter, diameter), new Vector2(0.5f, 0.5f), 100f);
+            Cache[key] = sprite;
+            return sprite;
+        }
+
         private static float DistanceOutside(float px, float py, float inset, float maxX, float maxY, float radius)
         {
             var cx = Mathf.Clamp(px, inset + radius, maxX - radius);

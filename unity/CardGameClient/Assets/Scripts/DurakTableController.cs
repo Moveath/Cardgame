@@ -22,8 +22,8 @@ namespace CardGameClient
         private static readonly Color[] OpponentColors = { new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f) };
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
 
-        private const float AvatarWidth = 112f;
-        private const float AvatarHeight = 136f;
+        private const float AvatarWidth = 126f;
+        private const float AvatarHeight = 158f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -558,45 +558,53 @@ namespace CardGameClient
 
             if (isActing)
             {
+                // Подсветка ходящего игрока: мягкое пятно света под персонажем вместо рамки,
+                // потому что рамка вернула бы ту самую "картинку в коробочке", от которой ушли.
                 var glow = new GameObject("Glow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
                 glow.transform.SetParent(wrapper.transform, false);
                 var glowRect = (RectTransform)glow.transform;
                 glowRect.anchorMin = glowRect.anchorMax = glowRect.pivot = new Vector2(0.5f, 0.5f);
-                glowRect.sizeDelta = new Vector2(AvatarWidth + 10f, AvatarHeight + 10f);
+                glowRect.sizeDelta = new Vector2(AvatarWidth * 1.35f, AvatarHeight * 0.95f);
                 var glowImage = glow.GetComponent<Image>();
-                glowImage.sprite = UiTextures.RoundedRect(64, 80, 18f, ActiveGlow);
-                glowImage.type = Image.Type.Sliced;
+                glowImage.sprite = UiTextures.RadialGlow(96, ActiveGlow);
+                glowImage.color = new Color(1f, 1f, 1f, 0.55f);
                 glowImage.raycastTarget = false;
             }
 
-            var plate = new GameObject("Plate", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
-            plate.transform.SetParent(wrapper.transform, false);
-            var plateRect = (RectTransform)plate.transform;
-            plateRect.anchorMin = plateRect.anchorMax = plateRect.pivot = new Vector2(0.5f, 0.5f);
-            plateRect.sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
-
-            var plateShadow = plate.GetComponent<Shadow>();
-            plateShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
-            plateShadow.effectDistance = new Vector2(3f, -4f);
-
-            var plateImage = plate.GetComponent<Image>();
-            plateImage.sprite = UiTextures.RoundedRect(64, 80, 14f, color);
-            plateImage.type = Image.Type.Sliced;
-
             if (portrait == null)
             {
-                var label = CreateText(plate.transform, initial.ToUpperInvariant(), 44, TextAnchor.MiddleCenter);
+                var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
+                circle.transform.SetParent(wrapper.transform, false);
+                var circleRect = (RectTransform)circle.transform;
+                circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
+                circleRect.sizeDelta = new Vector2(AvatarWidth * 0.75f, AvatarWidth * 0.75f);
+
+                var circleShadow = circle.GetComponent<Shadow>();
+                circleShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+                circleShadow.effectDistance = new Vector2(2f, -3f);
+
+                var circleImage = circle.GetComponent<Image>();
+                circleImage.sprite = UiTextures.Circle(64, color);
+                circleImage.type = Image.Type.Sliced;
+
+                var label = CreateText(circle.transform, initial.ToUpperInvariant(), 36, TextAnchor.MiddleCenter);
                 Stretch((RectTransform)label.transform);
                 label.color = Color.white;
                 label.fontStyle = FontStyle.Bold;
                 return;
             }
 
-            // Портрет вырезан с прозрачным фоном и вписывается в подложку целиком,
-            // поэтому персонаж виден полностью и никуда не вылезает за края.
-            var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            portraitGo.transform.SetParent(plate.transform, false);
-            Stretch((RectTransform)portraitGo.transform);
+            // Никакой подложки: персонаж вырезан по контуру и сидит прямо на сукне.
+            var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
+            portraitGo.transform.SetParent(wrapper.transform, false);
+
+            var portraitRect = (RectTransform)portraitGo.transform;
+            portraitRect.anchorMin = portraitRect.anchorMax = portraitRect.pivot = new Vector2(0.5f, 0.5f);
+            portraitRect.sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
+
+            var portraitShadow = portraitGo.GetComponent<Shadow>();
+            portraitShadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
+            portraitShadow.effectDistance = new Vector2(3f, -4f);
 
             var portraitImage = portraitGo.GetComponent<Image>();
             portraitImage.sprite = portrait;
@@ -699,10 +707,10 @@ namespace CardGameClient
 
             _opponentSlots = new RectTransform[2];
 
-            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -100f), new Vector2(360f, 150f));
+            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -80f), new Vector2(360f, 150f));
             _opponentSlots[0].pivot = new Vector2(0f, 1f);
 
-            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -100f), new Vector2(360f, 150f));
+            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -80f), new Vector2(360f, 150f));
             _opponentSlots[1].pivot = new Vector2(1f, 1f);
 
             foreach (var slot in _opponentSlots)
