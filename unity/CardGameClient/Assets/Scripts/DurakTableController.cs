@@ -34,14 +34,16 @@ namespace CardGameClient
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
 
-        private const float AvatarWidth = 108f;
-        private const float AvatarHeight = 134f;
+        private const float AvatarWidth = 88f;
+        private const float AvatarHeight = 110f;
 
         // Весь верх стола выстроен сверху вниз от края экрана: статус, строка хода, места
         // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
         // высоту холста и они наезжают друг на друга.
         private const float SeatTopMargin = 160f;
-        private const float TableRowTop = 580f;
+        private const float TableRowTop = 584f;
+        private const float TableCardsHalfWidth = 610f;
+        private const float OpponentBlockHeight = 296f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -373,7 +375,7 @@ namespace CardGameClient
         /// от левого края через верх к правому. Чем их больше, тем шире разводится дуга —
         /// один садится строго напротив, двое по верхним углам, четверо и больше обходят стол.
         /// </summary>
-        private static Vector2 SeatPosition(int seatIndex, int opponentCount)
+        private Vector2 SeatPosition(int seatIndex, int opponentCount)
         {
             if (opponentCount <= 1)
             {
@@ -398,6 +400,14 @@ namespace CardGameClient
                 archDepth = 200f;
             }
 
+            var scale = OpponentVisualScale(opponentCount);
+            var halfBlock = 100f * scale;
+            var blockHeight = OpponentBlockHeight * scale;
+            var canvasRect = ((RectTransform)transform).rect;
+
+            // На узком экране столько места по бокам может не быть — крайних просто срезало бы.
+            maxX = Mathf.Min(maxX, canvasRect.width * 0.5f - halfBlock - 20f);
+
             // По горизонтали места стоят равномерно, а высота падает по четвёртой степени:
             // середина ряда держится высоко и не задевает карты на столе, зато крайние
             // места круто уходят вниз и занимают пустые углы.
@@ -405,7 +415,21 @@ namespace CardGameClient
             var x = Mathf.Lerp(-maxX, maxX, t);
             var normalized = x / maxX;
             var falloff = normalized * normalized * normalized * normalized;
-            return new Vector2(x, -(SeatTopMargin + archDepth * falloff));
+            var depth = archDepth * falloff;
+
+            // Если место по горизонтали попадает в зону карт стола (на узком экране развести
+            // шире просто некуда), опускать его туда нельзя — держим выше карт.
+            if (Mathf.Abs(x) - halfBlock < TableCardsHalfWidth)
+            {
+                var overCardsLimit = (TableRowTop - 128f) - SeatTopMargin - blockHeight - 10f;
+                depth = Mathf.Min(depth, Mathf.Max(0f, overCardsLimit));
+            }
+
+            // А крайние места не должны сползти на колоду и кнопки в нижних углах.
+            var cornerLimit = canvasRect.height - 350f - SeatTopMargin - blockHeight;
+            depth = Mathf.Min(depth, Mathf.Max(0f, cornerLimit));
+
+            return new Vector2(x, -(SeatTopMargin + depth));
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -435,7 +459,7 @@ namespace CardGameClient
                 return;
             }
 
-            const float handCardScale = 1.15f;
+            const float handCardScale = 1.05f;
             var cardWidth = CardView.Width * handCardScale;
             var angleStep = Mathf.Min(5f, 22f / Mathf.Max(count - 1, 1));
 
@@ -510,7 +534,7 @@ namespace CardGameClient
                 containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
 
                 var containerLayout = container.GetComponent<VerticalLayoutGroup>();
-                containerLayout.spacing = 6f * scale;
+                containerLayout.spacing = 8f * scale;
                 containerLayout.childAlignment = TextAnchor.UpperCenter;
                 containerLayout.childControlWidth = false;
                 containerLayout.childControlHeight = false;
@@ -521,9 +545,9 @@ namespace CardGameClient
 
                 CreateAvatar(container.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index), scale);
 
-                var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(26 * scale), TextAnchor.MiddleCenter);
+                var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
                 label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 34f * scale);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 30f * scale);
 
                 if (player.Index == _game.DefenderIndex)
                 {
@@ -543,7 +567,9 @@ namespace CardGameClient
 
                 var row = new GameObject("Cards", typeof(RectTransform));
                 row.transform.SetParent(container.transform, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 70f * scale);
+                // Высота строки должна вмещать саму рубашку (168 * масштаб карты) с запасом
+                // на провисание веера — иначе карты торчат вверх и наезжают на бейдж и имя.
+                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 100f * scale);
 
                 var oppCount = player.Hand.Count;
                 if (oppCount > 0)
@@ -592,14 +618,14 @@ namespace CardGameClient
             go.transform.SetParent(parent, false);
 
             var rect = (RectTransform)go.transform;
-            rect.sizeDelta = new Vector2(108f * scale, 36f * scale);
+            rect.sizeDelta = new Vector2(100f * scale, 32f * scale);
 
             var image = go.GetComponent<Image>();
             image.sprite = UiTextures.RoundedRect(64, 40, 14f, color);
             image.type = Image.Type.Sliced;
             image.raycastTarget = false;
 
-            var label = CreateText(rect, text, Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
+            var label = CreateText(rect, text, Mathf.RoundToInt(18 * scale), TextAnchor.MiddleCenter);
             Stretch((RectTransform)label.transform);
             label.fontStyle = FontStyle.Bold;
         }
@@ -829,18 +855,18 @@ namespace CardGameClient
             handZoneRect.pivot = new Vector2(0.5f, 0f);
             handZoneRect.offsetMin = new Vector2(38f, 38f);
             handZoneRect.offsetMax = new Vector2(-38f, 0f);
-            handZoneRect.sizeDelta = new Vector2(handZoneRect.sizeDelta.x, 290f);
+            handZoneRect.sizeDelta = new Vector2(handZoneRect.sizeDelta.x, 250f);
             var handZoneImage = handZone.GetComponent<Image>();
             handZoneImage.sprite = UiTextures.RoundedRect(64, 64, 20f, Color.white);
             handZoneImage.color = new Color(0f, 0f, 0f, 0.18f);
             handZoneImage.type = Image.Type.Sliced;
             handZoneImage.raycastTarget = false;
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 130f), new Vector2(1600f, 200f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 138f), new Vector2(1600f, 200f));
 
             // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
             // середину краёв стола теперь занимают крайние соперники.
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 200f), new Vector2(220f, 300f));
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 170f), new Vector2(220f, 300f));
 
             const float trumpScale = 0.9f;
             var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
