@@ -42,16 +42,13 @@ namespace CardGameClient
 
         private RectTransform _tableRow;
         private RectTransform _handRow;
-        private RectTransform _opponentBackRow;
-        private RectTransform _opponentFrontRow;
+        private RectTransform _opponentsArea;
         private RectTransform _deckStackArea;
-        private RectTransform _discardStackArea;
         private CardView _trumpCard;
         private RectTransform _trumpFrame;
         private Text _status;
         private Text _trumpInfo;
         private Text _deckInfo;
-        private Text _discardInfo;
         private Text _lastAction;
         private Button _passButton;
         private Button _takeButton;
@@ -185,7 +182,6 @@ namespace CardGameClient
             RefreshOpponents();
             RefreshControls(legalMoves);
             RefreshDeckPile();
-            RefreshDiscardPile();
         }
 
         private static List<string> BuildPlayerNames(int playerCount)
@@ -219,12 +215,6 @@ namespace CardGameClient
             _trumpInfo.rectTransform.anchoredPosition = trumpCardOnTable
                 ? new Vector2(0f, -128f)
                 : new Vector2(0f, -20f);
-        }
-
-        private void RefreshDiscardPile()
-        {
-            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(9f, 0f), 1.05f);
-            _discardInfo.text = "бита: " + _game.DiscardCount;
         }
 
         private void CreateCardBackStack(RectTransform container, int count, Vector2 step, float scale, int maxVisible = 5)
@@ -357,7 +347,7 @@ namespace CardGameClient
             view.PlayFlyIn(SeatOffset(_lastActorIndex));
         }
 
-        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху/чуть ближе — по месту соперника в его ряду.</summary>
+        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, иначе с его места за столом.</summary>
         private Vector2 SeatOffset(int? playerIndex)
         {
             if (!playerIndex.HasValue || playerIndex.Value == HumanIndex)
@@ -365,50 +355,42 @@ namespace CardGameClient
                 return new Vector2(0f, -380f);
             }
 
-            var opponentCount = _game.Players.Count - 1;
-            GetSeatPlacement(playerIndex.Value - 1, opponentCount, out var isBackRow, out var positionInRow, out var rowCount);
-
-            var y = isBackRow ? 340f : 220f;
-            if (rowCount <= 1)
-            {
-                return new Vector2(0f, y);
-            }
-
-            var t = positionInRow / (float)(rowCount - 1);
-            var x = Mathf.Lerp(-800f, 800f, t);
-            return new Vector2(x, y);
+            return SeatPosition(playerIndex.Value - 1, _game.Players.Count - 1);
         }
 
         /// <summary>
-        /// Соперники садятся двумя рядами, как за настоящим столом: 1-2 — целиком в дальнем ряду,
-        /// от 3 и больше — лишний (при нечётном числе) уходит в дальний, остальные делятся поровну.
+        /// Места соперников по дуге вокруг стола: игрок сидит внизу, соперники занимают дугу
+        /// от левого края через верх к правому. Чем их больше, тем шире разводится дуга —
+        /// один садится строго напротив, двое по верхним углам, четверо и больше обходят стол.
         /// </summary>
-        private static void GetSeatPlacement(int seatIndex, int opponentCount, out bool isBackRow, out int positionInRow, out int rowCount)
+        private static Vector2 SeatPosition(int seatIndex, int opponentCount)
         {
-            int backCount, frontCount;
-            if (opponentCount <= 2)
+            const float centerY = 150f;
+            const float radiusX = 850f;
+            const float radiusY = 290f;
+
+            if (opponentCount <= 1)
             {
-                backCount = opponentCount;
-                frontCount = 0;
-            }
-            else
-            {
-                backCount = Mathf.CeilToInt(opponentCount / 2f);
-                frontCount = opponentCount - backCount;
+                return new Vector2(0f, centerY + radiusY);
             }
 
-            if (seatIndex < backCount)
+            float halfSpan;
+            if (opponentCount == 2)
             {
-                isBackRow = true;
-                positionInRow = seatIndex;
-                rowCount = backCount;
+                halfSpan = 40f;
+            }
+            else if (opponentCount == 3)
+            {
+                halfSpan = 60f;
             }
             else
             {
-                isBackRow = false;
-                positionInRow = seatIndex - backCount;
-                rowCount = frontCount;
+                halfSpan = 70f;
             }
+
+            var t = seatIndex / (float)(opponentCount - 1);
+            var angle = (90f + halfSpan - t * 2f * halfSpan) * Mathf.Deg2Rad;
+            return new Vector2(radiusX * Mathf.Cos(angle), centerY + radiusY * Mathf.Sin(angle));
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -483,8 +465,7 @@ namespace CardGameClient
 
         private void RefreshOpponents()
         {
-            Clear(_opponentBackRow);
-            Clear(_opponentFrontRow);
+            Clear(_opponentsArea);
 
             var actingIndex = _waitingForHuman ? (int?)HumanIndex : DurakTurnOrder.GetActingPlayer(_game);
             var opponentCount = _game.Players.Count - 1;
@@ -499,12 +480,19 @@ namespace CardGameClient
                 }
 
                 var colorIndex = seat;
-                GetSeatPlacement(seat, opponentCount, out var isBackRow, out _, out _);
+                var seatPosition = SeatPosition(seat, opponentCount);
                 seat++;
 
                 var container = new GameObject("Opponent", typeof(RectTransform), typeof(VerticalLayoutGroup));
-                container.transform.SetParent(isBackRow ? _opponentBackRow : _opponentFrontRow, false);
-                ((RectTransform)container.transform).sizeDelta = new Vector2(200f * scale, 220f * scale);
+                container.transform.SetParent(_opponentsArea, false);
+
+                // Пивот сверху: место задаётся верхней точкой, а содержимое растёт вниз —
+                // так нижний край блока предсказуем и не наползает на карты в центре стола.
+                var containerRect = (RectTransform)container.transform;
+                containerRect.anchorMin = containerRect.anchorMax = new Vector2(0.5f, 0.5f);
+                containerRect.pivot = new Vector2(0.5f, 1f);
+                containerRect.anchoredPosition = seatPosition;
+                containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
 
                 var containerLayout = container.GetComponent<VerticalLayoutGroup>();
                 containerLayout.spacing = 6f * scale;
@@ -578,9 +566,9 @@ namespace CardGameClient
         /// <summary>Чем больше соперников за столом, тем меньше места на каждого — ужимаем фигуру и карты.</summary>
         private static float OpponentVisualScale(int opponentCount)
         {
-            if (opponentCount <= 2) return 1f;
-            if (opponentCount <= 4) return 0.85f;
-            return 0.7f;
+            if (opponentCount <= 2) return 0.85f;
+            if (opponentCount <= 4) return 0.75f;
+            return 0.65f;
         }
 
         private void CreateRoleChip(Transform parent, string text, Color color, float scale)
@@ -801,27 +789,13 @@ namespace CardGameClient
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
 
-            // Соперников от 1 до 7 — двумя рядами, как за настоящим овальным столом: дальний
-            // ряд (у 1-2 игроков — все они) и ближний, который заполняется от пятого соперника.
-            // Пивот сверху у обоих, чтобы ряды росли только вниз, а не наезжали на статус-строку.
-            _opponentBackRow = CreatePanel("OpponentsBack", root, new Vector2(0.5f, 1f), new Vector2(0f, -100f), new Vector2(1800f, 200f));
-            _opponentBackRow.pivot = new Vector2(0.5f, 1f);
+            // Соперники рассаживаются по дуге вокруг стола (см. SeatPosition), поэтому здесь
+            // только пустая область на весь экран — каждое место позиционируется само.
+            _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
+            _opponentsArea.SetParent(root, false);
+            Stretch(_opponentsArea);
 
-            _opponentFrontRow = CreatePanel("OpponentsFront", root, new Vector2(0.5f, 1f), new Vector2(0f, -290f), new Vector2(1800f, 200f));
-            _opponentFrontRow.pivot = new Vector2(0.5f, 1f);
-
-            foreach (var opponentRow in new[] { _opponentBackRow, _opponentFrontRow })
-            {
-                var opponentsLayout = opponentRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-                opponentsLayout.spacing = 18f;
-                opponentsLayout.childAlignment = TextAnchor.UpperCenter;
-                opponentsLayout.childControlWidth = false;
-                opponentsLayout.childControlHeight = false;
-                opponentsLayout.childForceExpandWidth = false;
-                opponentsLayout.childForceExpandHeight = false;
-            }
-
-            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 280f));
+            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(1500f, 280f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
             tableLayout.spacing = 16f;
             tableLayout.childAlignment = TextAnchor.MiddleCenter;
@@ -832,7 +806,9 @@ namespace CardGameClient
 
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 195f), new Vector2(1600f, 200f));
 
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 340f));
+            // Колода с козырем ушла в левый нижний угол: середину краёв стола теперь занимают
+            // крайние места соперников, а внизу слева пусто — рука игрока идёт по центру.
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 290f), new Vector2(220f, 340f));
 
             const float trumpScale = 0.9f;
             var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -860,12 +836,6 @@ namespace CardGameClient
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
             Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -178f), new Vector2(220f, 50f));
 
-            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, -20f), new Vector2(220f, 260f));
-            _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(100f, 100f));
-
-            _discardInfo = CreateText(discardArea, string.Empty, 26, TextAnchor.MiddleCenter);
-            Place((RectTransform)_discardInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -110f), new Vector2(220f, 50f));
-
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
             Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(900f, 40f));
@@ -886,7 +856,7 @@ namespace CardGameClient
             ring.transform.SetParent(parent, false);
             var ringRect = (RectTransform)ring.transform;
             ringRect.anchorMin = ringRect.anchorMax = ringRect.pivot = new Vector2(0.5f, 0.5f);
-            ringRect.anchoredPosition = new Vector2(0f, 20f);
+            ringRect.anchoredPosition = new Vector2(0f, -60f);
             ringRect.sizeDelta = new Vector2(460f, 460f);
             var ringImage = ring.GetComponent<Image>();
             ringImage.sprite = UiTextures.Circle(128, Color.white);
