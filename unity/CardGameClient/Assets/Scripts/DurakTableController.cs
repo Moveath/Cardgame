@@ -19,6 +19,9 @@ namespace CardGameClient
     {
         private const int HumanIndex = 0;
 
+        // Позже имя придёт из профиля игрока, пока зашито.
+        private const string HumanName = "Егор";
+
         // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
         private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
 
@@ -30,12 +33,13 @@ namespace CardGameClient
         };
 
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
+        private static readonly Color HumanColor = new Color(0.28f, 0.58f, 0.44f);
 
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
 
-        private const float AvatarWidth = 88f;
-        private const float AvatarHeight = 110f;
+        private const float AvatarWidth = 112f;
+        private const float AvatarHeight = 140f;
 
         // Весь верх стола выстроен сверху вниз от края экрана: статус, строка хода, места
         // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
@@ -43,7 +47,8 @@ namespace CardGameClient
         private const float SeatTopMargin = 160f;
         private const float TableRowTop = 584f;
         private const float TableCardsHalfWidth = 610f;
-        private const float OpponentBlockHeight = 296f;
+        // Аватар + имя + веер рубашек с отступами. Бейдж роли лежит поверх аватара и высоту не ест.
+        private const float OpponentBlockHeight = 286f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -52,6 +57,7 @@ namespace CardGameClient
         private RectTransform _tableRow;
         private RectTransform _handRow;
         private RectTransform _opponentsArea;
+        private RectTransform _playerSeatArea;
         private RectTransform _deckStackArea;
         private CardView _trumpCard;
         private RectTransform _trumpFrame;
@@ -190,13 +196,14 @@ namespace CardGameClient
             RefreshTable();
             RefreshHand(legalMoves);
             RefreshOpponents();
+            RefreshPlayerSeat();
             RefreshControls(legalMoves);
             RefreshDeckPile();
         }
 
         private static List<string> BuildPlayerNames(int playerCount)
         {
-            var names = new List<string> { "Ты" };
+            var names = new List<string> { HumanName };
             for (var i = 0; i < playerCount - 1; i++)
             {
                 names.Add(BotNamePool[i % BotNamePool.Length]);
@@ -465,8 +472,10 @@ namespace CardGameClient
 
             // Та же логика, что и у соперников: после "комфортного" числа карт веер сжимается,
             // а не растягивается на весь экран — видно, что карт много, но выглядит компактно.
+            // Ширина ограничена ещё и экраном: по краям нижнего ряда стоят колода со своим
+            // местом слева и кнопки справа, и веер не должен на них наезжать.
             const int comfortableHandCount = 8;
-            var availableHandWidth = 1500f;
+            var availableHandWidth = Mathf.Min(1500f, ((RectTransform)transform).rect.width - 1200f);
             if (count > comfortableHandCount)
             {
                 availableHandWidth *= Mathf.Sqrt(comfortableHandCount / (float)count);
@@ -522,102 +531,137 @@ namespace CardGameClient
                 var seatPosition = SeatPosition(seat, opponentCount);
                 seat++;
 
-                var container = new GameObject("Opponent", typeof(RectTransform), typeof(VerticalLayoutGroup));
-                container.transform.SetParent(_opponentsArea, false);
+                var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
+                var color = OpponentColors[colorIndex % OpponentColors.Length];
+                var containerRect = BuildSeatBlock(_opponentsArea, player, color, isActing, scale, true);
 
                 // Привязка к верхнему краю и пивот сверху: место задаётся отступом от верха
                 // экрана, поэтому расстояние до надписей не зависит от пропорций окна.
-                var containerRect = (RectTransform)container.transform;
                 containerRect.anchorMin = containerRect.anchorMax = new Vector2(0.5f, 1f);
                 containerRect.pivot = new Vector2(0.5f, 1f);
                 containerRect.anchoredPosition = seatPosition;
-                containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
-
-                var containerLayout = container.GetComponent<VerticalLayoutGroup>();
-                containerLayout.spacing = 8f * scale;
-                containerLayout.childAlignment = TextAnchor.UpperCenter;
-                containerLayout.childControlWidth = false;
-                containerLayout.childControlHeight = false;
-                containerLayout.childForceExpandWidth = false;
-                containerLayout.childForceExpandHeight = false;
-
-                var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
-
-                CreateAvatar(container.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index), scale);
-
-                var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
-                label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 30f * scale);
-
-                if (player.Index == _game.DefenderIndex)
-                {
-                    CreateRoleChip(container.transform, "защита", new Color(0.24f, 0.45f, 0.78f), scale);
-                }
-                else if (player.Index == _game.AttackerIndex)
-                {
-                    CreateRoleChip(container.transform, "атака", new Color(0.72f, 0.31f, 0.20f), scale);
-                }
-
-                if (player.IsOut)
-                {
-                    var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
-                    outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f * scale, 28f * scale);
-                    continue;
-                }
-
-                var row = new GameObject("Cards", typeof(RectTransform));
-                row.transform.SetParent(container.transform, false);
-                // Высота строки должна вмещать саму рубашку (168 * масштаб карты) с запасом
-                // на провисание веера — иначе карты торчат вверх и наезжают на бейдж и имя.
-                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 100f * scale);
-
-                var oppCount = player.Hand.Count;
-                if (oppCount > 0)
-                {
-                    var oppScale = 0.6f * scale;
-                    var oppWidth = CardView.Width * oppScale;
-                    var oppAngleStep = Mathf.Min(6f, 24f / Mathf.Max(oppCount - 1, 1));
-
-                    // Сверх "комфортного" числа карт веер не растёт вширь, а наоборот
-                    // сжимается — большая рука выглядит плотной стопкой, а не растянутым рядом.
-                    const int comfortableOppCount = 6;
-                    var availableWidth = 200f * scale;
-                    if (oppCount > comfortableOppCount)
-                    {
-                        availableWidth *= Mathf.Sqrt(comfortableOppCount / (float)oppCount);
-                    }
-
-                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, availableWidth / oppCount);
-                    var oppMid = (oppCount - 1) / 2f;
-
-                    for (var h = 0; h < oppCount; h++)
-                    {
-                        var back = CardView.Create(row.transform, _font, oppScale);
-                        back.ShowBack();
-                        back.SetPlain();
-
-                        var oppOffset = h - oppMid;
-                        var oppPos = new Vector2(oppOffset * oppSpacing, -Mathf.Abs(oppOffset) * 4f);
-                        back.SetRestTransform(oppPos, -oppOffset * oppAngleStep);
-                    }
-                }
             }
         }
 
-        /// <summary>Чем больше соперников за столом, тем меньше места на каждого — ужимаем фигуру и карты.</summary>
-        private static float OpponentVisualScale(int opponentCount)
+        /// <summary>Своё место: тот же блок, что у соперников, но без веера — карты и так на руке.</summary>
+        private void RefreshPlayerSeat()
         {
-            if (opponentCount <= 2) return 0.85f;
-            if (opponentCount <= 4) return 0.75f;
-            return 0.65f;
+            Clear(_playerSeatArea);
+
+            var isActing = _waitingForHuman;
+            var block = BuildSeatBlock(_playerSeatArea, _game.Players[HumanIndex], HumanColor, isActing, 1f, false);
+            block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f);
+            block.pivot = new Vector2(0.5f, 0.5f);
+            block.anchoredPosition = Vector2.zero;
         }
 
-        private void CreateRoleChip(Transform parent, string text, Color color, float scale)
+        /// <summary>Место за столом: фигура, имя, бейдж роли и (для соперников) веер рубашек.</summary>
+        private RectTransform BuildSeatBlock(Transform parent, DurakPlayer player, Color color, bool isActing, float scale, bool showCardFan)
+        {
+            var container = new GameObject("Seat", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            container.transform.SetParent(parent, false);
+
+            var containerRect = (RectTransform)container.transform;
+            containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
+
+            var containerLayout = container.GetComponent<VerticalLayoutGroup>();
+            containerLayout.spacing = 8f * scale;
+            containerLayout.childAlignment = TextAnchor.UpperCenter;
+            containerLayout.childControlWidth = false;
+            containerLayout.childControlHeight = false;
+            containerLayout.childForceExpandWidth = false;
+            containerLayout.childForceExpandHeight = false;
+
+            var avatar = CreateAvatar(container.transform, player.Name.Substring(0, 1), color, isActing, PortraitFor(player.Index), scale);
+
+            // Бейдж роли лежит поверх нижнего края фигуры, а не отдельной строкой —
+            // так он не съедает высоту, которой и так впритык.
+            if (player.Index == _game.DefenderIndex)
+            {
+                CreateRoleChip(avatar, "защита", new Color(0.24f, 0.45f, 0.78f), scale);
+            }
+            else if (player.Index == _game.AttackerIndex)
+            {
+                CreateRoleChip(avatar, "атака", new Color(0.72f, 0.31f, 0.20f), scale);
+            }
+
+            var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
+            label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
+            label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 30f * scale);
+
+            if (player.IsOut)
+            {
+                var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
+                outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f * scale, 28f * scale);
+                return containerRect;
+            }
+
+            if (!showCardFan)
+            {
+                return containerRect;
+            }
+
+            var row = new GameObject("Cards", typeof(RectTransform));
+            row.transform.SetParent(container.transform, false);
+            // Высота строки должна вмещать саму рубашку (168 * масштаб карты) с запасом
+            // на провисание веера — иначе карты торчат вверх и наезжают на имя.
+            ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 100f * scale);
+
+            var handCount = player.Hand.Count;
+            if (handCount > 0)
+            {
+                var backScale = 0.6f * scale;
+                var backWidth = CardView.Width * backScale;
+                var angleStep = Mathf.Min(6f, 24f / Mathf.Max(handCount - 1, 1));
+
+                // Сверх "комфортного" числа карт веер не растёт вширь, а наоборот
+                // сжимается — большая рука выглядит плотной стопкой, а не растянутым рядом.
+                const int comfortableCount = 6;
+                var availableWidth = 200f * scale;
+                if (handCount > comfortableCount)
+                {
+                    availableWidth *= Mathf.Sqrt(comfortableCount / (float)handCount);
+                }
+
+                var spacing = Mathf.Min(backWidth * 0.55f, availableWidth / handCount);
+                var mid = (handCount - 1) / 2f;
+
+                for (var h = 0; h < handCount; h++)
+                {
+                    var back = CardView.Create(row.transform, _font, backScale);
+                    back.ShowBack();
+                    back.SetPlain();
+
+                    var offset = h - mid;
+                    var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 4f);
+                    back.SetRestTransform(position, -offset * angleStep);
+                }
+            }
+
+            return containerRect;
+        }
+
+        /// <summary>
+        /// Чем больше соперников, тем меньше места на каждого. Пока их мало, фигуры крупные —
+        /// ужимать приходится только когда стол действительно полный.
+        /// </summary>
+        private static float OpponentVisualScale(int opponentCount)
+        {
+            if (opponentCount <= 2) return 1f;
+            if (opponentCount <= 4) return 0.85f;
+            if (opponentCount <= 6) return 0.72f;
+            return 0.62f;
+        }
+
+        private void CreateRoleChip(RectTransform avatar, string text, Color color, float scale)
         {
             var go = new GameObject("RoleChip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            go.transform.SetParent(parent, false);
+            go.transform.SetParent(avatar, false);
 
             var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, 6f * scale);
             rect.sizeDelta = new Vector2(100f * scale, 32f * scale);
 
             var image = go.GetComponent<Image>();
@@ -672,14 +716,15 @@ namespace CardGameClient
                 : null;
         }
 
-        private void CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait, float scale)
+        private RectTransform CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait, float scale)
         {
             var width = AvatarWidth * scale;
             var height = AvatarHeight * scale;
 
             var wrapper = new GameObject("Avatar", typeof(RectTransform));
             wrapper.transform.SetParent(parent, false);
-            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(width, height);
+            var wrapperRect = (RectTransform)wrapper.transform;
+            wrapperRect.sizeDelta = new Vector2(width, height);
 
             if (isActing)
             {
@@ -716,7 +761,7 @@ namespace CardGameClient
                 Stretch((RectTransform)label.transform);
                 label.color = Color.white;
                 label.fontStyle = FontStyle.Bold;
-                return;
+                return wrapperRect;
             }
 
             // Никакой подложки: персонаж вырезан по контуру и сидит прямо на сукне.
@@ -735,6 +780,8 @@ namespace CardGameClient
             portraitImage.sprite = portrait;
             portraitImage.preserveAspect = true;
             portraitImage.raycastTarget = false;
+
+            return wrapperRect;
         }
 
         private void RefreshControls(IReadOnlyList<DurakMove> legalMoves)
@@ -845,24 +892,12 @@ namespace CardGameClient
             tableLayout.childForceExpandWidth = false;
             tableLayout.childForceExpandHeight = false;
 
-            // Полоса под рукой: при полном столе карты соперников подходят близко к своим,
-            // и без явной границы трудно понять, где чужие карты, а где твои.
-            var handZone = new GameObject("HandZone", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            handZone.transform.SetParent(root, false);
-            var handZoneRect = (RectTransform)handZone.transform;
-            handZoneRect.anchorMin = new Vector2(0f, 0f);
-            handZoneRect.anchorMax = new Vector2(1f, 0f);
-            handZoneRect.pivot = new Vector2(0.5f, 0f);
-            handZoneRect.offsetMin = new Vector2(38f, 38f);
-            handZoneRect.offsetMax = new Vector2(-38f, 0f);
-            handZoneRect.sizeDelta = new Vector2(handZoneRect.sizeDelta.x, 250f);
-            var handZoneImage = handZone.GetComponent<Image>();
-            handZoneImage.sprite = UiTextures.RoundedRect(64, 64, 20f, Color.white);
-            handZoneImage.color = new Color(0f, 0f, 0f, 0.18f);
-            handZoneImage.type = Image.Type.Sliced;
-            handZoneImage.raycastTarget = false;
-
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 138f), new Vector2(1600f, 200f));
+
+            // Своё место — в нижнем ряду между колодой и рукой: за столом игрок был
+            // единственным без лица. Привязка к левому краю, чтобы на любом экране
+            // оно стояло сразу за колодой.
+            _playerSeatArea = CreatePanel("PlayerSeat", root, new Vector2(0f, 0f), new Vector2(400f, 150f), new Vector2(180f, 200f));
 
             // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
             // середину краёв стола теперь занимают крайние соперники.
