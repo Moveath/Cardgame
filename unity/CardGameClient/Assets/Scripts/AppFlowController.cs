@@ -276,7 +276,7 @@ namespace CardGameClient
             _gameScreen.SetActive(false);
 
             var table = _gameScreen.AddComponent<DurakTableController>();
-            table.Configure(_settings);
+            table.Configure(_settings, () => ShowScreen(_lobbyScreen));
         }
 
         private void ShowScreen(GameObject screen)

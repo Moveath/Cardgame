@@ -32,6 +32,7 @@ namespace CardGameClient
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
 
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
+        private Action _onExit;
 
         private const float AvatarWidth = 126f;
         private const float AvatarHeight = 158f;
@@ -71,9 +72,10 @@ namespace CardGameClient
         }
 
         /// <summary>Вызывается лобби до включения экрана игры, поэтому Start() уже видит нужные настройки.</summary>
-        public void Configure(DurakMatchSettings settings)
+        public void Configure(DurakMatchSettings settings, Action onExit)
         {
             _settings = settings;
+            _onExit = onExit;
         }
 
         private void Start()
@@ -365,32 +367,36 @@ namespace CardGameClient
         /// </summary>
         private static Vector2 SeatPosition(int seatIndex, int opponentCount)
         {
-            const float centerY = 150f;
-            const float radiusX = 850f;
-            const float radiusY = 290f;
+            const float topY = 390f;
 
             if (opponentCount <= 1)
             {
-                return new Vector2(0f, centerY + radiusY);
+                return new Vector2(0f, topY);
             }
 
-            float halfSpan;
+            float maxX, archDepth;
             if (opponentCount == 2)
             {
-                halfSpan = 40f;
+                maxX = 480f;
+                archDepth = 40f;
             }
             else if (opponentCount == 3)
             {
-                halfSpan = 60f;
+                maxX = 700f;
+                archDepth = 100f;
             }
             else
             {
-                halfSpan = 70f;
+                maxX = 820f;
+                archDepth = 180f;
             }
 
+            // По горизонтали места расставлены равномерно, а высота идёт по параболе:
+            // равные промежутки читаются как ровная рассадка, изгиб — как край круглого стола.
             var t = seatIndex / (float)(opponentCount - 1);
-            var angle = (90f + halfSpan - t * 2f * halfSpan) * Mathf.Deg2Rad;
-            return new Vector2(radiusX * Mathf.Cos(angle), centerY + radiusY * Mathf.Sin(angle));
+            var x = Mathf.Lerp(-maxX, maxX, t);
+            var normalized = x / maxX;
+            return new Vector2(x, topY - archDepth * normalized * normalized);
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -804,7 +810,7 @@ namespace CardGameClient
             tableLayout.childForceExpandWidth = false;
             tableLayout.childForceExpandHeight = false;
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 195f), new Vector2(1600f, 200f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 150f), new Vector2(1600f, 200f));
 
             // Колода с козырем ушла в левый нижний угол: середину краёв стола теперь занимают
             // крайние места соперников, а внизу слева пусто — рука игрока идёт по центру.
@@ -848,6 +854,15 @@ namespace CardGameClient
 
             _restartButton = CreateButton(root, "Новая партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -190f),
                 new Color(0.22f, 0.32f, 0.55f), StartNewGame);
+
+            // Выход посреди партии: без него любую проверку настроек приходилось бы доигрывать до конца.
+            var exitButton = CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(150f, -70f),
+                new Color(0.3f, 0.3f, 0.32f), () =>
+                {
+                    StopAllCoroutines();
+                    _onExit?.Invoke();
+                });
+            ((RectTransform)exitButton.transform).sizeDelta = new Vector2(200f, 64f);
         }
 
         private void CreateCenterEmblem(Transform parent, Color feltColor)
