@@ -32,6 +32,7 @@ namespace CardGameClient
         private RectTransform _discardStackArea;
         private CardView _trumpCard;
         private Text _status;
+        private Text _trumpInfo;
         private Text _deckInfo;
         private Text _discardInfo;
         private Text _lastAction;
@@ -61,6 +62,7 @@ namespace CardGameClient
 
             _trumpCard.ShowFace(_game.TrumpCard);
             _trumpCard.SetPlain();
+            _trumpInfo.text = "козырь " + CardView.SuitText(_game.Trump);
             _restartButton.gameObject.SetActive(false);
 
             StopAllCoroutines();
@@ -339,11 +341,16 @@ namespace CardGameClient
             ringImage.type = Image.Type.Sliced;
             ringImage.color = isActing ? ActiveGlow : new Color(0f, 0f, 0f, 0f);
 
-            var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             circle.transform.SetParent(wrapper.transform, false);
             var circleRect = (RectTransform)circle.transform;
             circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
             circleRect.sizeDelta = new Vector2(avatarSize, avatarSize);
+
+            var circleShadow = circle.GetComponent<Shadow>();
+            circleShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+            circleShadow.effectDistance = new Vector2(2f, -3f);
+
             var circleImage = circle.GetComponent<Image>();
             circleImage.sprite = UiTextures.Circle(64, color);
             circleImage.type = Image.Type.Sliced;
@@ -364,6 +371,7 @@ namespace CardGameClient
 
             if (_game.IsFinished)
             {
+                _status.color = new Color(0.94f, 0.95f, 0.93f);
                 _status.text = _game.LoserIndex.HasValue
                     ? (_game.LoserIndex.Value == HumanIndex
                         ? "Ты проиграл — дурак!"
@@ -374,10 +382,12 @@ namespace CardGameClient
 
             if (!_waitingForHuman)
             {
+                _status.color = new Color(0.94f, 0.95f, 0.93f);
                 _status.text = "Ходят соперники...";
                 return;
             }
 
+            _status.color = ActiveGlow;
             _status.text = _game.DefenderIndex == HumanIndex
                 ? "Отбивайся: выбери карту или забери"
                 : "Твой ход: подкинь карту";
@@ -439,6 +449,8 @@ namespace CardGameClient
             feltImage.sprite = UiTextures.RoundedRect(64, 64, 20f, new Color(0.08f, 0.32f, 0.20f));
             feltImage.type = Image.Type.Sliced;
 
+            CreateCenterEmblem(root, new Color(0.08f, 0.32f, 0.20f));
+
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
 
@@ -470,16 +482,34 @@ namespace CardGameClient
             tableLayout.childForceExpandWidth = false;
             tableLayout.childForceExpandHeight = false;
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 140f), new Vector2(1600f, 200f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 195f), new Vector2(1600f, 200f));
 
             var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 420f));
-            _trumpCard = CardView.Create(trumpArea, _font, 0.9f);
+
+            const float trumpScale = 0.9f;
+            var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            trumpFrame.transform.SetParent(trumpArea, false);
+            var trumpFrameRect = (RectTransform)trumpFrame.transform;
+            trumpFrameRect.anchorMin = trumpFrameRect.anchorMax = trumpFrameRect.pivot = new Vector2(0.5f, 0.5f);
+            trumpFrameRect.anchoredPosition = new Vector2(0f, -20f);
+            trumpFrameRect.sizeDelta = new Vector2(CardView.Width * trumpScale + 18f, CardView.Height * trumpScale + 18f);
+            var trumpFrameImage = trumpFrame.GetComponent<Image>();
+            trumpFrameImage.sprite = UiTextures.RoundedRect(64, 64, 16f, ActiveGlow);
+            trumpFrameImage.type = Image.Type.Sliced;
+            trumpFrameImage.raycastTarget = false;
+
+            _trumpCard = CardView.Create(trumpArea, _font, trumpScale);
             _trumpCard.Rect.anchoredPosition = new Vector2(0f, -20f);
 
             _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 60f), new Vector2(100f, 100f));
 
+            _trumpInfo = CreateText(trumpArea, string.Empty, 28, TextAnchor.MiddleCenter);
+            _trumpInfo.color = ActiveGlow;
+            _trumpInfo.fontStyle = FontStyle.Bold;
+            Place((RectTransform)_trumpInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -128f), new Vector2(220f, 44f));
+
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
-            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -160f), new Vector2(220f, 50f));
+            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -178f), new Vector2(220f, 50f));
 
             var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, -20f), new Vector2(220f, 320f));
             _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(100f, 100f));
@@ -499,6 +529,35 @@ namespace CardGameClient
 
             _restartButton = CreateButton(root, "Новая партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -190f),
                 new Color(0.22f, 0.32f, 0.55f), StartNewGame);
+        }
+
+        private void CreateCenterEmblem(Transform parent, Color feltColor)
+        {
+            var ring = new GameObject("Emblem", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            ring.transform.SetParent(parent, false);
+            var ringRect = (RectTransform)ring.transform;
+            ringRect.anchorMin = ringRect.anchorMax = ringRect.pivot = new Vector2(0.5f, 0.5f);
+            ringRect.anchoredPosition = new Vector2(0f, 20f);
+            ringRect.sizeDelta = new Vector2(460f, 460f);
+            var ringImage = ring.GetComponent<Image>();
+            ringImage.sprite = UiTextures.Circle(128, Color.white);
+            ringImage.type = Image.Type.Sliced;
+            ringImage.color = new Color(1f, 0.93f, 0.7f, 0.08f);
+            ringImage.raycastTarget = false;
+
+            var inner = new GameObject("EmblemInner", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            inner.transform.SetParent(ring.transform, false);
+            var innerRect = (RectTransform)inner.transform;
+            innerRect.anchorMin = innerRect.anchorMax = innerRect.pivot = new Vector2(0.5f, 0.5f);
+            innerRect.sizeDelta = new Vector2(446f, 446f);
+            var innerImage = inner.GetComponent<Image>();
+            innerImage.sprite = UiTextures.Circle(128, feltColor);
+            innerImage.type = Image.Type.Sliced;
+            innerImage.raycastTarget = false;
+
+            var marks = CreateText(ring.transform, "♠  ♥  ♦  ♣", 76, TextAnchor.MiddleCenter);
+            Stretch((RectTransform)marks.transform);
+            marks.color = new Color(1f, 0.93f, 0.7f, 0.09f);
         }
 
         private Button CreateButton(Transform parent, string label, Vector2 anchor, Vector2 position, Color color, Action onClick)

@@ -311,7 +311,7 @@ namespace CardGameClient
             }
         }
 
-        private static string SuitText(Suit suit)
+        public static string SuitText(Suit suit)
         {
             switch (suit)
             {
