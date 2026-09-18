@@ -34,8 +34,14 @@ namespace CardGameClient
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
 
-        private const float AvatarWidth = 126f;
-        private const float AvatarHeight = 158f;
+        private const float AvatarWidth = 108f;
+        private const float AvatarHeight = 134f;
+
+        // Весь верх стола выстроен сверху вниз от края экрана: статус, строка хода, места
+        // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
+        // высоту холста и они наезжают друг на друга.
+        private const float SeatTopMargin = 160f;
+        private const float TableRowTop = 580f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -357,7 +363,9 @@ namespace CardGameClient
                 return new Vector2(0f, -380f);
             }
 
-            return SeatPosition(playerIndex.Value - 1, _game.Players.Count - 1);
+            // Место задано отступом от верха экрана, а карта летит к столу — переводим в его систему.
+            var seat = SeatPosition(playerIndex.Value - 1, _game.Players.Count - 1);
+            return new Vector2(seat.x, seat.y + TableRowTop);
         }
 
         /// <summary>
@@ -367,36 +375,37 @@ namespace CardGameClient
         /// </summary>
         private static Vector2 SeatPosition(int seatIndex, int opponentCount)
         {
-            const float topY = 390f;
-
             if (opponentCount <= 1)
             {
-                return new Vector2(0f, topY);
+                return new Vector2(0f, -SeatTopMargin);
             }
 
             float maxX, archDepth;
             if (opponentCount == 2)
             {
-                maxX = 480f;
-                archDepth = 40f;
+                // Двое садятся широко: иначе они висят прямо над картами в центре стола.
+                maxX = 760f;
+                archDepth = 60f;
             }
             else if (opponentCount == 3)
             {
                 maxX = 700f;
-                archDepth = 100f;
+                archDepth = 150f;
             }
             else
             {
                 maxX = 820f;
-                archDepth = 180f;
+                archDepth = 200f;
             }
 
-            // По горизонтали места расставлены равномерно, а высота идёт по параболе:
-            // равные промежутки читаются как ровная рассадка, изгиб — как край круглого стола.
+            // По горизонтали места стоят равномерно, а высота падает по четвёртой степени:
+            // середина ряда держится высоко и не задевает карты на столе, зато крайние
+            // места круто уходят вниз и занимают пустые углы.
             var t = seatIndex / (float)(opponentCount - 1);
             var x = Mathf.Lerp(-maxX, maxX, t);
             var normalized = x / maxX;
-            return new Vector2(x, topY - archDepth * normalized * normalized);
+            var falloff = normalized * normalized * normalized * normalized;
+            return new Vector2(x, -(SeatTopMargin + archDepth * falloff));
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -492,10 +501,10 @@ namespace CardGameClient
                 var container = new GameObject("Opponent", typeof(RectTransform), typeof(VerticalLayoutGroup));
                 container.transform.SetParent(_opponentsArea, false);
 
-                // Пивот сверху: место задаётся верхней точкой, а содержимое растёт вниз —
-                // так нижний край блока предсказуем и не наползает на карты в центре стола.
+                // Привязка к верхнему краю и пивот сверху: место задаётся отступом от верха
+                // экрана, поэтому расстояние до надписей не зависит от пропорций окна.
                 var containerRect = (RectTransform)container.transform;
-                containerRect.anchorMin = containerRect.anchorMax = new Vector2(0.5f, 0.5f);
+                containerRect.anchorMin = containerRect.anchorMax = new Vector2(0.5f, 1f);
                 containerRect.pivot = new Vector2(0.5f, 1f);
                 containerRect.anchoredPosition = seatPosition;
                 containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
@@ -534,7 +543,7 @@ namespace CardGameClient
 
                 var row = new GameObject("Cards", typeof(RectTransform));
                 row.transform.SetParent(container.transform, false);
-                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 90f * scale);
+                ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 70f * scale);
 
                 var oppCount = player.Hand.Count;
                 if (oppCount > 0)
@@ -801,7 +810,7 @@ namespace CardGameClient
             _opponentsArea.SetParent(root, false);
             Stretch(_opponentsArea);
 
-            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, -60f), new Vector2(1500f, 280f));
+            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 1f), new Vector2(0f, -TableRowTop), new Vector2(1500f, 280f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
             tableLayout.spacing = 16f;
             tableLayout.childAlignment = TextAnchor.MiddleCenter;
@@ -810,11 +819,28 @@ namespace CardGameClient
             tableLayout.childForceExpandWidth = false;
             tableLayout.childForceExpandHeight = false;
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 150f), new Vector2(1600f, 200f));
+            // Полоса под рукой: при полном столе карты соперников подходят близко к своим,
+            // и без явной границы трудно понять, где чужие карты, а где твои.
+            var handZone = new GameObject("HandZone", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            handZone.transform.SetParent(root, false);
+            var handZoneRect = (RectTransform)handZone.transform;
+            handZoneRect.anchorMin = new Vector2(0f, 0f);
+            handZoneRect.anchorMax = new Vector2(1f, 0f);
+            handZoneRect.pivot = new Vector2(0.5f, 0f);
+            handZoneRect.offsetMin = new Vector2(38f, 38f);
+            handZoneRect.offsetMax = new Vector2(-38f, 0f);
+            handZoneRect.sizeDelta = new Vector2(handZoneRect.sizeDelta.x, 290f);
+            var handZoneImage = handZone.GetComponent<Image>();
+            handZoneImage.sprite = UiTextures.RoundedRect(64, 64, 20f, Color.white);
+            handZoneImage.color = new Color(0f, 0f, 0f, 0.18f);
+            handZoneImage.type = Image.Type.Sliced;
+            handZoneImage.raycastTarget = false;
 
-            // Колода с козырем ушла в левый нижний угол: середину краёв стола теперь занимают
-            // крайние места соперников, а внизу слева пусто — рука игрока идёт по центру.
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 290f), new Vector2(220f, 340f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 130f), new Vector2(1600f, 200f));
+
+            // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
+            // середину краёв стола теперь занимают крайние соперники.
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 200f), new Vector2(220f, 300f));
 
             const float trumpScale = 0.9f;
             var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -837,10 +863,10 @@ namespace CardGameClient
             _trumpInfo = CreateText(trumpArea, string.Empty, 28, TextAnchor.MiddleCenter);
             _trumpInfo.color = ActiveGlow;
             _trumpInfo.fontStyle = FontStyle.Bold;
-            Place((RectTransform)_trumpInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -128f), new Vector2(220f, 44f));
+            Place((RectTransform)_trumpInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -100f), new Vector2(220f, 44f));
 
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
-            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -178f), new Vector2(220f, 50f));
+            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -145f), new Vector2(220f, 50f));
 
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
@@ -870,8 +896,9 @@ namespace CardGameClient
             var ring = new GameObject("Emblem", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             ring.transform.SetParent(parent, false);
             var ringRect = (RectTransform)ring.transform;
-            ringRect.anchorMin = ringRect.anchorMax = ringRect.pivot = new Vector2(0.5f, 0.5f);
-            ringRect.anchoredPosition = new Vector2(0f, -60f);
+            ringRect.anchorMin = ringRect.anchorMax = new Vector2(0.5f, 1f);
+            ringRect.pivot = new Vector2(0.5f, 0.5f);
+            ringRect.anchoredPosition = new Vector2(0f, -TableRowTop);
             ringRect.sizeDelta = new Vector2(460f, 460f);
             var ringImage = ring.GetComponent<Image>();
             ringImage.sprite = UiTextures.Circle(128, Color.white);
