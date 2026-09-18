@@ -22,6 +22,9 @@ unity/*/Obj/
 unity/*/Build/
 unity/*/Builds/
 unity/*/Logs/
+# Аварийный бэкап сцены после падения редактора — не часть проекта
+unity/*/Assets/_Recovery/
+unity/*/Assets/_Recovery.meta
 unity/*/UserSettings/
 unity/*/MemoryCaptures/
 *.apk
