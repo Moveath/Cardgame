@@ -22,6 +22,10 @@ namespace CardGameClient
         private static readonly Color[] OpponentColors = { new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f) };
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
 
+        // Насколько увеличить портрет внутри кружка и насколько опустить, чтобы в кадр попало лицо.
+        private const float PortraitZoom = 1.75f;
+        private const float PortraitDrop = 0.45f;
+
         private DurakGame _game;
         private SimpleDurakBot _bot;
         private Font _font;
@@ -565,7 +569,7 @@ namespace CardGameClient
             circleShadow.effectDistance = new Vector2(2f, -3f);
 
             var circleImage = circle.GetComponent<Image>();
-            circleImage.sprite = UiTextures.Circle(64, portrait != null ? Color.white : color);
+            circleImage.sprite = UiTextures.Circle(64, color);
             circleImage.type = Image.Type.Sliced;
 
             if (portrait == null)
@@ -577,13 +581,18 @@ namespace CardGameClient
                 return;
             }
 
-            // Портрет квадратный, поэтому обрезаем его кругом-маской: так любая присланная
-            // картинка становится круглой аватаркой без подготовки файла.
+            // Портрет нарисован по грудь. Если вписать его целиком, лицо станет крошечным,
+            // поэтому увеличиваем и сдвигаем вниз, чтобы в кружок попала голова, а плечи
+            // ушли под обрез маски — как на аватарках в покерных клиентах.
             circle.AddComponent<Mask>().showMaskGraphic = true;
 
             var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             portraitGo.transform.SetParent(circle.transform, false);
-            Stretch((RectTransform)portraitGo.transform);
+
+            var portraitRect = (RectTransform)portraitGo.transform;
+            portraitRect.anchorMin = portraitRect.anchorMax = portraitRect.pivot = new Vector2(0.5f, 0.5f);
+            portraitRect.sizeDelta = new Vector2(avatarSize * PortraitZoom, avatarSize * PortraitZoom);
+            portraitRect.anchoredPosition = new Vector2(0f, -avatarSize * PortraitDrop);
 
             var portraitImage = portraitGo.GetComponent<Image>();
             portraitImage.sprite = portrait;
