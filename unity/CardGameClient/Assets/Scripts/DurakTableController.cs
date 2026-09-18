@@ -44,6 +44,9 @@ namespace CardGameClient
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
 
+        private readonly HashSet<Card> _tableCardsShown = new HashSet<Card>();
+        private int? _lastActorIndex;
+
         private void Start()
         {
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -58,6 +61,8 @@ namespace CardGameClient
             _game = DurakGame.Create(PlayerNames, UnityEngine.Random.Range(0, int.MaxValue));
             _pendingMove = null;
             _waitingForHuman = false;
+            _lastActorIndex = null;
+            _tableCardsShown.Clear();
 
             _lastAction.text = string.Empty;
 
@@ -94,6 +99,7 @@ namespace CardGameClient
 
                     if (_game.TryApplyMove(HumanIndex, move, out var error))
                     {
+                        _lastActorIndex = HumanIndex;
                         SetLastAction(_game.Players[HumanIndex].Name + ": " + move);
                     }
                     else
@@ -117,6 +123,7 @@ namespace CardGameClient
                     var moverName = _game.Players[actor.Value].Name;
                     if (_game.TryApplyMove(actor.Value, move.Value, out _))
                     {
+                        _lastActorIndex = actor.Value;
                         SetLastAction(moverName + ": " + move.Value);
                     }
 
@@ -186,27 +193,82 @@ namespace CardGameClient
         {
             Clear(_tableRow);
 
+            const float tableCardScale = 1.1f;
+            var stillOnTable = new HashSet<Card>();
+
             foreach (var slot in _game.Table)
             {
                 var container = new GameObject("Slot", typeof(RectTransform));
                 container.transform.SetParent(_tableRow, false);
-                ((RectTransform)container.transform).sizeDelta = new Vector2(160f, 230f);
+                ((RectTransform)container.transform).sizeDelta = new Vector2(190f, 260f);
 
-                var attack = CardView.Create(container.transform, _font, 0.9f);
-                attack.Rect.anchoredPosition = new Vector2(-14f, 16f);
+                var attackPosition = new Vector2(-16f, 18f);
+                CreateCardShadow(container.transform, attackPosition, tableCardScale);
+
+                var attack = CardView.Create(container.transform, _font, tableCardScale);
+                attack.Rect.anchoredPosition = attackPosition;
                 attack.ShowFace(slot.Attack);
                 attack.SetPlain();
-                attack.PlayAppearAnimation();
+                AnimateArrival(attack, slot.Attack);
+                stillOnTable.Add(slot.Attack);
 
                 if (slot.Defense.HasValue)
                 {
-                    var defense = CardView.Create(container.transform, _font, 0.9f);
-                    defense.Rect.anchoredPosition = new Vector2(16f, -18f);
+                    var defensePosition = new Vector2(18f, -20f);
+                    CreateCardShadow(container.transform, defensePosition, tableCardScale);
+
+                    var defense = CardView.Create(container.transform, _font, tableCardScale);
+                    defense.Rect.anchoredPosition = defensePosition;
                     defense.ShowFace(slot.Defense.Value);
                     defense.SetPlain();
-                    defense.PlayAppearAnimation();
+                    AnimateArrival(defense, slot.Defense.Value);
+                    stillOnTable.Add(slot.Defense.Value);
                 }
             }
+
+            _tableCardsShown.Clear();
+            foreach (var card in stillOnTable)
+            {
+                _tableCardsShown.Add(card);
+            }
+        }
+
+        private void AnimateArrival(CardView view, Card card)
+        {
+            if (_tableCardsShown.Contains(card))
+            {
+                return;
+            }
+
+            view.PlayFlyIn(SeatOffset(_lastActorIndex));
+        }
+
+        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху слева/справа — от соперников.</summary>
+        private static Vector2 SeatOffset(int? playerIndex)
+        {
+            if (!playerIndex.HasValue || playerIndex.Value == HumanIndex)
+            {
+                return new Vector2(0f, -380f);
+            }
+
+            var seat = playerIndex.Value < HumanIndex ? playerIndex.Value : playerIndex.Value - 1;
+            return seat == 0 ? new Vector2(-700f, 300f) : new Vector2(700f, 300f);
+        }
+
+        private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
+        {
+            var go = new GameObject("CardShadow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position + new Vector2(2f, -7f);
+            rect.sizeDelta = new Vector2(CardView.Width * scale + 40f, CardView.Height * scale + 40f);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = UiTextures.SoftShadow(96, 132, 14f, 20f, 0.45f);
+            image.type = Image.Type.Sliced;
+            image.raycastTarget = false;
         }
 
         private void RefreshHand(IReadOnlyList<DurakMove> legalMoves)
@@ -286,19 +348,18 @@ namespace CardGameClient
 
                 CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing);
 
-                var role = string.Empty;
+                var label = CreateText(header.transform, player.Name, 26, TextAnchor.MiddleLeft);
+                label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(130f, 60f);
+
                 if (player.Index == _game.DefenderIndex)
                 {
-                    role = " — защищается";
+                    CreateRoleChip(header.transform, "защита", new Color(0.24f, 0.45f, 0.78f));
                 }
                 else if (player.Index == _game.AttackerIndex)
                 {
-                    role = " — атакует";
+                    CreateRoleChip(header.transform, "атака", new Color(0.72f, 0.31f, 0.20f));
                 }
-
-                var label = CreateText(header.transform, player.Name + role, 26, TextAnchor.MiddleLeft);
-                label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(260f, 60f);
 
                 if (player.IsOut)
                 {
@@ -332,6 +393,24 @@ namespace CardGameClient
                     }
                 }
             }
+        }
+
+        private void CreateRoleChip(Transform parent, string text, Color color)
+        {
+            var go = new GameObject("RoleChip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.sizeDelta = new Vector2(118f, 40f);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = UiTextures.RoundedRect(64, 40, 14f, color);
+            image.type = Image.Type.Sliced;
+            image.raycastTarget = false;
+
+            var label = CreateText(rect, text, 22, TextAnchor.MiddleCenter);
+            Stretch((RectTransform)label.transform);
+            label.fontStyle = FontStyle.Bold;
         }
 
         private void CreateAvatar(Transform parent, string initial, Color color, bool isActing)
@@ -485,7 +564,7 @@ namespace CardGameClient
                 layout.childForceExpandHeight = false;
             }
 
-            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 240f));
+            _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 280f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
             tableLayout.spacing = 16f;
             tableLayout.childAlignment = TextAnchor.MiddleCenter;

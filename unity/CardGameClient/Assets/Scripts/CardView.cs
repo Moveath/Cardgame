@@ -199,6 +199,42 @@ namespace CardGameClient
             RestartHover(AnimateAppear());
         }
 
+        /// <summary>Короткий перелёт карты к своему месту на столе от края, где сидит сыгравший игрок.</summary>
+        public void PlayFlyIn(Vector2 fromOffset)
+        {
+            RestartHover(AnimateFlyIn(fromOffset));
+        }
+
+        private IEnumerator AnimateFlyIn(Vector2 fromOffset)
+        {
+            const float duration = 0.15f;
+            const float startScale = 0.85f;
+
+            var target = Rect.anchoredPosition;
+            var start = target + fromOffset;
+            var startRotation = fromOffset.x > 0f ? -14f : 14f;
+
+            Rect.anchoredPosition = start;
+            Rect.localScale = new Vector3(startScale, startScale, 1f);
+            Rect.localRotation = Quaternion.Euler(0f, 0f, startRotation);
+
+            var t = 0f;
+            while (t < duration)
+            {
+                t += Time.deltaTime;
+                var k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / duration));
+                Rect.anchoredPosition = Vector2.Lerp(start, target, k);
+                var scale = Mathf.Lerp(startScale, 1f, k);
+                Rect.localScale = new Vector3(scale, scale, 1f);
+                Rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Lerp(startRotation, 0f, k));
+                yield return null;
+            }
+
+            Rect.anchoredPosition = target;
+            Rect.localScale = Vector3.one;
+            Rect.localRotation = Quaternion.identity;
+        }
+
         private IEnumerator AnimateAppear()
         {
             const float duration = 0.16f;
