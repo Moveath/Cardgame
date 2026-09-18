@@ -31,6 +31,7 @@ namespace CardGameClient
         private RectTransform _deckStackArea;
         private RectTransform _discardStackArea;
         private CardView _trumpCard;
+        private RectTransform _trumpFrame;
         private Text _status;
         private Text _trumpInfo;
         private Text _deckInfo;
@@ -148,6 +149,17 @@ namespace CardGameClient
         {
             CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(5f, 6f), 1.05f);
             _deckInfo.text = _game.DeckCount > 0 ? "в колоде: " + _game.DeckCount : "колода пуста";
+
+            // Козырная карта лежит на дне колоды: когда колода кончилась, её уже забрал игрок,
+            // поэтому убираем саму карту и оставляем только напоминание о масти.
+            var trumpCardOnTable = _game.DeckCount > 0;
+            _trumpCard.gameObject.SetActive(trumpCardOnTable);
+            _trumpFrame.gameObject.SetActive(trumpCardOnTable);
+
+            _trumpInfo.fontSize = trumpCardOnTable ? 28 : 40;
+            _trumpInfo.rectTransform.anchoredPosition = trumpCardOnTable
+                ? new Vector2(0f, -128f)
+                : new Vector2(0f, -20f);
         }
 
         private void RefreshDiscardPile()
@@ -497,6 +509,7 @@ namespace CardGameClient
             trumpFrameImage.sprite = UiTextures.RoundedRect(64, 64, 16f, ActiveGlow);
             trumpFrameImage.type = Image.Type.Sliced;
             trumpFrameImage.raycastTarget = false;
+            _trumpFrame = trumpFrameRect;
 
             _trumpCard = CardView.Create(trumpArea, _font, trumpScale);
             _trumpCard.Rect.anchoredPosition = new Vector2(0f, -20f);
