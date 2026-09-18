@@ -40,15 +40,28 @@ namespace CardGameClient
 
         private const float AvatarWidth = 112f;
         private const float AvatarHeight = 140f;
+        private const float SeatNameHeight = 30f;
+        // Только фигура и подпись: веер рубашек лежит сбоку и высоту места не ест.
+        // Бейдж роли тоже нарисован поверх фигуры.
+        private const float SeatNameOffset = AvatarHeight + 12f;
+        private const float SeatBlockHeight = SeatNameOffset + SeatNameHeight;
+        private const float SeatFanMaxWidth = 170f;
+        private const float SeatFanGap = 12f;
 
         // Весь верх стола выстроен сверху вниз от края экрана: статус, строка хода, места
         // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
         // высоту холста и они наезжают друг на друга.
-        private const float SeatTopMargin = 160f;
-        private const float TableRowTop = 584f;
+        private const float SeatTopMargin = 150f;
+        private const float TableRowTop = 524f;
         private const float TableCardsHalfWidth = 610f;
-        // Аватар + имя + веер рубашек с отступами. Бейдж роли лежит поверх аватара и высоту не ест.
-        private const float OpponentBlockHeight = 286f;
+        // Насколько карта на столе торчит вверх от центра ряда и сколько воздуха
+        // обязательно остаётся между ней и местом соперника.
+        private const float TableCardsHalfHeight = 112f;
+        private const float SeatToCardsGap = 70f;
+        // Отступ от края сукна: дальше начинается деревянная рамка стола, на ней никто не сидит.
+        private const float FeltEdgeMargin = 56f;
+        // Высота своего места над нижним краем — вровень с веером в руке.
+        private const float PlayerSeatBottom = 150f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -71,6 +84,9 @@ namespace CardGameClient
 
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
+
+        // Полуширина веера в руке — по ней своё место встаёт вплотную к картам.
+        private float _handHalfWidth;
 
         private readonly HashSet<Card> _tableCardsShown = new HashSet<Card>();
         private readonly List<TablePair> _tableSnapshot = new List<TablePair>();
@@ -377,63 +393,94 @@ namespace CardGameClient
             return new Vector2(seat.x, seat.y + TableRowTop);
         }
 
+        /// <summary>Разметка дуги: где крайние места, насколько крупные фигуры и какой ширины веер.</summary>
+        private struct SeatLayout
+        {
+            public float Scale;
+            public float MaxX;
+            public float ArchDepth;
+            public float FanWidth;
+            public float BlockHeight;
+        }
+
+        /// <summary>
+        /// Считает дугу под текущий экран: места разводятся до самых краёв сукна, а не по
+        /// зашитым числам — иначе на широком экране все кучкуются в середине, а углы пустуют.
+        /// </summary>
+        private SeatLayout BuildSeatLayout(int opponentCount)
+        {
+            var scale = OpponentVisualScale(opponentCount);
+            var canvasHalf = ((RectTransform)transform).rect.width * 0.5f;
+            var fanOffset = (AvatarWidth * 0.5f + SeatFanGap) * scale;
+            var fanWidth = SeatFanMaxWidth * scale;
+            var minFanWidth = CardView.Width * 0.55f * scale;
+
+            // Веер уходит от фигуры наружу, к своему краю экрана, поэтому крайним местам
+            // нужен запас на карты — зато дуга остаётся симметричной, а середина стола
+            // не забивается чужими рубашками.
+            var room = canvasHalf - FeltEdgeMargin - fanOffset;
+
+            if (opponentCount > 1)
+            {
+                // Между соседями должны поместиться веер одного и фигура другого.
+                // Если мест много, ужимается веер, а не расстояние между людьми.
+                var clearance = (AvatarWidth + SeatFanGap) * scale + 24f;
+                var fits = (2f * room - clearance * (opponentCount - 1)) / (opponentCount + 1);
+                if (fanWidth > fits)
+                {
+                    fanWidth = Mathf.Max(minFanWidth, fits);
+                }
+            }
+
+            return new SeatLayout
+            {
+                Scale = scale,
+                BlockHeight = SeatBlockHeight * scale,
+                ArchDepth = opponentCount <= 2 ? 80f : (opponentCount == 3 ? 120f : 150f),
+                FanWidth = fanWidth,
+                MaxX = room - fanWidth
+            };
+        }
+
+        private Vector2 SeatPosition(int seatIndex, int opponentCount)
+        {
+            return SeatPosition(seatIndex, opponentCount, BuildSeatLayout(opponentCount));
+        }
+
         /// <summary>
         /// Места соперников по дуге вокруг стола: игрок сидит внизу, соперники занимают дугу
-        /// от левого края через верх к правому. Чем их больше, тем шире разводится дуга —
-        /// один садится строго напротив, двое по верхним углам, четверо и больше обходят стол.
+        /// от левого края через верх к правому. Один садится строго напротив, остальные
+        /// расходятся до краёв сукна и плавно опускаются к углам.
         /// </summary>
-        private Vector2 SeatPosition(int seatIndex, int opponentCount)
+        private Vector2 SeatPosition(int seatIndex, int opponentCount, SeatLayout layout)
         {
             if (opponentCount <= 1)
             {
                 return new Vector2(0f, -SeatTopMargin);
             }
 
-            float maxX, archDepth;
-            if (opponentCount == 2)
-            {
-                // Двое садятся широко: иначе они висят прямо над картами в центре стола.
-                maxX = 760f;
-                archDepth = 60f;
-            }
-            else if (opponentCount == 3)
-            {
-                maxX = 700f;
-                archDepth = 150f;
-            }
-            else
-            {
-                maxX = 820f;
-                archDepth = 200f;
-            }
-
-            var scale = OpponentVisualScale(opponentCount);
-            var halfBlock = 100f * scale;
-            var blockHeight = OpponentBlockHeight * scale;
-            var canvasRect = ((RectTransform)transform).rect;
-
-            // На узком экране столько места по бокам может не быть — крайних просто срезало бы.
-            maxX = Mathf.Min(maxX, canvasRect.width * 0.5f - halfBlock - 20f);
-
-            // По горизонтали места стоят равномерно, а высота падает по четвёртой степени:
-            // середина ряда держится высоко и не задевает карты на столе, зато крайние
-            // места круто уходят вниз и занимают пустые углы.
             var t = seatIndex / (float)(opponentCount - 1);
-            var x = Mathf.Lerp(-maxX, maxX, t);
-            var normalized = x / maxX;
-            var falloff = normalized * normalized * normalized * normalized;
-            var depth = archDepth * falloff;
+            var x = Mathf.Lerp(-layout.MaxX, layout.MaxX, t);
+
+            // Высота падает по квадрату от середины ряда к краям: получается именно дуга,
+            // а не ряд с двумя провалившимися углами, как было при четвёртой степени.
+            var normalized = layout.MaxX > 0f ? x / layout.MaxX : 0f;
+            var depth = layout.ArchDepth * normalized * normalized;
+
+            var canvasRect = ((RectTransform)transform).rect;
+            var figureHalf = AvatarWidth * 0.5f * layout.Scale;
 
             // Если место по горизонтали попадает в зону карт стола (на узком экране развести
-            // шире просто некуда), опускать его туда нельзя — держим выше карт.
-            if (Mathf.Abs(x) - halfBlock < TableCardsHalfWidth)
+            // шире просто некуда), опускать его туда нельзя — над картами нужен воздух,
+            // иначе персонаж, его карты и стол сливаются в одну ленту.
+            if (Mathf.Abs(x) - figureHalf < TableCardsHalfWidth)
             {
-                var overCardsLimit = (TableRowTop - 128f) - SeatTopMargin - blockHeight - 10f;
+                var overCardsLimit = TableRowTop - TableCardsHalfHeight - SeatToCardsGap - SeatTopMargin - layout.BlockHeight;
                 depth = Mathf.Min(depth, Mathf.Max(0f, overCardsLimit));
             }
 
             // А крайние места не должны сползти на колоду и кнопки в нижних углах.
-            var cornerLimit = canvasRect.height - 350f - SeatTopMargin - blockHeight;
+            var cornerLimit = canvasRect.height - 350f - SeatTopMargin - layout.BlockHeight;
             depth = Mathf.Min(depth, Mathf.Max(0f, cornerLimit));
 
             return new Vector2(x, -(SeatTopMargin + depth));
@@ -461,6 +508,7 @@ namespace CardGameClient
 
             var hand = _game.Players[HumanIndex].Hand;
             var count = hand.Count;
+            _handHalfWidth = 0f;
             if (count == 0)
             {
                 return;
@@ -483,6 +531,10 @@ namespace CardGameClient
 
             var spacing = Mathf.Min(cardWidth * 0.82f, availableHandWidth / count);
             var mid = (count - 1) / 2f;
+
+            // Крайние карты наклонены, поэтому к половине ширины добавляем запас на наклон:
+            // по этой границе рядом встаёт своё место, и карта его не задевает.
+            _handHalfWidth = spacing * mid + cardWidth * 0.5f + 18f;
 
             for (var i = 0; i < count; i++)
             {
@@ -517,7 +569,7 @@ namespace CardGameClient
 
             var actingIndex = _waitingForHuman ? (int?)HumanIndex : DurakTurnOrder.GetActingPlayer(_game);
             var opponentCount = _game.Players.Count - 1;
-            var scale = OpponentVisualScale(opponentCount);
+            var layout = BuildSeatLayout(opponentCount);
             var seat = 0;
 
             foreach (var player in _game.Players)
@@ -528,12 +580,14 @@ namespace CardGameClient
                 }
 
                 var colorIndex = seat;
-                var seatPosition = SeatPosition(seat, opponentCount);
+                var seatPosition = SeatPosition(seat, opponentCount, layout);
                 seat++;
 
                 var isActing = actingIndex.HasValue && actingIndex.Value == player.Index;
                 var color = OpponentColors[colorIndex % OpponentColors.Length];
-                var containerRect = BuildSeatBlock(_opponentsArea, player, color, isActing, scale, true);
+                // Веер уходит в свою сторону экрана: у левых соперников влево, у правых вправо.
+                var fanSide = seatPosition.x < 0f ? -1f : 1f;
+                var containerRect = BuildSeatBlock(_opponentsArea, player, color, isActing, layout.Scale, layout.FanWidth, fanSide);
 
                 // Привязка к верхнему краю и пивот сверху: место задаётся отступом от верха
                 // экрана, поэтому расстояние до надписей не зависит от пропорций окна.
@@ -543,36 +597,44 @@ namespace CardGameClient
             }
         }
 
-        /// <summary>Своё место: тот же блок, что у соперников, но без веера — карты и так на руке.</summary>
+        /// <summary>
+        /// Своё место: тот же блок, что у соперников, но веер не рисуется — карты и так на руке.
+        /// Стоит вплотную к левому краю веера и едет вместе с ним, когда карт становится больше:
+        /// так сразу видно, что эти карты мои, а не просто лежат внизу экрана.
+        /// </summary>
         private void RefreshPlayerSeat()
         {
             Clear(_playerSeatArea);
 
-            var isActing = _waitingForHuman;
-            var block = BuildSeatBlock(_playerSeatArea, _game.Players[HumanIndex], HumanColor, isActing, 1f, false);
+            var canvasHalf = ((RectTransform)transform).rect.width * 0.5f;
+            var x = Mathf.Max(
+                -(_handHalfWidth + AvatarWidth * 0.5f + 30f),
+                -canvasHalf + 356f);
+            _playerSeatArea.anchoredPosition = new Vector2(x, PlayerSeatBottom);
+
+            var block = BuildSeatBlock(_playerSeatArea, _game.Players[HumanIndex], HumanColor, _waitingForHuman, 1f, 0f, 1f);
             block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f);
             block.pivot = new Vector2(0.5f, 0.5f);
             block.anchoredPosition = Vector2.zero;
         }
 
-        /// <summary>Место за столом: фигура, имя, бейдж роли и (для соперников) веер рубашек.</summary>
-        private RectTransform BuildSeatBlock(Transform parent, DurakPlayer player, Color color, bool isActing, float scale, bool showCardFan)
+        /// <summary>
+        /// Место за столом: фигура, имя, бейдж роли и веер рубашек сбоку.
+        /// Веер именно сбоку, а не под фигурой: иначе по вертикали всё слипается в ленту
+        /// "персонаж — его карты — стол — своя рука", и воздуха между ними не остаётся.
+        /// </summary>
+        private RectTransform BuildSeatBlock(Transform parent, DurakPlayer player, Color color, bool isActing, float scale, float fanWidth, float fanSide)
         {
-            var container = new GameObject("Seat", typeof(RectTransform), typeof(VerticalLayoutGroup));
+            var container = new GameObject("Seat", typeof(RectTransform));
             container.transform.SetParent(parent, false);
 
             var containerRect = (RectTransform)container.transform;
-            containerRect.sizeDelta = new Vector2(200f * scale, 250f * scale);
-
-            var containerLayout = container.GetComponent<VerticalLayoutGroup>();
-            containerLayout.spacing = 8f * scale;
-            containerLayout.childAlignment = TextAnchor.UpperCenter;
-            containerLayout.childControlWidth = false;
-            containerLayout.childControlHeight = false;
-            containerLayout.childForceExpandWidth = false;
-            containerLayout.childForceExpandHeight = false;
+            containerRect.sizeDelta = new Vector2(AvatarWidth * scale, SeatBlockHeight * scale);
 
             var avatar = CreateAvatar(container.transform, player.Name.Substring(0, 1), color, isActing, PortraitFor(player.Index), scale);
+            avatar.anchorMin = avatar.anchorMax = new Vector2(0.5f, 1f);
+            avatar.pivot = new Vector2(0.5f, 1f);
+            avatar.anchoredPosition = Vector2.zero;
 
             // Бейдж роли лежит поверх нижнего края фигуры, а не отдельной строкой —
             // так он не съедает высоту, которой и так впритык.
@@ -587,58 +649,65 @@ namespace CardGameClient
 
             var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
             label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-            label.GetComponent<RectTransform>().sizeDelta = new Vector2(200f * scale, 30f * scale);
+            PlaceUnderAvatar((RectTransform)label.transform, SeatNameOffset * scale, new Vector2(200f * scale, SeatNameHeight * scale));
 
             if (player.IsOut)
             {
                 var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
-                outText.GetComponent<RectTransform>().sizeDelta = new Vector2(160f * scale, 28f * scale);
+                PlaceUnderAvatar((RectTransform)outText.transform, (SeatNameOffset + SeatNameHeight) * scale, new Vector2(160f * scale, 28f * scale));
                 return containerRect;
             }
 
-            if (!showCardFan)
+            if (fanWidth > 0f && player.Hand.Count > 0)
             {
-                return containerRect;
-            }
-
-            var row = new GameObject("Cards", typeof(RectTransform));
-            row.transform.SetParent(container.transform, false);
-            // Высота строки должна вмещать саму рубашку (168 * масштаб карты) с запасом
-            // на провисание веера — иначе карты торчат вверх и наезжают на имя.
-            ((RectTransform)row.transform).sizeDelta = new Vector2(200f * scale, 100f * scale);
-
-            var handCount = player.Hand.Count;
-            if (handCount > 0)
-            {
-                var backScale = 0.6f * scale;
-                var backWidth = CardView.Width * backScale;
-                var angleStep = Mathf.Min(6f, 24f / Mathf.Max(handCount - 1, 1));
-
-                // Сверх "комфортного" числа карт веер не растёт вширь, а наоборот
-                // сжимается — большая рука выглядит плотной стопкой, а не растянутым рядом.
-                const int comfortableCount = 6;
-                var availableWidth = 200f * scale;
-                if (handCount > comfortableCount)
-                {
-                    availableWidth *= Mathf.Sqrt(comfortableCount / (float)handCount);
-                }
-
-                var spacing = Mathf.Min(backWidth * 0.55f, availableWidth / handCount);
-                var mid = (handCount - 1) / 2f;
-
-                for (var h = 0; h < handCount; h++)
-                {
-                    var back = CardView.Create(row.transform, _font, backScale);
-                    back.ShowBack();
-                    back.SetPlain();
-
-                    var offset = h - mid;
-                    var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 4f);
-                    back.SetRestTransform(position, -offset * angleStep);
-                }
+                BuildSeatFan(containerRect, player.Hand.Count, scale, fanWidth, fanSide);
             }
 
             return containerRect;
+        }
+
+        /// <summary>
+        /// Веер рубашек сбоку от фигуры, на высоте рук. Ширина задана снаружи, поэтому
+        /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
+        /// </summary>
+        private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
+        {
+            var backScale = 0.55f * scale;
+            var backWidth = CardView.Width * backScale;
+            var angleStep = Mathf.Min(6f, 24f / Mathf.Max(handCount - 1, 1));
+            var spacing = Mathf.Min(backWidth * 0.55f, Mathf.Max(fanWidth - backWidth, 0f) / Mathf.Max(handCount - 1, 1));
+
+            var row = new GameObject("Cards", typeof(RectTransform));
+            row.transform.SetParent(container, false);
+
+            var rowRect = (RectTransform)row.transform;
+            rowRect.anchorMin = rowRect.anchorMax = new Vector2(0.5f, 1f);
+            // Пивот на той стороне, которой веер примыкает к фигуре, — так он растёт наружу.
+            rowRect.pivot = new Vector2(fanSide < 0f ? 1f : 0f, 0.5f);
+            rowRect.anchoredPosition = new Vector2(
+                fanSide * (AvatarWidth * 0.5f + SeatFanGap) * scale,
+                -AvatarHeight * 0.58f * scale);
+            rowRect.sizeDelta = new Vector2(spacing * (handCount - 1) + backWidth, CardView.Height * backScale + 16f * scale);
+
+            var mid = (handCount - 1) / 2f;
+            for (var h = 0; h < handCount; h++)
+            {
+                var back = CardView.Create(row.transform, _font, backScale);
+                back.ShowBack();
+                back.SetPlain();
+
+                var offset = h - mid;
+                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 3f);
+                back.SetRestTransform(position, -offset * angleStep);
+            }
+        }
+
+        private static void PlaceUnderAvatar(RectTransform rect, float offsetFromTop, Vector2 size)
+        {
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -offsetFromTop);
+            rect.sizeDelta = size;
         }
 
         /// <summary>
@@ -648,9 +717,9 @@ namespace CardGameClient
         private static float OpponentVisualScale(int opponentCount)
         {
             if (opponentCount <= 2) return 1f;
-            if (opponentCount <= 4) return 0.85f;
-            if (opponentCount <= 6) return 0.72f;
-            return 0.62f;
+            if (opponentCount <= 4) return 0.9f;
+            if (opponentCount <= 6) return 0.8f;
+            return 0.7f;
         }
 
         private void CreateRoleChip(RectTransform avatar, string text, Color color, float scale)
@@ -661,7 +730,7 @@ namespace CardGameClient
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
             rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = new Vector2(0f, 6f * scale);
+            rect.anchoredPosition = new Vector2(0f, 10f * scale);
             rect.sizeDelta = new Vector2(100f * scale, 32f * scale);
 
             var image = go.GetComponent<Image>();
@@ -892,12 +961,11 @@ namespace CardGameClient
             tableLayout.childForceExpandWidth = false;
             tableLayout.childForceExpandHeight = false;
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 138f), new Vector2(1600f, 200f));
+            // Своё место создаётся до руки, чтобы карты ложились поверх фигуры, а не наоборот.
+            // Позиция по горизонтали считается в RefreshPlayerSeat — она зависит от ширины веера.
+            _playerSeatArea = CreatePanel("PlayerSeat", root, new Vector2(0.5f, 0f), new Vector2(-520f, PlayerSeatBottom), new Vector2(180f, 200f));
 
-            // Своё место — в нижнем ряду между колодой и рукой: за столом игрок был
-            // единственным без лица. Привязка к левому краю, чтобы на любом экране
-            // оно стояло сразу за колодой.
-            _playerSeatArea = CreatePanel("PlayerSeat", root, new Vector2(0f, 0f), new Vector2(400f, 150f), new Vector2(180f, 200f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 138f), new Vector2(1600f, 200f));
 
             // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
             // середину краёв стола теперь занимают крайние соперники.
