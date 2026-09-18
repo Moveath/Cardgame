@@ -22,9 +22,8 @@ namespace CardGameClient
         private static readonly Color[] OpponentColors = { new Color(0.30f, 0.52f, 0.86f), new Color(0.82f, 0.42f, 0.62f) };
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
 
-        // Насколько увеличить портрет внутри кружка и насколько опустить, чтобы в кадр попало лицо.
-        private const float PortraitZoom = 1.75f;
-        private const float PortraitDrop = 0.45f;
+        private const float AvatarWidth = 112f;
+        private const float AvatarHeight = 136f;
 
         private DurakGame _game;
         private SimpleDurakBot _bot;
@@ -420,10 +419,10 @@ namespace CardGameClient
 
                 var header = new GameObject("Header", typeof(RectTransform), typeof(HorizontalLayoutGroup));
                 header.transform.SetParent(container, false);
-                ((RectTransform)header.transform).sizeDelta = new Vector2(340f, 64f);
+                ((RectTransform)header.transform).sizeDelta = new Vector2(340f, AvatarHeight + 12f);
 
                 var headerLayout = header.GetComponent<HorizontalLayoutGroup>();
-                headerLayout.spacing = 10f;
+                headerLayout.spacing = 14f;
                 headerLayout.childAlignment = TextAnchor.MiddleLeft;
                 headerLayout.childControlWidth = false;
                 headerLayout.childControlHeight = false;
@@ -432,17 +431,29 @@ namespace CardGameClient
 
                 CreateAvatar(header.transform, player.Name.Substring(0, 1), OpponentColors[colorIndex % OpponentColors.Length], isActing, PortraitFor(player.Index));
 
-                var label = CreateText(header.transform, player.Name, 26, TextAnchor.MiddleLeft);
+                var info = new GameObject("Info", typeof(RectTransform), typeof(VerticalLayoutGroup));
+                info.transform.SetParent(header.transform, false);
+                ((RectTransform)info.transform).sizeDelta = new Vector2(190f, 90f);
+
+                var infoLayout = info.GetComponent<VerticalLayoutGroup>();
+                infoLayout.spacing = 8f;
+                infoLayout.childAlignment = TextAnchor.MiddleLeft;
+                infoLayout.childControlWidth = false;
+                infoLayout.childControlHeight = false;
+                infoLayout.childForceExpandWidth = false;
+                infoLayout.childForceExpandHeight = false;
+
+                var label = CreateText(info.transform, player.Name, 28, TextAnchor.MiddleLeft);
                 label.color = isActing ? ActiveGlow : new Color(0.94f, 0.95f, 0.93f);
-                label.GetComponent<RectTransform>().sizeDelta = new Vector2(130f, 60f);
+                label.GetComponent<RectTransform>().sizeDelta = new Vector2(190f, 40f);
 
                 if (player.Index == _game.DefenderIndex)
                 {
-                    CreateRoleChip(header.transform, "защита", new Color(0.24f, 0.45f, 0.78f));
+                    CreateRoleChip(info.transform, "защита", new Color(0.24f, 0.45f, 0.78f));
                 }
                 else if (player.Index == _game.AttackerIndex)
                 {
-                    CreateRoleChip(header.transform, "атака", new Color(0.72f, 0.31f, 0.20f));
+                    CreateRoleChip(info.transform, "атака", new Color(0.72f, 0.31f, 0.20f));
                 }
 
                 if (player.IsOut)
@@ -541,58 +552,51 @@ namespace CardGameClient
 
         private void CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait)
         {
-            const float ringSize = 58f;
-            const float avatarSize = 48f;
-
             var wrapper = new GameObject("Avatar", typeof(RectTransform));
             wrapper.transform.SetParent(parent, false);
-            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(ringSize, ringSize);
+            ((RectTransform)wrapper.transform).sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
 
-            var ring = new GameObject("Ring", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            ring.transform.SetParent(wrapper.transform, false);
-            var ringRect = (RectTransform)ring.transform;
-            ringRect.anchorMin = ringRect.anchorMax = ringRect.pivot = new Vector2(0.5f, 0.5f);
-            ringRect.sizeDelta = new Vector2(ringSize, ringSize);
-            var ringImage = ring.GetComponent<Image>();
-            ringImage.sprite = UiTextures.Circle(64, Color.white);
-            ringImage.type = Image.Type.Sliced;
-            ringImage.color = isActing ? ActiveGlow : new Color(0f, 0f, 0f, 0f);
+            if (isActing)
+            {
+                var glow = new GameObject("Glow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                glow.transform.SetParent(wrapper.transform, false);
+                var glowRect = (RectTransform)glow.transform;
+                glowRect.anchorMin = glowRect.anchorMax = glowRect.pivot = new Vector2(0.5f, 0.5f);
+                glowRect.sizeDelta = new Vector2(AvatarWidth + 10f, AvatarHeight + 10f);
+                var glowImage = glow.GetComponent<Image>();
+                glowImage.sprite = UiTextures.RoundedRect(64, 80, 18f, ActiveGlow);
+                glowImage.type = Image.Type.Sliced;
+                glowImage.raycastTarget = false;
+            }
 
-            var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
-            circle.transform.SetParent(wrapper.transform, false);
-            var circleRect = (RectTransform)circle.transform;
-            circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
-            circleRect.sizeDelta = new Vector2(avatarSize, avatarSize);
+            var plate = new GameObject("Plate", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
+            plate.transform.SetParent(wrapper.transform, false);
+            var plateRect = (RectTransform)plate.transform;
+            plateRect.anchorMin = plateRect.anchorMax = plateRect.pivot = new Vector2(0.5f, 0.5f);
+            plateRect.sizeDelta = new Vector2(AvatarWidth, AvatarHeight);
 
-            var circleShadow = circle.GetComponent<Shadow>();
-            circleShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
-            circleShadow.effectDistance = new Vector2(2f, -3f);
+            var plateShadow = plate.GetComponent<Shadow>();
+            plateShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+            plateShadow.effectDistance = new Vector2(3f, -4f);
 
-            var circleImage = circle.GetComponent<Image>();
-            circleImage.sprite = UiTextures.Circle(64, color);
-            circleImage.type = Image.Type.Sliced;
+            var plateImage = plate.GetComponent<Image>();
+            plateImage.sprite = UiTextures.RoundedRect(64, 80, 14f, color);
+            plateImage.type = Image.Type.Sliced;
 
             if (portrait == null)
             {
-                var label = CreateText(circle.transform, initial.ToUpperInvariant(), 24, TextAnchor.MiddleCenter);
+                var label = CreateText(plate.transform, initial.ToUpperInvariant(), 44, TextAnchor.MiddleCenter);
                 Stretch((RectTransform)label.transform);
                 label.color = Color.white;
                 label.fontStyle = FontStyle.Bold;
                 return;
             }
 
-            // Портрет нарисован по грудь. Если вписать его целиком, лицо станет крошечным,
-            // поэтому увеличиваем и сдвигаем вниз, чтобы в кружок попала голова, а плечи
-            // ушли под обрез маски — как на аватарках в покерных клиентах.
-            circle.AddComponent<Mask>().showMaskGraphic = true;
-
+            // Портрет вырезан с прозрачным фоном и вписывается в подложку целиком,
+            // поэтому персонаж виден полностью и никуда не вылезает за края.
             var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            portraitGo.transform.SetParent(circle.transform, false);
-
-            var portraitRect = (RectTransform)portraitGo.transform;
-            portraitRect.anchorMin = portraitRect.anchorMax = portraitRect.pivot = new Vector2(0.5f, 0.5f);
-            portraitRect.sizeDelta = new Vector2(avatarSize * PortraitZoom, avatarSize * PortraitZoom);
-            portraitRect.anchoredPosition = new Vector2(0f, -avatarSize * PortraitDrop);
+            portraitGo.transform.SetParent(plate.transform, false);
+            Stretch((RectTransform)portraitGo.transform);
 
             var portraitImage = portraitGo.GetComponent<Image>();
             portraitImage.sprite = portrait;
@@ -695,10 +699,10 @@ namespace CardGameClient
 
             _opponentSlots = new RectTransform[2];
 
-            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -140f), new Vector2(360f, 150f));
+            _opponentSlots[0] = CreatePanel("OpponentLeft", root, new Vector2(0f, 1f), new Vector2(40f, -100f), new Vector2(360f, 150f));
             _opponentSlots[0].pivot = new Vector2(0f, 1f);
 
-            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -140f), new Vector2(360f, 150f));
+            _opponentSlots[1] = CreatePanel("OpponentRight", root, new Vector2(1f, 1f), new Vector2(-40f, -100f), new Vector2(360f, 150f));
             _opponentSlots[1].pivot = new Vector2(1f, 1f);
 
             foreach (var slot in _opponentSlots)
