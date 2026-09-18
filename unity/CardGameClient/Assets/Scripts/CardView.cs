@@ -16,6 +16,7 @@ namespace CardGameClient
     {
         public const float Width = 120f;
         public const float Height = 168f;
+        public const float FlightDuration = 0.3f;
 
         private const float HoverLift = 24f;
         private const float HoverScale = 1.12f;
@@ -207,22 +208,24 @@ namespace CardGameClient
 
         private IEnumerator AnimateFlyIn(Vector2 fromOffset)
         {
-            const float duration = 0.15f;
-            const float startScale = 0.85f;
+            // Карта идёт крупнее нормального размера и "опускается" до него — так читается
+            // жест "взял в руку и положил на стол", а не просто подъезд картинки сбоку.
+            const float startScale = 1.2f;
 
             var target = Rect.anchoredPosition;
             var start = target + fromOffset;
-            var startRotation = fromOffset.x > 0f ? -14f : 14f;
+            var startRotation = fromOffset.x > 0f ? -16f : 16f;
 
             Rect.anchoredPosition = start;
             Rect.localScale = new Vector3(startScale, startScale, 1f);
             Rect.localRotation = Quaternion.Euler(0f, 0f, startRotation);
 
             var t = 0f;
-            while (t < duration)
+            while (t < FlightDuration)
             {
                 t += Time.deltaTime;
-                var k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / duration));
+                var linear = Mathf.Clamp01(t / FlightDuration);
+                var k = 1f - Mathf.Pow(1f - linear, 3f);
                 Rect.anchoredPosition = Vector2.Lerp(start, target, k);
                 var scale = Mathf.Lerp(startScale, 1f, k);
                 Rect.localScale = new Vector3(scale, scale, 1f);

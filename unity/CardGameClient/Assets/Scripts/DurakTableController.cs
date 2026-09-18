@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using CardGame.Bots;
 using CardGame.Core.Cards;
 using CardGame.Core.Games.Durak;
@@ -45,7 +46,15 @@ namespace CardGameClient
         private bool _waitingForHuman;
 
         private readonly HashSet<Card> _tableCardsShown = new HashSet<Card>();
+        private readonly List<TablePair> _tableSnapshot = new List<TablePair>();
+        private string _tableSignature;
         private int? _lastActorIndex;
+
+        private struct TablePair
+        {
+            public Card Attack;
+            public Card? Defense;
+        }
 
         private void Start()
         {
@@ -63,6 +72,8 @@ namespace CardGameClient
             _waitingForHuman = false;
             _lastActorIndex = null;
             _tableCardsShown.Clear();
+            _tableSnapshot.Clear();
+            _tableSignature = null;
 
             _lastAction.text = string.Empty;
 
@@ -100,6 +111,7 @@ namespace CardGameClient
                     if (_game.TryApplyMove(HumanIndex, move, out var error))
                     {
                         _lastActorIndex = HumanIndex;
+                        RememberLastDefense(move);
                         SetLastAction(_game.Players[HumanIndex].Name + ": " + move);
                     }
                     else
@@ -108,6 +120,7 @@ namespace CardGameClient
                     }
 
                     Refresh();
+                    yield return new WaitForSeconds(CardView.FlightDuration);
                 }
                 else
                 {
@@ -124,10 +137,12 @@ namespace CardGameClient
                     if (_game.TryApplyMove(actor.Value, move.Value, out _))
                     {
                         _lastActorIndex = actor.Value;
+                        RememberLastDefense(move.Value);
                         SetLastAction(moverName + ": " + move.Value);
                     }
 
                     Refresh();
+                    yield return new WaitForSeconds(CardView.FlightDuration);
                 }
             }
 
@@ -191,12 +206,24 @@ namespace CardGameClient
 
         private void RefreshTable()
         {
+            var pairs = CollectTablePairs();
+            var signature = TableSignature(pairs);
+
+            // Экран обновляется несколько раз подряд (после хода и на входе в следующий ход).
+            // Если расклад не изменился, ничего не пересоздаём — иначе только что запущенный
+            // перелёт карты уничтожается в том же кадре и его никто не видит.
+            if (signature == _tableSignature)
+            {
+                return;
+            }
+
+            _tableSignature = signature;
             Clear(_tableRow);
 
             const float tableCardScale = 1.1f;
             var stillOnTable = new HashSet<Card>();
 
-            foreach (var slot in _game.Table)
+            foreach (var pair in pairs)
             {
                 var container = new GameObject("Slot", typeof(RectTransform));
                 container.transform.SetParent(_tableRow, false);
@@ -207,22 +234,22 @@ namespace CardGameClient
 
                 var attack = CardView.Create(container.transform, _font, tableCardScale);
                 attack.Rect.anchoredPosition = attackPosition;
-                attack.ShowFace(slot.Attack);
+                attack.ShowFace(pair.Attack);
                 attack.SetPlain();
-                AnimateArrival(attack, slot.Attack);
-                stillOnTable.Add(slot.Attack);
+                AnimateArrival(attack, pair.Attack);
+                stillOnTable.Add(pair.Attack);
 
-                if (slot.Defense.HasValue)
+                if (pair.Defense.HasValue)
                 {
                     var defensePosition = new Vector2(18f, -20f);
                     CreateCardShadow(container.transform, defensePosition, tableCardScale);
 
                     var defense = CardView.Create(container.transform, _font, tableCardScale);
                     defense.Rect.anchoredPosition = defensePosition;
-                    defense.ShowFace(slot.Defense.Value);
+                    defense.ShowFace(pair.Defense.Value);
                     defense.SetPlain();
-                    AnimateArrival(defense, slot.Defense.Value);
-                    stillOnTable.Add(slot.Defense.Value);
+                    AnimateArrival(defense, pair.Defense.Value);
+                    stillOnTable.Add(pair.Defense.Value);
                 }
             }
 
@@ -231,6 +258,56 @@ namespace CardGameClient
             {
                 _tableCardsShown.Add(card);
             }
+        }
+
+        /// <summary>
+        /// Что рисовать на столе. Пока партия идёт — текущий расклад; когда она закончилась,
+        /// логика уже сбросила стол в биту, поэтому показываем запомненную последнюю раздачу,
+        /// чтобы было видно, чем отбились в конце.
+        /// </summary>
+        private List<TablePair> CollectTablePairs()
+        {
+            if (_game.Table.Count > 0)
+            {
+                _tableSnapshot.Clear();
+                foreach (var slot in _game.Table)
+                {
+                    _tableSnapshot.Add(new TablePair { Attack = slot.Attack, Defense = slot.Defense });
+                }
+
+                return _tableSnapshot;
+            }
+
+            if (!_game.IsFinished)
+            {
+                _tableSnapshot.Clear();
+            }
+
+            return _tableSnapshot;
+        }
+
+        /// <summary>Дописывает в запомненный расклад последний ход — его логика успевает стереть до перерисовки.</summary>
+        private void RememberLastDefense(DurakMove move)
+        {
+            if (move.Type != DurakMoveType.Defend || move.TargetSlot < 0 || move.TargetSlot >= _tableSnapshot.Count)
+            {
+                return;
+            }
+
+            var pair = _tableSnapshot[move.TargetSlot];
+            pair.Defense = move.Card;
+            _tableSnapshot[move.TargetSlot] = pair;
+        }
+
+        private static string TableSignature(List<TablePair> pairs)
+        {
+            var builder = new StringBuilder();
+            foreach (var pair in pairs)
+            {
+                builder.Append(pair.Attack).Append('/').Append(pair.Defense).Append('|');
+            }
+
+            return builder.ToString();
         }
 
         private void AnimateArrival(CardView view, Card card)
