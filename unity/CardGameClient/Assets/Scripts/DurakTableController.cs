@@ -42,7 +42,8 @@ namespace CardGameClient
 
         private RectTransform _tableRow;
         private RectTransform _handRow;
-        private RectTransform _opponentsRow;
+        private RectTransform _opponentBackRow;
+        private RectTransform _opponentFrontRow;
         private RectTransform _deckStackArea;
         private RectTransform _discardStackArea;
         private CardView _trumpCard;
@@ -205,7 +206,7 @@ namespace CardGameClient
 
         private void RefreshDeckPile()
         {
-            CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(5f, 6f), 1.05f);
+            CreateCardBackStack(_deckStackArea, _game.DeckCount, new Vector2(9f, 0f), 1.05f);
             _deckInfo.text = _game.DeckCount > 0 ? "в колоде: " + _game.DeckCount : "колода пуста";
 
             // Козырная карта лежит на дне колоды: когда колода кончилась, её уже забрал игрок,
@@ -222,8 +223,8 @@ namespace CardGameClient
 
         private void RefreshDiscardPile()
         {
-            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(4f, -5f), 1.05f);
-            _discardInfo.text = _game.DiscardCount > 0 ? "бита: " + _game.DiscardCount : "бита пуста";
+            CreateCardBackStack(_discardStackArea, _game.DiscardCount, new Vector2(9f, 0f), 1.05f);
+            _discardInfo.text = "бита: " + _game.DiscardCount;
         }
 
         private void CreateCardBackStack(RectTransform container, int count, Vector2 step, float scale, int maxVisible = 5)
@@ -356,7 +357,7 @@ namespace CardGameClient
             view.PlayFlyIn(SeatOffset(_lastActorIndex));
         }
 
-        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху по позиции в ряду соперников.</summary>
+        /// <summary>Откуда карта прилетает на стол: снизу — от игрока, сверху/чуть ближе — по месту соперника в его ряду.</summary>
         private Vector2 SeatOffset(int? playerIndex)
         {
             if (!playerIndex.HasValue || playerIndex.Value == HumanIndex)
@@ -365,15 +366,49 @@ namespace CardGameClient
             }
 
             var opponentCount = _game.Players.Count - 1;
-            if (opponentCount <= 1)
+            GetSeatPlacement(playerIndex.Value - 1, opponentCount, out var isBackRow, out var positionInRow, out var rowCount);
+
+            var y = isBackRow ? 340f : 220f;
+            if (rowCount <= 1)
             {
-                return new Vector2(0f, 300f);
+                return new Vector2(0f, y);
             }
 
-            var seat = playerIndex.Value - 1;
-            var t = seat / (float)(opponentCount - 1);
+            var t = positionInRow / (float)(rowCount - 1);
             var x = Mathf.Lerp(-800f, 800f, t);
-            return new Vector2(x, 300f);
+            return new Vector2(x, y);
+        }
+
+        /// <summary>
+        /// Соперники садятся двумя рядами, как за настоящим столом: 1-2 — целиком в дальнем ряду,
+        /// от 3 и больше — лишний (при нечётном числе) уходит в дальний, остальные делятся поровну.
+        /// </summary>
+        private static void GetSeatPlacement(int seatIndex, int opponentCount, out bool isBackRow, out int positionInRow, out int rowCount)
+        {
+            int backCount, frontCount;
+            if (opponentCount <= 2)
+            {
+                backCount = opponentCount;
+                frontCount = 0;
+            }
+            else
+            {
+                backCount = Mathf.CeilToInt(opponentCount / 2f);
+                frontCount = opponentCount - backCount;
+            }
+
+            if (seatIndex < backCount)
+            {
+                isBackRow = true;
+                positionInRow = seatIndex;
+                rowCount = backCount;
+            }
+            else
+            {
+                isBackRow = false;
+                positionInRow = seatIndex - backCount;
+                rowCount = frontCount;
+            }
         }
 
         private static void CreateCardShadow(Transform parent, Vector2 position, float scale)
@@ -406,7 +441,17 @@ namespace CardGameClient
             const float handCardScale = 1.15f;
             var cardWidth = CardView.Width * handCardScale;
             var angleStep = Mathf.Min(5f, 22f / Mathf.Max(count - 1, 1));
-            var spacing = Mathf.Min(cardWidth * 0.82f, 1500f / count);
+
+            // Та же логика, что и у соперников: после "комфортного" числа карт веер сжимается,
+            // а не растягивается на весь экран — видно, что карт много, но выглядит компактно.
+            const int comfortableHandCount = 8;
+            var availableHandWidth = 1500f;
+            if (count > comfortableHandCount)
+            {
+                availableHandWidth *= Mathf.Sqrt(comfortableHandCount / (float)count);
+            }
+
+            var spacing = Mathf.Min(cardWidth * 0.82f, availableHandWidth / count);
             var mid = (count - 1) / 2f;
 
             for (var i = 0; i < count; i++)
@@ -438,7 +483,8 @@ namespace CardGameClient
 
         private void RefreshOpponents()
         {
-            Clear(_opponentsRow);
+            Clear(_opponentBackRow);
+            Clear(_opponentFrontRow);
 
             var actingIndex = _waitingForHuman ? (int?)HumanIndex : DurakTurnOrder.GetActingPlayer(_game);
             var opponentCount = _game.Players.Count - 1;
@@ -453,10 +499,11 @@ namespace CardGameClient
                 }
 
                 var colorIndex = seat;
+                GetSeatPlacement(seat, opponentCount, out var isBackRow, out _, out _);
                 seat++;
 
                 var container = new GameObject("Opponent", typeof(RectTransform), typeof(VerticalLayoutGroup));
-                container.transform.SetParent(_opponentsRow, false);
+                container.transform.SetParent(isBackRow ? _opponentBackRow : _opponentFrontRow, false);
                 ((RectTransform)container.transform).sizeDelta = new Vector2(200f * scale, 220f * scale);
 
                 var containerLayout = container.GetComponent<VerticalLayoutGroup>();
@@ -501,7 +548,17 @@ namespace CardGameClient
                     var oppScale = 0.6f * scale;
                     var oppWidth = CardView.Width * oppScale;
                     var oppAngleStep = Mathf.Min(6f, 24f / Mathf.Max(oppCount - 1, 1));
-                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, 200f * scale / oppCount);
+
+                    // Сверх "комфортного" числа карт веер не растёт вширь, а наоборот
+                    // сжимается — большая рука выглядит плотной стопкой, а не растянутым рядом.
+                    const int comfortableOppCount = 6;
+                    var availableWidth = 200f * scale;
+                    if (oppCount > comfortableOppCount)
+                    {
+                        availableWidth *= Mathf.Sqrt(comfortableOppCount / (float)oppCount);
+                    }
+
+                    var oppSpacing = Mathf.Min(oppWidth * 0.55f, availableWidth / oppCount);
                     var oppMid = (oppCount - 1) / 2f;
 
                     for (var h = 0; h < oppCount; h++)
@@ -744,18 +801,25 @@ namespace CardGameClient
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
 
-            // Соперников от 1 до 7 — единый ряд сверху вместо двух жёстко зашитых углов,
-            // чтобы стол одинаково работал и на двоих, и на восьмерых. Пивот сверху,
-            // чтобы ряд рос только вниз и не наезжал на статус-строку над ним.
-            _opponentsRow = CreatePanel("Opponents", root, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(1800f, 220f));
-            _opponentsRow.pivot = new Vector2(0.5f, 1f);
-            var opponentsLayout = _opponentsRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            opponentsLayout.spacing = 18f;
-            opponentsLayout.childAlignment = TextAnchor.UpperCenter;
-            opponentsLayout.childControlWidth = false;
-            opponentsLayout.childControlHeight = false;
-            opponentsLayout.childForceExpandWidth = false;
-            opponentsLayout.childForceExpandHeight = false;
+            // Соперников от 1 до 7 — двумя рядами, как за настоящим овальным столом: дальний
+            // ряд (у 1-2 игроков — все они) и ближний, который заполняется от пятого соперника.
+            // Пивот сверху у обоих, чтобы ряды росли только вниз, а не наезжали на статус-строку.
+            _opponentBackRow = CreatePanel("OpponentsBack", root, new Vector2(0.5f, 1f), new Vector2(0f, -100f), new Vector2(1800f, 200f));
+            _opponentBackRow.pivot = new Vector2(0.5f, 1f);
+
+            _opponentFrontRow = CreatePanel("OpponentsFront", root, new Vector2(0.5f, 1f), new Vector2(0f, -290f), new Vector2(1800f, 200f));
+            _opponentFrontRow.pivot = new Vector2(0.5f, 1f);
+
+            foreach (var opponentRow in new[] { _opponentBackRow, _opponentFrontRow })
+            {
+                var opponentsLayout = opponentRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+                opponentsLayout.spacing = 18f;
+                opponentsLayout.childAlignment = TextAnchor.UpperCenter;
+                opponentsLayout.childControlWidth = false;
+                opponentsLayout.childControlHeight = false;
+                opponentsLayout.childForceExpandWidth = false;
+                opponentsLayout.childForceExpandHeight = false;
+            }
 
             _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(1500f, 280f));
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -768,7 +832,7 @@ namespace CardGameClient
 
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 195f), new Vector2(1600f, 200f));
 
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 420f));
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0.5f), new Vector2(150f, -20f), new Vector2(220f, 340f));
 
             const float trumpScale = 0.9f;
             var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -796,7 +860,7 @@ namespace CardGameClient
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
             Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -178f), new Vector2(220f, 50f));
 
-            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, -20f), new Vector2(220f, 320f));
+            var discardArea = CreatePanel("Discard", root, new Vector2(1f, 0.5f), new Vector2(-150f, -20f), new Vector2(220f, 260f));
             _discardStackArea = CreatePanel("DiscardStack", discardArea, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(100f, 100f));
 
             _discardInfo = CreateText(discardArea, string.Empty, 26, TextAnchor.MiddleCenter);
