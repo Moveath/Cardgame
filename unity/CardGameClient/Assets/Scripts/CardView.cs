@@ -200,6 +200,26 @@ namespace CardGameClient
         }
 
         /// <summary>
+        /// Отключает подъём под курсором, не трогая кликабельность. Нужна карте, у которой уже
+        /// раскрыт выбор хода (отбить/перевести): она и так поднята и стоит на месте плашек —
+        /// обычный "наплыв" курсора поднял бы её ещё выше и закрыл бы их собой.
+        /// </summary>
+        public void DisableHover()
+        {
+            _hoverEnabled = false;
+
+            if (_hoverRoutine != null)
+            {
+                StopCoroutine(_hoverRoutine);
+                _hoverRoutine = null;
+            }
+
+            Rect.anchoredPosition = _restPosition;
+            Rect.localRotation = Quaternion.Euler(0f, 0f, _restRotation);
+            Rect.localScale = Vector3.one;
+        }
+
+        /// <summary>
         /// Последняя сыгранная карта на столе: кликабельна для оспаривания, но внешне
         /// неотличима от обычной — ни рамки, ни подъёма под курсором. Любая подсветка
         /// здесь была бы подсказкой "тут что-то нечисто", и ловить обман стало бы незачем.

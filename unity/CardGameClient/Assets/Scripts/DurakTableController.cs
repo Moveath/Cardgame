@@ -740,14 +740,19 @@ namespace CardGameClient
                 if (direct.HasValue && transfer.HasValue)
                 {
                     var capturedCard = card;
+                    view.SetClickable(() => ToggleMoveChoice(capturedCard));
+
                     if (isChoosing)
                     {
                         choiceX = position.x;
                         choiceDefend = direct;
                         choiceTransfer = transfer;
+
+                        // Уже поднята и стоит вровень с плашками — обычный наплыв курсора
+                        // задрал бы её ещё выше и закрыл бы их собой.
+                        view.DisableHover();
                     }
 
-                    view.SetClickable(() => ToggleMoveChoice(capturedCard));
                     continue;
                 }
 
