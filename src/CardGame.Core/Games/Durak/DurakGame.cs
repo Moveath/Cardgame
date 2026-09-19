@@ -24,6 +24,7 @@ namespace CardGame.Core.Games.Durak
         private readonly HashSet<int> _cheatBlocked = new HashSet<int>();
         private readonly HashSet<int> _challengeBlocked = new HashSet<int>();
         private readonly List<Card> _lastBoutCards = new List<Card>();
+        private readonly List<int> _lastRefillDraws = new List<int>();
 
         // Раздача, готовая закрыться, но подвешенная до конца окна оспаривания. Без этого
         // обман последней картой был бы неуязвим: стол уходил бы в биту в тот же миг.
@@ -87,6 +88,18 @@ namespace CardGame.Core.Games.Durak
         public int BoutsFinished { get; private set; }
         public int? LastBoutTakenBy { get; private set; }
         public IReadOnlyList<Card> LastBoutCards => _lastBoutCards;
+
+        /// <summary>
+        /// Кто добирал карты в конце последней раздачи — по одному элементу на каждую
+        /// взятую карту, в порядке добора. Клиент показывает, как они летят из колоды,
+        /// а не подкидывает игроку сразу полную руку из ниоткуда.
+        /// </summary>
+        public IReadOnlyList<int> LastRefillDraws => _lastRefillDraws;
+
+        /// <summary>Штрафы за обман и за ложное обвинение — клиент показывает перелёт карты из колоды.</summary>
+        public int PenaltyEvents { get; private set; }
+        public int? LastPenaltyPlayer { get; private set; }
+        public bool LastPenaltyWasDrawn { get; private set; }
 
         public static DurakGame Create(IReadOnlyList<string> playerNames, int seed) =>
             Create(playerNames, Deck.Standard36(seed), DurakOptions.Classic);
@@ -434,15 +447,20 @@ namespace CardGame.Core.Games.Durak
             ResolveBoutIfReady();
         }
 
-        /// <summary>Штрафная карта из колоды. Колода пуста — штраф просто не выдаётся.</summary>
+        /// <summary>
+        /// Штрафная карта из колоды. Когда колода кончилась, брать неоткуда — наказанием
+        /// остаётся только запрет до конца раздачи, и клиенту надо это показать словами.
+        /// </summary>
         private void DrawPenalty(int playerIndex)
         {
-            if (_deck.IsEmpty)
-            {
-                return;
-            }
+            PenaltyEvents++;
+            LastPenaltyPlayer = playerIndex;
+            LastPenaltyWasDrawn = !_deck.IsEmpty;
 
-            _players[playerIndex].Add(_deck.Draw());
+            if (LastPenaltyWasDrawn)
+            {
+                _players[playerIndex].Add(_deck.Draw());
+            }
         }
 
         private bool TryAttack(int playerIndex, Card card, ref string? error)
@@ -949,6 +967,7 @@ namespace CardGame.Core.Games.Durak
             }
 
             order.Add(previousDefender);
+            _lastRefillDraws.Clear();
 
             foreach (var index in order)
             {
@@ -956,6 +975,7 @@ namespace CardGame.Core.Games.Durak
                 while (!player.IsOut && player.Hand.Count < DurakRules.HandSize && !_deck.IsEmpty)
                 {
                     player.Add(_deck.Draw());
+                    _lastRefillDraws.Add(index);
                 }
             }
         }

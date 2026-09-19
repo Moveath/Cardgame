@@ -18,7 +18,7 @@ namespace CardGameClient
         public const float Height = 168f;
         // Полёт нарочно неторопливый и с мягким стартом: карта должна на мгновение
         // задержаться у того, кто её кладёт, иначе не прочитать, откуда она прилетела.
-        public const float FlightDuration = 0.55f;
+        public const float FlightDuration = 0.45f;
 
         private const float HoverLift = 24f;
         private const float HoverScale = 1.12f;

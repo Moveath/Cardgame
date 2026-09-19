@@ -44,13 +44,19 @@ namespace CardGameClient
 
         // Конец раздачи: сначала пауза на прочитать расклад, потом карты уезжают к тому,
         // кто их забрал. Без этого стол просто мгновенно пустел и было непонятно, что было.
-        private const float BoutHoldDuration = 0.4f;
-        private const float BoutFlightDuration = 0.6f;
+        private const float BoutHoldDuration = 0.28f;
+        private const float BoutFlightDuration = 0.45f;
+        private const float PenaltyFlightDuration = 0.45f;
+
+        // Колода лежит в левом нижнем углу: центр стопки рубашек относительно угла экрана.
+        // Отсюда вылетает штрафная карта, чтобы было видно, что её именно взяли из колоды.
+        private const float DeckStackFromLeft = 164f;
+        private const float DeckStackFromBottom = 230f;
 
         // Обычная пауза перед ходом бота; в шулерских партиях длиннее — иначе человек
         // физически не успевает разглядеть карту и нажать на неё.
         private const float BotThinkDelay = 1.1f;
-        private const float CheatBotThinkDelay = 1.8f;
+        private const float CheatBotThinkDelay = 1.5f;
 
         // Не 100%: боты не должны ловить обман с той же надёжностью, что и настоящий рефери,
         // иначе шулерство против ботов было бы бессмысленно.
@@ -93,6 +99,10 @@ namespace CardGameClient
         private RectTransform _opponentsArea;
         private RectTransform _playerSeatArea;
         private RectTransform _deckStackArea;
+
+        // Слой для карт в полёте: они живут вне обычных контейнеров, поэтому им нужен
+        // свой дом — иначе после "Новой партии" недолетевшие карты остались бы на экране.
+        private RectTransform _flyLayer;
         private CardView _trumpCard;
         private RectTransform _trumpFrame;
         private Text _status;
@@ -121,6 +131,11 @@ namespace CardGameClient
         private int _seenBouts;
         private bool _holdTable;
         private CanvasGroup _tableGroup;
+
+        // Пока идёт добор, руки показываются такими, какими были до него: карты должны
+        // прилететь из колоды на глазах, а не появиться в руке из ниоткуда.
+        private bool _holdHands;
+        private int _seenPenalties;
 
         // Клик по последней сыгранной карте на столе — сигнал "хочу оспорить", а не сам ход:
         // применяется как альтернатива обычному ходу в GameLoop.
@@ -177,10 +192,13 @@ namespace CardGameClient
             _challengeClicked = false;
             _challengeableCardView = null;
             _seenBouts = _game.BoutsFinished;
+            _seenPenalties = _game.PenaltyEvents;
             _holdTable = false;
+            _holdHands = false;
             _tableRow.anchoredPosition = new Vector2(0f, -TableRowTop);
             _tableRow.localScale = Vector3.one;
             _tableGroup.alpha = 1f;
+            Clear(_flyLayer);
             ShuffleAvatars();
 
             _lastAction.text = string.Empty;
@@ -215,16 +233,19 @@ namespace CardGameClient
                     {
                         ResolveHumanChallenge();
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
 
                     if (TryBotBystanderChallenge())
                     {
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
 
                     _holdTable = !_game.IsFinished;
+                    _holdHands = _holdTable;
                     _game.CloseChallengeWindow();
                     yield return FinishBoutIfNeeded();
                     continue;
@@ -258,6 +279,7 @@ namespace CardGameClient
                         ResolveHumanChallenge();
                         _waitingForHuman = false;
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
 
@@ -281,6 +303,7 @@ namespace CardGameClient
                     if (TryBotBystanderChallenge())
                     {
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
                 }
@@ -296,6 +319,7 @@ namespace CardGameClient
                     {
                         ResolveHumanChallenge();
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
 
@@ -318,6 +342,7 @@ namespace CardGameClient
                     if (TryBotBystanderChallenge())
                     {
                         Refresh();
+                        yield return PlayPendingPenalty();
                         continue;
                     }
                 }
@@ -333,8 +358,9 @@ namespace CardGameClient
         /// </summary>
         private IEnumerator AfterMove()
         {
-            // Стол уже пуст в правилах, но на экране он должен дожить до перелёта.
+            // Стол и руки уже изменились в правилах, но на экране должны дожить до перелёта.
             _holdTable = _game.BoutsFinished != _seenBouts && !_game.IsFinished;
+            _holdHands = _holdTable;
 
             Refresh();
             yield return new WaitForSeconds(CardView.FlightDuration);
@@ -361,6 +387,7 @@ namespace CardGameClient
             if (_game.BoutsFinished == _seenBouts)
             {
                 _holdTable = false;
+                _holdHands = false;
                 yield break;
             }
 
@@ -371,6 +398,7 @@ namespace CardGameClient
             if (_game.IsFinished)
             {
                 _holdTable = false;
+                _holdHands = false;
                 yield break;
             }
 
@@ -379,6 +407,136 @@ namespace CardGameClient
             _holdTable = false;
             _tableSnapshot.Clear();
             Refresh();
+
+            yield return PlayRefill();
+        }
+
+        /// <summary>
+        /// Добор в конце раздачи: у каждого, кто брал, из колоды вылетает стопка рубашек.
+        /// Пока летят, руки показываются в прежнем размере — иначе карты появлялись бы
+        /// в руке раньше, чем видно, откуда они взялись.
+        /// </summary>
+        private IEnumerator PlayRefill()
+        {
+            var draws = _game.LastRefillDraws;
+            if (draws.Count == 0)
+            {
+                _holdHands = false;
+                yield break;
+            }
+
+            var order = new List<int>();
+            foreach (var playerIndex in draws)
+            {
+                if (!order.Contains(playerIndex))
+                {
+                    order.Add(playerIndex);
+                }
+            }
+
+            foreach (var playerIndex in order)
+            {
+                StartCoroutine(FlyFromDeck(playerIndex, RefilledCount(playerIndex)));
+                yield return new WaitForSeconds(0.09f);
+            }
+
+            yield return new WaitForSeconds(PenaltyFlightDuration);
+
+            _holdHands = false;
+            Refresh();
+        }
+
+        /// <summary>Сколько карт игрок только что добрал — на это число "укорачивается" его рука, пока они летят.</summary>
+        private int RefilledCount(int playerIndex)
+        {
+            if (!_holdHands)
+            {
+                return 0;
+            }
+
+            var drawn = 0;
+            foreach (var index in _game.LastRefillDraws)
+            {
+                if (index == playerIndex)
+                {
+                    drawn++;
+                }
+            }
+
+            return drawn;
+        }
+
+        /// <summary>Штрафная карта: тоже видно, что её достали из колоды и отдали конкретному игроку.</summary>
+        private IEnumerator PlayPendingPenalty()
+        {
+            if (_game.PenaltyEvents == _seenPenalties)
+            {
+                yield break;
+            }
+
+            _seenPenalties = _game.PenaltyEvents;
+
+            if (!_game.LastPenaltyPlayer.HasValue)
+            {
+                yield break;
+            }
+
+            if (!_game.LastPenaltyWasDrawn)
+            {
+                SetLastAction("Колода пуста — штрафной карты нет.");
+                yield break;
+            }
+
+            yield return FlyFromDeck(_game.LastPenaltyPlayer.Value, 1);
+            Refresh();
+        }
+
+        /// <summary>Стопка рубашек летит от колоды к месту игрока. Больше трёх не рисуем — читается хуже, чем помогает.</summary>
+        private IEnumerator FlyFromDeck(int playerIndex, int count)
+        {
+            if (count <= 0)
+            {
+                yield break;
+            }
+
+            var canvas = ((RectTransform)transform).rect;
+            var from = new Vector2(-canvas.width * 0.5f + DeckStackFromLeft, -(canvas.height - DeckStackFromBottom));
+            var to = SeatAnchorPosition(playerIndex);
+
+            var visible = Mathf.Min(count, 3);
+            var views = new List<CardView>();
+            for (var i = 0; i < visible; i++)
+            {
+                var card = CardView.Create(_flyLayer, _font, 0.8f);
+                card.ShowBack();
+                card.SetPlain();
+                card.Rect.anchorMin = card.Rect.anchorMax = new Vector2(0.5f, 1f);
+                card.Rect.pivot = new Vector2(0.5f, 0.5f);
+                card.Rect.anchoredPosition = from + new Vector2(i * 7f, i * 5f);
+                views.Add(card);
+            }
+
+            var t = 0f;
+            while (t < PenaltyFlightDuration)
+            {
+                t += Time.deltaTime;
+                var k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / PenaltyFlightDuration));
+
+                for (var i = 0; i < views.Count; i++)
+                {
+                    var offset = new Vector2(i * 7f, i * 5f) * (1f - k);
+                    views[i].Rect.anchoredPosition = Vector2.Lerp(from, to, k) + offset;
+                    var scale = Mathf.Lerp(0.8f, 0.5f, k);
+                    views[i].Rect.localScale = new Vector3(scale, scale, 1f);
+                }
+
+                yield return null;
+            }
+
+            foreach (var view in views)
+            {
+                Destroy(view.gameObject);
+            }
         }
 
         /// <summary>
@@ -549,7 +707,11 @@ namespace CardGameClient
         private void RefreshTable()
         {
             var pairs = CollectTablePairs();
-            var signature = TableSignature(pairs);
+
+            // В подпись входит и выбранная в руке карта: при выборе цели расклад тот же,
+            // но столу нужно перевесить обработчики с оспаривания на "положить сюда".
+            // Без этого тап по карте стола уходил в ложное обвинение вместо отбоя.
+            var signature = TableSignature(pairs) + "|" + (_choiceCard.HasValue ? _choiceCard.Value.ToString() : "-");
 
             // Экран обновляется несколько раз подряд (после хода и на входе в следующий ход).
             // Если расклад не изменился, ничего не пересоздаём — иначе только что запущенный
@@ -583,9 +745,14 @@ namespace CardGameClient
                 AnimateArrival(attack, pair.Attack);
                 stillOnTable.Add(pair.Attack);
 
-                // Пока в руке выбрана карта, стол работает как выбор цели; в остальное
-                // время по последней сыгранной карте можно кликнуть, чтобы оспорить её.
-                if (!WireTargetIfChoosing(attack, slotIndex))
+                // Пока в руке выбрана карта, стол работает только как выбор цели: иначе
+                // промах мимо нужной карты уходил бы в обвинение и стоил штрафной карты.
+                var choosing = _waitingForHuman && _choiceCard.HasValue;
+                if (choosing)
+                {
+                    WireTargetIfChoosing(attack, slotIndex);
+                }
+                else
                 {
                     WireChallengeIfPending(attack, slotIndex, isAttackCard: true);
                 }
@@ -601,7 +768,11 @@ namespace CardGameClient
                     defense.SetPlain();
                     AnimateArrival(defense, pair.Defense.Value);
                     stillOnTable.Add(pair.Defense.Value);
-                    WireChallengeIfPending(defense, slotIndex, isAttackCard: false);
+
+                    if (!choosing)
+                    {
+                        WireChallengeIfPending(defense, slotIndex, isAttackCard: false);
+                    }
                 }
             }
 
@@ -893,9 +1064,9 @@ namespace CardGameClient
             Clear(_handRow);
 
             var hand = _game.Players[HumanIndex].Hand;
-            var count = hand.Count;
+            var count = hand.Count - RefilledCount(HumanIndex);
             _handHalfWidth = 0f;
-            if (count == 0)
+            if (count <= 0)
             {
                 return;
             }
@@ -1220,9 +1391,10 @@ namespace CardGameClient
                 return containerRect;
             }
 
-            if (fanWidth > 0f && player.Hand.Count > 0)
+            var fanCount = player.Hand.Count - RefilledCount(player.Index);
+            if (fanWidth > 0f && fanCount > 0)
             {
-                BuildSeatFan(containerRect, player.Hand.Count, scale, fanWidth, fanSide);
+                BuildSeatFan(containerRect, fanCount, scale, fanWidth, fanSide);
             }
 
             return containerRect;
@@ -1569,6 +1741,11 @@ namespace CardGameClient
                     _onExit?.Invoke();
                 });
             ((RectTransform)exitButton.transform).sizeDelta = new Vector2(200f, 64f);
+
+            // Создаётся последним, чтобы летящие карты шли поверх всего остального.
+            _flyLayer = new GameObject("Flights", typeof(RectTransform)).GetComponent<RectTransform>();
+            _flyLayer.SetParent(root, false);
+            Stretch(_flyLayer);
         }
 
         private void CreateCenterEmblem(Transform parent, Color feltColor)
