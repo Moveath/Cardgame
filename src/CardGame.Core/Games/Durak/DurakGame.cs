@@ -231,16 +231,20 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
+            if (_table.Count >= DurakRules.MaxTableSlots)
+            {
+                return false;
+            }
+
             if (_table.Any(s => s.IsDefended))
             {
                 return false;
             }
 
+            // Вдвоём перевод тоже работает: бой возвращается атакующему, и уже он отбивается.
+            // Не работает только если за столом реально не осталось второго живого игрока.
             var next = NextActive(DefenderIndex);
-
-            // Переводить некому: со следующим игроком защита вернулась бы тому же
-            // атакующему, что и начал раздачу, — в игре вдвоём такое бессмысленно.
-            if (next == AttackerIndex)
+            if (next == DefenderIndex)
             {
                 return false;
             }
@@ -490,6 +494,12 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
+            if (_table.Count >= DurakRules.MaxTableSlots)
+            {
+                error = "На столе больше нет места.";
+                return false;
+            }
+
             if (!_players[playerIndex].Hand.Contains(card))
             {
                 error = "Карты нет на руке.";
@@ -503,9 +513,9 @@ namespace CardGame.Core.Games.Durak
             }
 
             var nextDefender = NextActive(DefenderIndex);
-            if (nextDefender == AttackerIndex)
+            if (nextDefender == DefenderIndex)
             {
-                error = "Переводить некому — вернётся тому же атакующему.";
+                error = "Переводить некому — за столом больше никого нет.";
                 return false;
             }
 
@@ -519,6 +529,11 @@ namespace CardGame.Core.Games.Durak
             _table.Add(new TableSlot(card));
             _passed.Clear();
             _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true, wasActuallyIllegal: false);
+
+            // Переведший сам становится атакующим. Это важно не только для порядка добора:
+            // вдвоём бой возвращается прежнему атакующему, и без этой строки один и тот же
+            // игрок оказался бы одновременно и атакующим, и защищающимся.
+            AttackerIndex = playerIndex;
             DefenderIndex = nextDefender;
             ResolveBoutIfReady();
             return true;

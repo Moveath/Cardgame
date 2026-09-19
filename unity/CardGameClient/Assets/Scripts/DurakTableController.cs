@@ -34,7 +34,14 @@ namespace CardGameClient
 
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
         private static readonly Color HumanColor = new Color(0.28f, 0.58f, 0.44f);
-        private static readonly Color TransferOffColor = new Color(0.32f, 0.30f, 0.22f);
+        private static readonly Color DefendChipColor = new Color(0.21f, 0.45f, 0.29f);
+        private static readonly Color TransferChipColor = new Color(0.42f, 0.28f, 0.55f);
+
+        // Насколько поднимается выбранная карта и какого размера плашки выбора над ней.
+        private const float ChoiceCardLift = 40f;
+        private const float ChoiceChipHeight = 44f;
+        private const float ChoiceChipWidth = 124f;
+        private const float HandRowBottom = 138f;
 
         // Обычная пауза перед ходом бота; в шулерских партиях длиннее — иначе человек
         // физически не успевает разглядеть карту и нажать на неё.
@@ -90,16 +97,16 @@ namespace CardGameClient
         private Text _lastAction;
         private Button _passButton;
         private Button _takeButton;
-        private Button _transferButton;
-        private Image _transferButtonImage;
         private Button _restartButton;
 
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
 
-        // "Перевести" — режим, а не разовая кнопка: пока включён, клик по руке шлёт Transfer,
-        // а не Defend, даже если карта годится для обоих (например, младший козырь).
-        private bool _transferMode;
+        // Карта, по которой сейчас показан выбор "отбить / перевести". Отдельной кнопки
+        // перевода нет: она нужна в одном редком случае (козырь того же достоинства),
+        // а висела бы на экране всегда.
+        private Card? _choiceCard;
+        private bool _choiceDirty;
 
         // Клик по последней сыгранной карте на столе — сигнал "хочу оспорить", а не сам ход:
         // применяется как альтернатива обычному ходу в GameLoop.
@@ -151,7 +158,8 @@ namespace CardGameClient
             _tableCardsShown.Clear();
             _tableSnapshot.Clear();
             _tableSignature = null;
-            _transferMode = false;
+            _choiceCard = null;
+            _choiceDirty = false;
             _challengeClicked = false;
             _challengeableCardView = null;
             ShuffleAvatars();
@@ -182,11 +190,23 @@ namespace CardGameClient
                     _waitingForHuman = true;
                     _pendingMove = null;
                     _challengeClicked = false;
+                    _choiceCard = null;
+                    _choiceDirty = false;
                     Refresh();
 
                     // Своя очередь ходить — время на клик по последней карте не ограничено:
                     // человек и так смотрит на стол, прежде чем решить, чем отвечать.
-                    yield return new WaitUntil(() => _pendingMove.HasValue || _challengeClicked);
+                    // Попутно перерисовываем руку, когда игрок раскрыл выбор над картой.
+                    while (!_pendingMove.HasValue && !_challengeClicked)
+                    {
+                        if (_choiceDirty)
+                        {
+                            _choiceDirty = false;
+                            Refresh();
+                        }
+
+                        yield return null;
+                    }
 
                     if (_challengeClicked)
                     {
@@ -630,9 +650,8 @@ namespace CardGameClient
                 depth = Mathf.Min(depth, Mathf.Max(0f, overCardsLimit));
             }
 
-            // А крайние места не должны сползти на колоду и кнопки в нижних углах
-            // (справа их теперь три: перевод, пас, забрать).
-            var cornerLimit = canvasRect.height - 390f - SeatTopMargin - layout.BlockHeight;
+            // А крайние места не должны сползти на колоду и кнопки в нижних углах.
+            var cornerLimit = canvasRect.height - 350f - SeatTopMargin - layout.BlockHeight;
             depth = Mathf.Min(depth, Mathf.Max(0f, cornerLimit));
 
             return new Vector2(x, -(SeatTopMargin + depth));
@@ -688,9 +707,13 @@ namespace CardGameClient
             // по этой границе рядом встаёт своё место, и карта его не задевает.
             _handHalfWidth = spacing * mid + cardWidth * 0.5f + 18f;
 
-            var cheatMoves = _waitingForHuman && !_transferMode && _settings.AllowCheating
+            var cheatMoves = _waitingForHuman && _settings.AllowCheating
                 ? _game.GetCheatMoves(HumanIndex)
                 : Array.Empty<DurakMove>();
+
+            var choiceX = 0f;
+            DurakMove? choiceDefend = null;
+            DurakMove? choiceTransfer = null;
 
             for (var i = 0; i < count; i++)
             {
@@ -699,42 +722,137 @@ namespace CardGameClient
                 view.ShowFace(card);
 
                 var offset = i - mid;
-                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f);
-                view.SetRestTransform(position, -offset * angleStep);
+                var isChoosing = _choiceCard.HasValue && _choiceCard.Value == card;
+                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f + (isChoosing ? ChoiceCardLift : 0f));
+                view.SetRestTransform(position, isChoosing ? 0f : -offset * angleStep);
 
-                DurakMove? move = null;
-                if (_waitingForHuman)
+                if (!_waitingForHuman)
                 {
-                    if (_transferMode)
+                    view.SetPlain();
+                    continue;
+                }
+
+                var direct = FindMoveForCard(legalMoves, card);
+                var transfer = FindTransferMoveForCard(legalMoves, card);
+
+                // Единственный неоднозначный случай — козырь того же достоинства: им можно
+                // и отбиться, и перевести. Тогда карта не ходит сразу, а раскрывает выбор.
+                if (direct.HasValue && transfer.HasValue)
+                {
+                    var capturedCard = card;
+                    if (isChoosing)
                     {
-                        // Режим перевода: карта либо переводит, либо не делает ничего — не путаем
-                        // с обычным отбоем, даже если формально годится и туда, и туда.
-                        move = FindTransferMoveForCard(legalMoves, card);
+                        choiceX = position.x;
+                        choiceDefend = direct;
+                        choiceTransfer = transfer;
                     }
-                    else
-                    {
-                        move = FindMoveForCard(legalMoves, card);
-                        if (!move.HasValue && cheatMoves.Count > 0)
-                        {
-                            move = FindCheatMoveForCard(cheatMoves, card);
-                        }
-                    }
+
+                    view.SetClickable(() => ToggleMoveChoice(capturedCard));
+                    continue;
+                }
+
+                var move = direct ?? transfer;
+                if (!move.HasValue && cheatMoves.Count > 0)
+                {
+                    move = FindCheatMoveForCard(cheatMoves, card);
                 }
 
                 if (move.HasValue)
                 {
                     var captured = move.Value;
-                    view.SetClickable(() => _pendingMove = captured);
-                }
-                else if (_waitingForHuman)
-                {
-                    view.SetClickable(null);
+                    view.SetClickable(() =>
+                    {
+                        _choiceCard = null;
+                        _pendingMove = captured;
+                    });
                 }
                 else
                 {
-                    view.SetPlain();
+                    view.SetClickable(null);
                 }
             }
+
+            if (choiceDefend.HasValue && choiceTransfer.HasValue)
+            {
+                var chipY = ChoiceChipOffset(cardWidth);
+
+                // Пара плашек уезжает вправо целиком, если у крайней левой карты она
+                // иначе легла бы на своего же персонажа.
+                var minCenter = PlayerSeatX() + AvatarWidth * 0.5f + 8f + ChoiceChipWidth * 0.5f;
+                var leftX = Mathf.Max(choiceX - 66f, minCenter);
+
+                CreateChoiceChip("отбить", leftX, chipY, DefendChipColor, choiceDefend.Value);
+                CreateChoiceChip("перевести", leftX + 132f, chipY, TransferChipColor, choiceTransfer.Value);
+            }
+        }
+
+        /// <summary>
+        /// Плашки выбора висят ровно посередине полосы между поднятой картой и картами стола.
+        /// Считаем от высоты холста: на широком окне Unity ужимает её, и зазор там самый узкий.
+        /// </summary>
+        private float ChoiceChipOffset(float cardWidth)
+        {
+            var canvasHeight = ((RectTransform)transform).rect.height;
+            var cardHeight = cardWidth * (CardView.Height / CardView.Width);
+            var handTop = HandRowBottom + cardHeight * 0.5f + ChoiceCardLift;
+            var tableCardsBottom = canvasHeight - (TableRowTop + TableCardsHalfHeight);
+
+            var center = Mathf.Max(handTop + ChoiceChipHeight * 0.5f + 8f, (handTop + tableCardsBottom) * 0.5f);
+            return center - HandRowBottom;
+        }
+
+        /// <summary>Где стоит своё место: вплотную к левому краю веера, но не заезжая на колоду.</summary>
+        private float PlayerSeatX()
+        {
+            var canvasHalf = ((RectTransform)transform).rect.width * 0.5f;
+            return Mathf.Max(-(_handHalfWidth + AvatarWidth * 0.5f + 30f), -canvasHalf + 356f);
+        }
+
+        /// <summary>Клик по карте с двумя вариантами: раскрывает выбор или закрывает его обратно.</summary>
+        private void ToggleMoveChoice(Card card)
+        {
+            _choiceCard = _choiceCard.HasValue && _choiceCard.Value == card ? (Card?)null : card;
+
+            // Перерисовываем не здесь, а в игровом цикле: Refresh() удаляет ту самую карту,
+            // чей обработчик клика сейчас выполняется.
+            _choiceDirty = true;
+        }
+
+        private void CreateChoiceChip(string label, float x, float y, Color color, DurakMove move)
+        {
+            var go = new GameObject("MoveChoice", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow), typeof(Button));
+            go.transform.SetParent(_handRow, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(x, y);
+            rect.sizeDelta = new Vector2(ChoiceChipWidth, ChoiceChipHeight);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = UiTextures.RoundedRect(96, 48, 14f, color);
+            image.type = Image.Type.Sliced;
+
+            var shadow = go.GetComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
+            shadow.effectDistance = new Vector2(2f, -3f);
+
+            var button = go.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.ColorTint;
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.2f, 1.2f, 1.2f, 1f);
+            colors.pressedColor = new Color(0.82f, 0.82f, 0.82f, 1f);
+            colors.fadeDuration = 0.08f;
+            button.colors = colors;
+            button.onClick.AddListener(() =>
+            {
+                _choiceCard = null;
+                _pendingMove = move;
+            });
+
+            var text = CreateText(rect, label, 22, TextAnchor.MiddleCenter);
+            Stretch((RectTransform)text.transform);
         }
 
         private void RefreshOpponents()
@@ -780,11 +898,7 @@ namespace CardGameClient
         {
             Clear(_playerSeatArea);
 
-            var canvasHalf = ((RectTransform)transform).rect.width * 0.5f;
-            var x = Mathf.Max(
-                -(_handHalfWidth + AvatarWidth * 0.5f + 30f),
-                -canvasHalf + 356f);
-            _playerSeatArea.anchoredPosition = new Vector2(x, PlayerSeatBottom);
+            _playerSeatArea.anchoredPosition = new Vector2(PlayerSeatX(), PlayerSeatBottom);
 
             var block = BuildSeatBlock(_playerSeatArea, _game.Players[HumanIndex], HumanColor, _waitingForHuman, 1f, 0f, 1f);
             block.anchorMin = block.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1031,18 +1145,9 @@ namespace CardGameClient
         {
             var canPass = legalMoves.Any(m => m.Type == DurakMoveType.Pass);
             var canTake = legalMoves.Any(m => m.Type == DurakMoveType.Take);
-            var canTransfer = legalMoves.Any(m => m.Type == DurakMoveType.Transfer);
 
             _passButton.gameObject.SetActive(canPass);
             _takeButton.gameObject.SetActive(canTake);
-
-            _transferButton.gameObject.SetActive(canTransfer);
-            if (!canTransfer)
-            {
-                _transferMode = false;
-            }
-
-            _transferButtonImage.sprite = UiTextures.RoundedRect(140, 76, 18f, _transferMode ? ActiveGlow : TransferOffColor);
 
             if (_game.IsFinished)
             {
@@ -1063,21 +1168,16 @@ namespace CardGameClient
             }
 
             _status.color = ActiveGlow;
-            if (_transferMode)
+            if (_game.DefenderIndex != HumanIndex)
             {
-                _status.text = "Перевод: выбери карту того же достоинства";
+                _status.text = "Твой ход: подкинь карту";
                 return;
             }
 
-            _status.text = _game.DefenderIndex == HumanIndex
-                ? "Отбивайся: выбери карту или забери"
-                : "Твой ход: подкинь карту";
-        }
-
-        private void ToggleTransferMode()
-        {
-            _transferMode = !_transferMode;
-            Refresh();
+            // Подсказка про перевод появляется только когда он реально возможен.
+            _status.text = legalMoves.Any(m => m.Type == DurakMoveType.Transfer)
+                ? "Отбивайся, переведи картой того же достоинства или забери"
+                : "Отбивайся: выбери карту или забери";
         }
 
         private DurakMove? FindMoveForCard(IReadOnlyList<DurakMove> legalMoves, Card card)
@@ -1202,7 +1302,7 @@ namespace CardGameClient
             // Позиция по горизонтали считается в RefreshPlayerSeat — она зависит от ширины веера.
             _playerSeatArea = CreatePanel("PlayerSeat", root, new Vector2(0.5f, 0f), new Vector2(-520f, PlayerSeatBottom), new Vector2(180f, 200f));
 
-            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, 138f), new Vector2(1600f, 200f));
+            _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, HandRowBottom), new Vector2(1600f, 200f));
 
             // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
             // середину краёв стола теперь занимают крайние соперники.
@@ -1237,12 +1337,6 @@ namespace CardGameClient
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
             Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(900f, 40f));
-
-            // Выше остальных: показывается только когда доступен перевод (правило включено
-            // в настройках комнаты и в раздаче ещё ничего не отбито).
-            _transferButton = CreateButton(root, "Перевести", new Vector2(1f, 0f), new Vector2(-190f, 350f),
-                TransferOffColor, ToggleTransferMode);
-            _transferButtonImage = _transferButton.GetComponent<Image>();
 
             _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());

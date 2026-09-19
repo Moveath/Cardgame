@@ -94,7 +94,8 @@ public class DurakOptionsTests
         Assert.True(game.TryApplyMove(1, DurakMove.Transfer(transferCard), out var e2), e2);
 
         Assert.Equal(2, game.DefenderIndex);
-        Assert.Equal(0, game.AttackerIndex);
+        // Переведший становится атакующим — это он теперь ведёт бой против нового защитника.
+        Assert.Equal(1, game.AttackerIndex);
         Assert.Equal(2, game.Table.Count);
         Assert.False(game.Table[0].IsDefended);
         Assert.False(game.Table[1].IsDefended);
@@ -135,7 +136,7 @@ public class DurakOptionsTests
     }
 
     [Fact]
-    public void Transfer_NeverOfferedInTwoPlayerGame()
+    public void Transfer_WorksInTwoPlayerGameAndSwapsRoles()
     {
         var names = new List<string> { "P0", "P1" };
         var deck = BuildDeck(new IReadOnlyList<Card>[] { Attacker, Defender }, Trump);
@@ -143,8 +144,43 @@ public class DurakOptionsTests
 
         Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
 
-        // Перевести можно только "дальше по кругу" — вдвоём это тот же атакующий, значит некому.
-        Assert.DoesNotContain(game.GetLegalMoves(1), m => m.Type == DurakMoveType.Transfer);
+        var transferCard = new Card(Rank.Six, Suit.Diamonds);
+        Assert.Contains(game.GetLegalMoves(1), m => m.Type == DurakMoveType.Transfer && m.Card == transferCard);
+        Assert.True(game.TryApplyMove(1, DurakMove.Transfer(transferCard), out var e2), e2);
+
+        // Вдвоём бой возвращается атакующему: роли меняются местами, а не ломаются.
+        Assert.Equal(1, game.AttackerIndex);
+        Assert.Equal(0, game.DefenderIndex);
+        Assert.Equal(2, game.Table.Count);
+        Assert.All(game.Table, slot => Assert.False(slot.IsDefended));
+    }
+
+    [Fact]
+    public void Transfer_CanBeBouncedBackByTheNewDefender()
+    {
+        // Три шестёрки подряд: перевели, вернули переводом обратно — бой снова у первого.
+        var opener = new List<Card>
+        {
+            new Card(Rank.Six, Suit.Clubs), new Card(Rank.Six, Suit.Spades),
+            new Card(Rank.Seven, Suit.Clubs), new Card(Rank.Eight, Suit.Clubs),
+            new Card(Rank.Nine, Suit.Clubs), new Card(Rank.Ten, Suit.Clubs)
+        };
+
+        var names = new List<string> { "P0", "P1" };
+        var deck = BuildDeck(new IReadOnlyList<Card>[] { opener, Defender }, Trump);
+        var game = DurakGame.Create(names, deck, new DurakOptions(true, ThrowInMode.All, false));
+
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.True(game.TryApplyMove(1, DurakMove.Transfer(new Card(Rank.Six, Suit.Diamonds)), out var e2), e2);
+
+        // Теперь отбивается P0 — и у него есть своя шестёрка, чтобы перевести обратно.
+        Assert.Equal(0, game.DefenderIndex);
+        Assert.Contains(game.GetLegalMoves(0), m => m.Type == DurakMoveType.Transfer);
+        Assert.True(game.TryApplyMove(0, DurakMove.Transfer(new Card(Rank.Six, Suit.Spades)), out var e3), e3);
+
+        Assert.Equal(1, game.DefenderIndex);
+        Assert.Equal(0, game.AttackerIndex);
+        Assert.Equal(3, game.Table.Count);
     }
 
     [Fact]
