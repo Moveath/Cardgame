@@ -16,7 +16,9 @@ namespace CardGameClient
     {
         public const float Width = 120f;
         public const float Height = 168f;
-        public const float FlightDuration = 0.3f;
+        // Полёт нарочно неторопливый и с мягким стартом: карта должна на мгновение
+        // задержаться у того, кто её кладёт, иначе не прочитать, откуда она прилетела.
+        public const float FlightDuration = 0.55f;
 
         private const float HoverLift = 24f;
         private const float HoverScale = 1.12f;
@@ -275,7 +277,10 @@ namespace CardGameClient
             {
                 t += Time.deltaTime;
                 var linear = Mathf.Clamp01(t / FlightDuration);
-                var k = 1f - Mathf.Pow(1f - linear, 3f);
+
+                // Разгон и торможение, а не рывок от источника: при резком старте карта
+                // покидает место игрока быстрее, чем взгляд успевает его заметить.
+                var k = Mathf.SmoothStep(0f, 1f, linear);
                 Rect.anchoredPosition = Vector2.Lerp(start, target, k);
                 var scale = Mathf.Lerp(startScale, 1f, k);
                 Rect.localScale = new Vector3(scale, scale, 1f);

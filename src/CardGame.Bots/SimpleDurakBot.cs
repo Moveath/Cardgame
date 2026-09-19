@@ -70,14 +70,31 @@ namespace CardGame.Bots
                 return bestDefense[0];
             }
 
-            var cheatDefenses = game.GetCheatMoves(playerIndex)
-                .Where(m => m.Type == DurakMoveType.CheatDefend)
-                .OrderBy(m => Cost(m.Card, game.Trump))
-                .ToList();
-
-            if (cheatDefenses.Count > 0 && _random.NextDouble() < CheatInsteadOfTakeChance)
+            // Обманывать стоит только если не поймали в этой раздаче: GetCheatMoves сам
+            // вернёт пусто, если бот уже спалился.
+            var cheats = game.GetCheatMoves(playerIndex);
+            if (cheats.Count > 0 && _random.NextDouble() < CheatInsteadOfTakeChance)
             {
-                return cheatDefenses[0];
+                // Лже-перевод выгоднее лже-отбоя: уезжаешь от всей раздачи, а не от одной карты.
+                var fakeTransfer = cheats
+                    .Where(m => m.Type == DurakMoveType.CheatTransfer)
+                    .OrderBy(m => Cost(m.Card, game.Trump))
+                    .ToList();
+
+                if (fakeTransfer.Count > 0)
+                {
+                    return fakeTransfer[0];
+                }
+
+                var fakeDefense = cheats
+                    .Where(m => m.Type == DurakMoveType.CheatDefend)
+                    .OrderBy(m => Cost(m.Card, game.Trump))
+                    .ToList();
+
+                if (fakeDefense.Count > 0)
+                {
+                    return fakeDefense[0];
+                }
             }
 
             if (moves.Any(m => m.Type == DurakMoveType.Take))
@@ -131,6 +148,12 @@ namespace CardGame.Bots
             error = null;
 
             if (!game.HasChallengeableMove || game.ChallengeablePlayerIndex == playerIndex)
+            {
+                return false;
+            }
+
+            // Уже промахнулся в этой раздаче — второй попытки нет, и зря тратить её незачем.
+            if (!game.CanChallenge(playerIndex))
             {
                 return false;
             }

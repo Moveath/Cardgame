@@ -16,7 +16,10 @@ namespace CardGame.Core.Games.Durak
         CheatAttack,
 
         /// <summary>Отбой заведомо не той картой — легальность решает не движок, а то, поймают ли на этом.</summary>
-        CheatDefend
+        CheatDefend,
+
+        /// <summary>Перевод картой не того достоинства — самый выгодный обман: уезжаешь от всей раздачи.</summary>
+        CheatTransfer
     }
 
     public readonly struct DurakMove
@@ -46,6 +49,8 @@ namespace CardGame.Core.Games.Durak
 
         public static DurakMove CheatDefend(Card card, int targetSlot) => new DurakMove(DurakMoveType.CheatDefend, card, targetSlot);
 
+        public static DurakMove CheatTransfer(Card card) => new DurakMove(DurakMoveType.CheatTransfer, card, -1);
+
         /// <summary>
         /// Текст хода не выдаёт обман — иначе шулерство теряет смысл: соперник должен
         /// заподозрить подмену по самой карте на столе, а не по подписи хода в логе.
@@ -57,6 +62,7 @@ namespace CardGame.Core.Games.Durak
             DurakMoveType.Defend => "отбил " + Card,
             DurakMoveType.CheatDefend => "отбил " + Card,
             DurakMoveType.Transfer => "перевёл " + Card,
+            DurakMoveType.CheatTransfer => "перевёл " + Card,
             DurakMoveType.Take => "забрал карты",
             _ => "пас"
         };

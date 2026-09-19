@@ -19,6 +19,16 @@ namespace CardGame.Core.Games.Durak
         private readonly DurakOptions _options;
         private PendingChallenge? _pendingChallenge;
 
+        // Попался на обмане или зря обвинил — до конца раздачи сидишь тихо. Именно это
+        // убивает бесконечный повтор: карту-то вернули, но сыграть её снова уже нельзя.
+        private readonly HashSet<int> _cheatBlocked = new HashSet<int>();
+        private readonly HashSet<int> _challengeBlocked = new HashSet<int>();
+        private readonly List<Card> _lastBoutCards = new List<Card>();
+
+        // Раздача, готовая закрыться, но подвешенная до конца окна оспаривания. Без этого
+        // обман последней картой был бы неуязвим: стол уходил бы в биту в тот же миг.
+        private bool _boutResolutionPending;
+
         private DurakGame(List<DurakPlayer> players, Deck deck, Card trumpCard, DurakOptions options)
         {
             _players = players;
@@ -63,6 +73,20 @@ namespace CardGame.Core.Games.Durak
         /// а не подсвечивать обман заранее, иначе шулерство теряет смысл.
         /// </summary>
         public bool ChallengeTargetIsActuallyIllegal() => _pendingChallenge is { WasActuallyIllegal: true };
+
+        /// <summary>Не попадался ли игрок на обмане в этой раздаче — пойманному шулерить больше нельзя.</summary>
+        public bool CanCheat(int playerIndex) => _options.AllowCheating && !_cheatBlocked.Contains(playerIndex);
+
+        /// <summary>Не ошибся ли игрок с обвинением в этой раздаче — после промаха оспаривать больше нельзя.</summary>
+        public bool CanChallenge(int playerIndex) => _options.AllowCheating && !_challengeBlocked.Contains(playerIndex);
+
+        /// <summary>
+        /// Счётчик сыгранных раздач и куда ушли карты последней. Нужно клиенту, чтобы показать
+        /// перелёт карт к тому, кто забрал, вместо мгновенного исчезновения стола.
+        /// </summary>
+        public int BoutsFinished { get; private set; }
+        public int? LastBoutTakenBy { get; private set; }
+        public IReadOnlyList<Card> LastBoutCards => _lastBoutCards;
 
         public static DurakGame Create(IReadOnlyList<string> playerNames, int seed) =>
             Create(playerNames, Deck.Standard36(seed), DurakOptions.Classic);
@@ -126,7 +150,7 @@ namespace CardGame.Core.Games.Durak
                     }
                 }
 
-                if (CanTransfer())
+                if (CanTransferStructurally())
                 {
                     var ranksOnTable = _table.Select(s => s.Attack.Rank).ToHashSet();
                     foreach (var card in player.Hand)
@@ -170,7 +194,7 @@ namespace CardGame.Core.Games.Durak
         public IReadOnlyList<DurakMove> GetCheatMoves(int playerIndex)
         {
             var moves = new List<DurakMove>();
-            if (!_options.AllowCheating || IsFinished)
+            if (!CanCheat(playerIndex) || IsFinished)
             {
                 return moves;
             }
@@ -204,6 +228,18 @@ namespace CardGame.Core.Games.Durak
                     }
                 }
 
+                // Перевод "не той" картой: структурные условия те же, врём только про достоинство.
+                if (CanTransferStructurally())
+                {
+                    foreach (var card in player.Hand)
+                    {
+                        if (!MatchesTableRank(card))
+                        {
+                            moves.Add(DurakMove.CheatTransfer(card));
+                        }
+                    }
+                }
+
                 return moves;
             }
 
@@ -223,8 +259,12 @@ namespace CardGame.Core.Games.Durak
             return moves;
         }
 
-        /// <summary>Можно ли сейчас перевести: ничего в этой раздаче ещё не отбито, и у следующего хватит карт принять.</summary>
-        private bool CanTransfer()
+        /// <summary>
+        /// Условия перевода, не зависящие от самой карты: правило включено, в раздаче ничего
+        /// не отбито, есть кому переводить и у него хватит карт. Обман врёт только про
+        /// достоинство карты, поэтому всё остальное держится и для шулерского перевода.
+        /// </summary>
+        private bool CanTransferStructurally()
         {
             if (!_options.AllowTransfer || DefenderTook || _table.Count == 0)
             {
@@ -284,6 +324,8 @@ namespace CardGame.Core.Games.Durak
                     return TryCheatAttack(playerIndex, move.Card, ref error);
                 case DurakMoveType.CheatDefend:
                     return TryCheatDefend(playerIndex, move.Card, move.TargetSlot, ref error);
+                case DurakMoveType.CheatTransfer:
+                    return TryCheatTransfer(playerIndex, move.Card, ref error);
                 default:
                     error = "Неизвестный тип хода.";
                     return false;
@@ -305,6 +347,12 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
+            if (!CanChallenge(challengerIndex))
+            {
+                error = "В этой раздаче ты уже ошибся с обвинением.";
+                return false;
+            }
+
             if (_pendingChallenge is not { } pending || pending.SlotIndex != slotIndex || pending.WasAttack != isAttackCard)
             {
                 error = "Эту карту уже нельзя оспорить.";
@@ -317,10 +365,16 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
+            // Обвинение стоит ровно столько же, сколько обман: ошибся — берёшь карту и
+            // до конца раздачи молчишь. Иначе выгодно тыкать в каждую карту подряд.
             if (!pending.WasActuallyIllegal)
             {
-                _pendingChallenge = null;
-                error = "Ход был честным.";
+                _challengeBlocked.Add(challengerIndex);
+                DrawPenalty(challengerIndex);
+
+                // Обвинение было последним, что держало раздачу открытой.
+                ClosePendingChallenge();
+                error = "Ход был честным — штрафная карта.";
                 return false;
             }
 
@@ -339,9 +393,56 @@ namespace CardGame.Core.Games.Durak
                 cheater.Add(card);
             }
 
+            // Разоблачённый перевод возвращает не только карту, но и роли: бой снова у того,
+            // кто пытался от него уехать.
+            if (pending.WasTransfer)
+            {
+                AttackerIndex = pending.PreviousAttacker;
+                DefenderIndex = pending.PreviousDefender;
+            }
+
+            _cheatBlocked.Add(pending.PlayerIndex);
+            DrawPenalty(pending.PlayerIndex);
+
             _passed.Clear();
             _pendingChallenge = null;
+
+            // Стол изменился — раздача, которая вот-вот закрывалась, уже не закрывается.
+            // Но проверить заново надо: отмена подкида могла, наоборот, её завершить.
+            _boutResolutionPending = false;
+            ResolveBoutIfReady();
             return true;
+        }
+
+        /// <summary>
+        /// Время на реакцию вышло: последний ход больше не оспорить, и если раздача
+        /// на нём заканчивалась — она наконец закрывается. Зовётся клиентом, потому что
+        /// только он знает, сколько секунд дать людям на то, чтобы заметить обман.
+        /// </summary>
+        public void CloseChallengeWindow() => ClosePendingChallenge();
+
+        private void ClosePendingChallenge()
+        {
+            _pendingChallenge = null;
+
+            if (!_boutResolutionPending)
+            {
+                return;
+            }
+
+            _boutResolutionPending = false;
+            ResolveBoutIfReady();
+        }
+
+        /// <summary>Штрафная карта из колоды. Колода пуста — штраф просто не выдаётся.</summary>
+        private void DrawPenalty(int playerIndex)
+        {
+            if (_deck.IsEmpty)
+            {
+                return;
+            }
+
+            _players[playerIndex].Add(_deck.Draw());
         }
 
         private bool TryAttack(int playerIndex, Card card, ref string? error)
@@ -525,10 +626,55 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
+            ApplyTransfer(playerIndex, card, nextDefender, actuallyIllegal: false);
+            return true;
+        }
+
+        private bool TryCheatTransfer(int playerIndex, Card card, ref string? error)
+        {
+            if (!CanCheat(playerIndex))
+            {
+                error = _options.AllowCheating
+                    ? "В этой раздаче тебя уже поймали на обмане."
+                    : "Шулерство выключено в этой партии.";
+                return false;
+            }
+
+            if (playerIndex != DefenderIndex)
+            {
+                error = "Переводить, пусть и обманом, может только защищающийся.";
+                return false;
+            }
+
+            if (!_players[playerIndex].Hand.Contains(card))
+            {
+                error = "Карты нет на руке.";
+                return false;
+            }
+
+            // Врём только про достоинство карты: всё остальное — настоящие ограничения стола.
+            if (!CanTransferStructurally())
+            {
+                error = "Переводить сейчас нельзя, даже обманом.";
+                return false;
+            }
+
+            var nextDefender = NextActive(DefenderIndex);
+            ApplyTransfer(playerIndex, card, nextDefender, actuallyIllegal: !MatchesTableRank(card));
+            return true;
+        }
+
+        private void ApplyTransfer(int playerIndex, Card card, int nextDefender, bool actuallyIllegal)
+        {
+            var previousAttacker = AttackerIndex;
+            var previousDefender = DefenderIndex;
+
             _players[playerIndex].Remove(card);
             _table.Add(new TableSlot(card));
             _passed.Clear();
-            _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true, wasActuallyIllegal: false);
+            _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true,
+                wasActuallyIllegal: actuallyIllegal, wasTransfer: true,
+                previousAttacker: previousAttacker, previousDefender: previousDefender);
 
             // Переведший сам становится атакующим. Это важно не только для порядка добора:
             // вдвоём бой возвращается прежнему атакующему, и без этой строки один и тот же
@@ -536,14 +682,15 @@ namespace CardGame.Core.Games.Durak
             AttackerIndex = playerIndex;
             DefenderIndex = nextDefender;
             ResolveBoutIfReady();
-            return true;
         }
 
         private bool TryCheatAttack(int playerIndex, Card card, ref string? error)
         {
-            if (!_options.AllowCheating)
+            if (!CanCheat(playerIndex))
             {
-                error = "Шулерство выключено в этой партии.";
+                error = _options.AllowCheating
+                    ? "В этой раздаче тебя уже поймали на обмане."
+                    : "Шулерство выключено в этой партии.";
                 return false;
             }
 
@@ -571,9 +718,11 @@ namespace CardGame.Core.Games.Durak
 
         private bool TryCheatDefend(int playerIndex, Card card, int slotIndex, ref string? error)
         {
-            if (!_options.AllowCheating)
+            if (!CanCheat(playerIndex))
             {
-                error = "Шулерство выключено в этой партии.";
+                error = _options.AllowCheating
+                    ? "В этой раздаче тебя уже поймали на обмане."
+                    : "Шулерство выключено в этой партии.";
                 return false;
             }
 
@@ -703,6 +852,15 @@ namespace CardGame.Core.Games.Durak
                 return;
             }
 
+            // Пока последний ход можно оспорить, раздачу не закрываем: иначе шулерский
+            // отбой последней карты уносил бы стол в биту раньше, чем кто-то успеет
+            // сказать "стоп". Клиент закроет окно сам, когда время на реакцию выйдет.
+            if (_options.AllowCheating && _pendingChallenge.HasValue)
+            {
+                _boutResolutionPending = true;
+                return;
+            }
+
             if (DefenderTook)
             {
                 EndBout(true);
@@ -744,9 +902,21 @@ namespace CardGame.Core.Games.Durak
                 _discard.AddRange(tableCards);
             }
 
+            // Куда ушла раздача — клиент покажет перелёт карт вместо мгновенного исчезновения.
+            _lastBoutCards.Clear();
+            _lastBoutCards.AddRange(tableCards);
+            LastBoutTakenBy = defenderTakes ? previousDefender : (int?)null;
+            BoutsFinished++;
+
             _table.Clear();
             _passed.Clear();
             DefenderTook = false;
+
+            // Новая раздача — всем прощаются и пойманный обман, и промазанное обвинение.
+            _cheatBlocked.Clear();
+            _challengeBlocked.Clear();
+            _pendingChallenge = null;
+            _boutResolutionPending = false;
 
             RefillHands(previousAttacker, previousDefender);
             MarkFinishedPlayers();
@@ -871,18 +1041,27 @@ namespace CardGame.Core.Games.Durak
         /// </summary>
         private readonly struct PendingChallenge
         {
-            public PendingChallenge(int playerIndex, int slotIndex, bool wasAttack, bool wasActuallyIllegal)
+            public PendingChallenge(int playerIndex, int slotIndex, bool wasAttack, bool wasActuallyIllegal,
+                bool wasTransfer = false, int previousAttacker = -1, int previousDefender = -1)
             {
                 PlayerIndex = playerIndex;
                 SlotIndex = slotIndex;
                 WasAttack = wasAttack;
                 WasActuallyIllegal = wasActuallyIllegal;
+                WasTransfer = wasTransfer;
+                PreviousAttacker = previousAttacker;
+                PreviousDefender = previousDefender;
             }
 
             public int PlayerIndex { get; }
             public int SlotIndex { get; }
             public bool WasAttack { get; }
             public bool WasActuallyIllegal { get; }
+
+            /// <summary>Перевод сдвигает роли, поэтому для отката их надо помнить.</summary>
+            public bool WasTransfer { get; }
+            public int PreviousAttacker { get; }
+            public int PreviousDefender { get; }
         }
     }
 }

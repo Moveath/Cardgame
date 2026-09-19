@@ -403,6 +403,148 @@ public class DurakOptionsTests
     }
 
     [Fact]
+    public void Cheating_CaughtCheaterPaysCardAndCannotCheatAgainThisBout()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), Attacker, Defender, Bystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+
+        var handBefore = game.Players[1].Hand.Count;
+        var fakeDefense = new Card(Rank.Seven, Suit.Diamonds);
+        Assert.True(game.TryApplyMove(1, DurakMove.CheatDefend(fakeDefense, 0), out var e2), e2);
+        Assert.True(game.TryChallenge(2, 0, isAttackCard: false, out var e3), e3);
+
+        // Карта вернулась плюс штрафная из колоды — рука выросла на одну против исходной.
+        Assert.Equal(handBefore + 1, game.Players[1].Hand.Count);
+
+        // И повторить тот же обман в этой раздаче уже нельзя — иначе можно было бы по кругу.
+        Assert.False(game.CanCheat(1));
+        Assert.Empty(game.GetCheatMoves(1));
+        Assert.False(game.TryApplyMove(1, DurakMove.CheatDefend(fakeDefense, 0), out var error));
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void Cheating_WrongAccusationCostsCardAndSilencesTheAccuser()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), Attacker, Defender, Bystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+
+        var handBefore = game.Players[2].Hand.Count;
+
+        // Ход был честным — обвинение мимо.
+        Assert.False(game.TryChallenge(2, 0, isAttackCard: true, out var error));
+        Assert.NotNull(error);
+
+        Assert.Equal(handBefore + 1, game.Players[2].Hand.Count);
+        Assert.False(game.CanChallenge(2));
+    }
+
+    [Fact]
+    public void Cheating_BlocksAreLiftedWhenTheBoutEnds()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), Attacker, Defender, Bystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.False(game.TryChallenge(2, 0, isAttackCard: true, out _));
+        Assert.False(game.CanChallenge(2));
+
+        // Защищающийся забирает — раздача закрывается, и все "наказания" с неё снимаются.
+        Assert.True(game.TryApplyMove(1, DurakMove.Take(), out var e2), e2);
+        PassUntilBoutEnds(game);
+
+        Assert.True(game.CanChallenge(2));
+        Assert.True(game.CanCheat(1));
+    }
+
+    [Fact]
+    public void Cheating_FakeTransferCanBeCaughtAndGivesTheBoutBack()
+    {
+        var game = CreateGame(new DurakOptions(true, ThrowInMode.All, true), Attacker, Defender, Bystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+
+        // Девятка бубён не шестёрка — это перевод "не той" картой.
+        var fake = new Card(Rank.Nine, Suit.Diamonds);
+        Assert.Contains(game.GetCheatMoves(1), m => m.Type == DurakMoveType.CheatTransfer && m.Card == fake);
+        Assert.True(game.TryApplyMove(1, DurakMove.CheatTransfer(fake), out var e2), e2);
+
+        Assert.Equal(2, game.DefenderIndex);
+        Assert.Equal(1, game.AttackerIndex);
+
+        Assert.True(game.TryChallenge(2, 1, isAttackCard: true, out var e3), e3);
+
+        // Карта вернулась, и отбиваться снова тому, кто пытался уехать.
+        Assert.Single(game.Table);
+        Assert.Contains(fake, game.Players[1].Hand);
+        Assert.Equal(1, game.DefenderIndex);
+        Assert.Equal(0, game.AttackerIndex);
+    }
+
+    // Раздача, в которой после первого хода подкидывать станет нечем: ни шестёрок,
+    // ни семёрок ни у кого, кроме защищающегося. Нужна, чтобы проверить именно обман
+    // последней картой — по обычным правилам стол ушёл бы в биту мгновенно.
+    private static readonly List<Card> LoneAttacker = new()
+    {
+        new Card(Rank.Six, Suit.Clubs), new Card(Rank.Eight, Suit.Spades),
+        new Card(Rank.Nine, Suit.Clubs), new Card(Rank.Ten, Suit.Clubs),
+        new Card(Rank.Queen, Suit.Clubs), new Card(Rank.King, Suit.Clubs)
+    };
+
+    private static readonly List<Card> QuietBystander = new()
+    {
+        new Card(Rank.Eight, Suit.Hearts), new Card(Rank.Nine, Suit.Hearts),
+        new Card(Rank.Ten, Suit.Hearts), new Card(Rank.Jack, Suit.Hearts),
+        new Card(Rank.Queen, Suit.Hearts), new Card(Rank.King, Suit.Hearts)
+    };
+
+    [Fact]
+    public void Cheating_LastCardOfTheBoutIsStillCatchable()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), LoneAttacker, Defender, QuietBystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+
+        var fake = new Card(Rank.Seven, Suit.Diamonds);
+        Assert.True(game.TryApplyMove(1, DurakMove.CheatDefend(fake, 0), out var e2), e2);
+
+        // Стол ещё на месте: правила ждут, пока закроется окно оспаривания.
+        Assert.Single(game.Table);
+        Assert.Equal(0, game.BoutsFinished);
+        Assert.True(game.HasChallengeableMove);
+
+        Assert.True(game.TryChallenge(0, 0, isAttackCard: false, out var e3), e3);
+        Assert.False(game.Table[0].IsDefended);
+        Assert.Equal(0, game.BoutsFinished);
+    }
+
+    [Fact]
+    public void Cheating_UncaughtLastCardClosesTheBoutWhenTheWindowExpires()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), LoneAttacker, Defender, QuietBystander);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.True(game.TryApplyMove(1, DurakMove.CheatDefend(new Card(Rank.Seven, Suit.Diamonds), 0), out var e2), e2);
+
+        // Никто не среагировал — раздача закрывается, обман прошёл.
+        game.CloseChallengeWindow();
+
+        Assert.Empty(game.Table);
+        Assert.Equal(1, game.BoutsFinished);
+        Assert.Equal(2, game.DiscardCount);
+    }
+
+    [Fact]
+    public void BoutResult_TellsWhoTookTheCards()
+    {
+        var game = CreateGame(DurakOptions.Classic, Attacker, Defender, Bystander);
+        Assert.Equal(0, game.BoutsFinished);
+
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.True(game.TryApplyMove(1, DurakMove.Take(), out var e2), e2);
+        PassUntilBoutEnds(game);
+
+        Assert.Equal(1, game.BoutsFinished);
+        Assert.Equal(1, game.LastBoutTakenBy);
+        Assert.Contains(new Card(Rank.Six, Suit.Clubs), game.LastBoutCards);
+    }
+
+    [Fact]
     public void FullBotGames_WithAllOptionsOn_FinishWithoutDeadlock()
     {
         var options = new DurakOptions(true, ThrowInMode.NeighboursOnly, true);
@@ -421,6 +563,25 @@ public class DurakOptionsTests
         }
     }
 
+    /// <summary>Все пасуют, пока раздача не закроется, — включая закрытие окна оспаривания.</summary>
+    private static void PassUntilBoutEnds(DurakGame game)
+    {
+        var guard = 20;
+        while (game.Table.Count > 0 && !game.IsFinished && guard-- > 0)
+        {
+            var actor = DurakTurnOrder.GetActingPlayer(game);
+            if (actor == null)
+            {
+                game.CloseChallengeWindow();
+                continue;
+            }
+
+            Assert.True(game.TryApplyMove(actor.Value, DurakMove.Pass(), out var error), error);
+        }
+
+        Assert.True(guard > 0, "Раздача не закрылась.");
+    }
+
     private static void PlayToCompletion(DurakGame game)
     {
         var bot = new SimpleDurakBot();
@@ -429,6 +590,20 @@ public class DurakOptionsTests
         while (!game.IsFinished && guard-- > 0)
         {
             var actor = DurakTurnOrder.GetActingPlayer(game);
+
+            // Ходить некому — значит раздача ждёт только окончания окна оспаривания.
+            // В настоящей игре это окно закрывает клиент, отсчитав время на реакцию.
+            if (actor == null)
+            {
+                game.CloseChallengeWindow();
+                if (game.IsFinished)
+                {
+                    break;
+                }
+
+                actor = DurakTurnOrder.GetActingPlayer(game);
+            }
+
             Assert.NotNull(actor);
 
             var move = bot.ChooseMove(game, actor!.Value);
