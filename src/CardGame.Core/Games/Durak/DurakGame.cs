@@ -23,6 +23,11 @@ namespace CardGame.Core.Games.Durak
         // убивает бесконечный повтор: карту-то вернули, но сыграть её снова уже нельзя.
         private readonly HashSet<int> _cheatBlocked = new HashSet<int>();
         private readonly HashSet<int> _challengeBlocked = new HashSet<int>();
+
+        // Запрет на всю партию — цена ошибки, когда штрафной картой взять неоткуда.
+        // Иначе в концовке (и всю партию на полностью розданной колоде) блеф был бы бесплатным.
+        private readonly HashSet<int> _cheatBannedForGame = new HashSet<int>();
+        private readonly HashSet<int> _challengeBannedForGame = new HashSet<int>();
         private readonly List<Card> _lastBoutCards = new List<Card>();
         private readonly List<int> _lastRefillDraws = new List<int>();
 
@@ -75,11 +80,15 @@ namespace CardGame.Core.Games.Durak
         /// </summary>
         public bool ChallengeTargetIsActuallyIllegal() => _pendingChallenge is { WasActuallyIllegal: true };
 
-        /// <summary>Не попадался ли игрок на обмане в этой раздаче — пойманному шулерить больше нельзя.</summary>
-        public bool CanCheat(int playerIndex) => _options.AllowCheating && !_cheatBlocked.Contains(playerIndex);
+        /// <summary>Не попадался ли игрок на обмане — пойманному нельзя до конца раздачи, а то и партии.</summary>
+        public bool CanCheat(int playerIndex) => _options.AllowCheating
+            && !_cheatBlocked.Contains(playerIndex)
+            && !_cheatBannedForGame.Contains(playerIndex);
 
-        /// <summary>Не ошибся ли игрок с обвинением в этой раздаче — после промаха оспаривать больше нельзя.</summary>
-        public bool CanChallenge(int playerIndex) => _options.AllowCheating && !_challengeBlocked.Contains(playerIndex);
+        /// <summary>Не ошибся ли игрок с обвинением — после промаха оспаривать нельзя до конца раздачи, а то и партии.</summary>
+        public bool CanChallenge(int playerIndex) => _options.AllowCheating
+            && !_challengeBlocked.Contains(playerIndex)
+            && !_challengeBannedForGame.Contains(playerIndex);
 
         /// <summary>
         /// Счётчик сыгранных раздач и куда ушли карты последней. Нужно клиенту, чтобы показать
@@ -100,6 +109,9 @@ namespace CardGame.Core.Games.Durak
         public int PenaltyEvents { get; private set; }
         public int? LastPenaltyPlayer { get; private set; }
         public bool LastPenaltyWasDrawn { get; private set; }
+
+        /// <summary>Колода кончилась и штрафную взяли из биты — клиент показывает её со стола, а не из угла.</summary>
+        public bool LastPenaltyFromDiscard { get; private set; }
 
         public static DurakGame Create(IReadOnlyList<string> playerNames, int seed) =>
             Create(playerNames, Deck.Standard36(seed), DurakOptions.Classic);
@@ -385,9 +397,17 @@ namespace CardGame.Core.Games.Durak
                 _challengeBlocked.Add(challengerIndex);
                 DrawPenalty(challengerIndex);
 
+                // Штрафовать нечем — значит цена в том, что обвинять больше нельзя вообще.
+                if (!LastPenaltyWasDrawn)
+                {
+                    _challengeBannedForGame.Add(challengerIndex);
+                }
+
                 // Обвинение было последним, что держало раздачу открытой.
                 ClosePendingChallenge();
-                error = "Ход был честным — штрафная карта.";
+                error = LastPenaltyWasDrawn
+                    ? "Ход был честным — штрафная карта."
+                    : "Ход был честным. Брать нечего — обвинять больше нельзя до конца партии.";
                 return false;
             }
 
@@ -416,6 +436,12 @@ namespace CardGame.Core.Games.Durak
 
             _cheatBlocked.Add(pending.PlayerIndex);
             DrawPenalty(pending.PlayerIndex);
+
+            // Та же логика для шулера: нет штрафной карты — нет и права блефовать дальше.
+            if (!LastPenaltyWasDrawn)
+            {
+                _cheatBannedForGame.Add(pending.PlayerIndex);
+            }
 
             _passed.Clear();
             _pendingChallenge = null;
@@ -448,19 +474,35 @@ namespace CardGame.Core.Games.Durak
         }
 
         /// <summary>
-        /// Штрафная карта из колоды. Когда колода кончилась, брать неоткуда — наказанием
-        /// остаётся только запрет до конца раздачи, и клиенту надо это показать словами.
+        /// Штрафная карта. Из колоды, а когда она кончилась — из биты: иначе наказания не
+        /// было бы всю концовку, а на 36 картах вшестером колоды нет вообще с первого хода,
+        /// и обманывать можно было бы бесплатно всю партию.
+        /// Если пусто и там, и там — цена другая: блефовать больше нельзя до конца партии.
         /// </summary>
         private void DrawPenalty(int playerIndex)
         {
             PenaltyEvents++;
             LastPenaltyPlayer = playerIndex;
-            LastPenaltyWasDrawn = !_deck.IsEmpty;
+            LastPenaltyFromDiscard = false;
 
-            if (LastPenaltyWasDrawn)
+            if (!_deck.IsEmpty)
             {
                 _players[playerIndex].Add(_deck.Draw());
+                LastPenaltyWasDrawn = true;
+                return;
             }
+
+            if (_discard.Count > 0)
+            {
+                var card = _discard[_discard.Count - 1];
+                _discard.RemoveAt(_discard.Count - 1);
+                _players[playerIndex].Add(card);
+                LastPenaltyWasDrawn = true;
+                LastPenaltyFromDiscard = true;
+                return;
+            }
+
+            LastPenaltyWasDrawn = false;
         }
 
         private bool TryAttack(int playerIndex, Card card, ref string? error)

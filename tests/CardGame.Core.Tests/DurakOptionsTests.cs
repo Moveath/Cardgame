@@ -534,34 +534,70 @@ public class DurakOptionsTests
     }
 
     [Fact]
-    public void Cheating_EmptyDeckLeavesOnlyTheBanAsPunishment()
+    public void Cheating_WithNothingToDrawAtAllTheBanLastsTheWholeGame()
     {
-        // В колоде ровно одна карта сверх раздачи: первый же штраф её съедает,
-        // а второму брать уже неоткуда — как в концовке любой партии.
+        // Ни колоды, ни биты: так выглядит первая раздача на полностью розданной колоде
+        // (36 карт на шестерых) — и именно там обман был бы бесплатным всю партию.
         var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), 0, Attacker, Defender, Bystander);
-        Assert.Equal(1, game.DeckCount);
-
         Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
 
-        // Первое ложное обвинение — штрафная ещё есть.
+        // Первая штрафная ещё есть — в колоде оставалась одна карта.
         Assert.False(game.TryChallenge(2, 0, isAttackCard: true, out _));
         Assert.True(game.LastPenaltyWasDrawn);
         Assert.Equal(0, game.DeckCount);
+        Assert.Equal(0, game.DiscardCount);
 
-        // Теперь ловим настоящий обман: штрафовать шулера уже нечем.
         var fake = new Card(Rank.Seven, Suit.Diamonds);
         Assert.True(game.TryApplyMove(1, DurakMove.CheatDefend(fake, 0), out var e2), e2);
 
         var handBefore = game.Players[1].Hand.Count;
         Assert.True(game.TryChallenge(0, 0, isAttackCard: false, out var e3), e3);
 
+        // Взять неоткуда: вернулась только сыгранная карта.
         Assert.False(game.LastPenaltyWasDrawn);
-
-        // Вернулась только сыгранная карта, штрафной сверху нет.
         Assert.Equal(handBefore + 1, game.Players[1].Hand.Count);
 
-        // Но наказание всё равно есть — до конца раздачи шулерить нельзя.
+        // Зато запрет теперь не на раздачу, а на всю партию.
         Assert.False(game.CanCheat(1));
+
+        // Разоблачённому всё равно надо ответить по-настоящему — забираем и закрываем раздачу.
+        Assert.True(game.TryApplyMove(1, DurakMove.Take(), out var e6), e6);
+        PassUntilBoutEnds(game);
+        Assert.False(game.CanCheat(1));
+    }
+
+    [Fact]
+    public void Cheating_WhenDeckIsEmptyThePenaltyComesFromTheDiscard()
+    {
+        var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), 0, Attacker, Defender, Bystander);
+
+        // Играем первую раздачу честно до биты: шестёрку кроют валетом треф.
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.True(game.TryApplyMove(1, DurakMove.Defend(new Card(Rank.Jack, Suit.Clubs), 0), out var e2), e2);
+        PassUntilBoutEnds(game);
+
+        Assert.Equal(0, game.DeckCount);
+        Assert.True(game.DiscardCount > 0);
+
+        // Новая раздача: ловим обман, штрафную теперь тянем из биты.
+        var attacker = game.AttackerIndex;
+        var defender = game.DefenderIndex;
+        var opener = game.Players[attacker].Hand[0];
+        Assert.True(game.TryApplyMove(attacker, DurakMove.Attack(opener), out var e3), e3);
+
+        var fake = game.Players[defender].Hand.First(c => !DurakRules.Beats(c, opener, game.Trump));
+        Assert.True(game.TryApplyMove(defender, DurakMove.CheatDefend(fake, 0), out var e4), e4);
+
+        var discardBefore = game.DiscardCount;
+        var handBefore = game.Players[defender].Hand.Count;
+        Assert.True(game.TryChallenge(attacker, 0, isAttackCard: false, out var e5), e5);
+
+        Assert.True(game.LastPenaltyWasDrawn);
+        Assert.True(game.LastPenaltyFromDiscard);
+        Assert.Equal(discardBefore - 1, game.DiscardCount);
+
+        // Вернулась своя карта плюс штрафная из биты.
+        Assert.Equal(handBefore + 2, game.Players[defender].Hand.Count);
     }
 
     [Fact]

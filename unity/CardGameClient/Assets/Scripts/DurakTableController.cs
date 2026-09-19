@@ -481,26 +481,44 @@ namespace CardGameClient
                 yield break;
             }
 
+            var player = _game.Players[_game.LastPenaltyPlayer.Value].Name;
+
             if (!_game.LastPenaltyWasDrawn)
             {
-                SetLastAction("Колода пуста — штрафной карты нет.");
+                SetLastAction(player + ": брать нечего — блефовать больше нельзя до конца партии.");
                 yield break;
             }
 
-            yield return FlyFromDeck(_game.LastPenaltyPlayer.Value, 1);
+            // Из биты карта летит со стола: колода в углу пуста, и было бы непонятно,
+            // откуда там взялась карта.
+            if (_game.LastPenaltyFromDiscard)
+            {
+                SetLastAction(player + " берёт штрафную из биты.");
+                yield return FlyCards(_game.LastPenaltyPlayer.Value, 1, new Vector2(0f, -TableRowTop));
+            }
+            else
+            {
+                yield return FlyFromDeck(_game.LastPenaltyPlayer.Value, 1);
+            }
+
             Refresh();
         }
 
-        /// <summary>Стопка рубашек летит от колоды к месту игрока. Больше трёх не рисуем — читается хуже, чем помогает.</summary>
         private IEnumerator FlyFromDeck(int playerIndex, int count)
+        {
+            var canvas = ((RectTransform)transform).rect;
+            var from = new Vector2(-canvas.width * 0.5f + DeckStackFromLeft, -(canvas.height - DeckStackFromBottom));
+            return FlyCards(playerIndex, count, from);
+        }
+
+        /// <summary>Стопка рубашек летит к месту игрока. Больше трёх не рисуем — читается хуже, чем помогает.</summary>
+        private IEnumerator FlyCards(int playerIndex, int count, Vector2 from)
         {
             if (count <= 0)
             {
                 yield break;
             }
 
-            var canvas = ((RectTransform)transform).rect;
-            var from = new Vector2(-canvas.width * 0.5f + DeckStackFromLeft, -(canvas.height - DeckStackFromBottom));
             var to = SeatAnchorPosition(playerIndex);
 
             var visible = Mathf.Min(count, 3);
