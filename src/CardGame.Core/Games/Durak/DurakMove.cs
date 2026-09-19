@@ -7,7 +7,16 @@ namespace CardGame.Core.Games.Durak
         Attack,
         Defend,
         Take,
-        Pass
+        Pass,
+
+        /// <summary>Перевод: защищающийся кладёт карту того же достоинства и передаёт бой дальше.</summary>
+        Transfer,
+
+        /// <summary>Подкинутая карта не обязана подходить по достоинству — легальность решает не движок, а то, поймают ли на этом.</summary>
+        CheatAttack,
+
+        /// <summary>Отбой заведомо не той картой — легальность решает не движок, а то, поймают ли на этом.</summary>
+        CheatDefend
     }
 
     public readonly struct DurakMove
@@ -31,10 +40,23 @@ namespace CardGame.Core.Games.Durak
 
         public static DurakMove Pass() => new DurakMove(DurakMoveType.Pass, default, -1);
 
+        public static DurakMove Transfer(Card card) => new DurakMove(DurakMoveType.Transfer, card, -1);
+
+        public static DurakMove CheatAttack(Card card) => new DurakMove(DurakMoveType.CheatAttack, card, -1);
+
+        public static DurakMove CheatDefend(Card card, int targetSlot) => new DurakMove(DurakMoveType.CheatDefend, card, targetSlot);
+
+        /// <summary>
+        /// Текст хода не выдаёт обман — иначе шулерство теряет смысл: соперник должен
+        /// заподозрить подмену по самой карте на столе, а не по подписи хода в логе.
+        /// </summary>
         public override string ToString() => Type switch
         {
             DurakMoveType.Attack => "подкинул " + Card,
+            DurakMoveType.CheatAttack => "подкинул " + Card,
             DurakMoveType.Defend => "отбил " + Card,
+            DurakMoveType.CheatDefend => "отбил " + Card,
+            DurakMoveType.Transfer => "перевёл " + Card,
             DurakMoveType.Take => "забрал карты",
             _ => "пас"
         };

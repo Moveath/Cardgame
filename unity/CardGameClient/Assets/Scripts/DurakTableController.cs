@@ -34,6 +34,16 @@ namespace CardGameClient
 
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
         private static readonly Color HumanColor = new Color(0.28f, 0.58f, 0.44f);
+        private static readonly Color TransferOffColor = new Color(0.32f, 0.30f, 0.22f);
+
+        // Обычная пауза перед ходом бота; в шулерских партиях длиннее — иначе человек
+        // физически не успевает разглядеть карту и нажать на неё.
+        private const float BotThinkDelay = 1.1f;
+        private const float CheatBotThinkDelay = 1.8f;
+
+        // Не 100%: боты не должны ловить обман с той же надёжностью, что и настоящий рефери,
+        // иначе шулерство против ботов было бы бессмысленно.
+        private const double BotCheatNoticeChance = 0.6;
 
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
@@ -80,10 +90,23 @@ namespace CardGameClient
         private Text _lastAction;
         private Button _passButton;
         private Button _takeButton;
+        private Button _transferButton;
+        private Image _transferButtonImage;
         private Button _restartButton;
 
         private DurakMove? _pendingMove;
         private bool _waitingForHuman;
+
+        // "Перевести" — режим, а не разовая кнопка: пока включён, клик по руке шлёт Transfer,
+        // а не Defend, даже если карта годится для обоих (например, младший козырь).
+        private bool _transferMode;
+
+        // Клик по последней сыгранной карте на столе — сигнал "хочу оспорить", а не сам ход:
+        // применяется как альтернатива обычному ходу в GameLoop.
+        private bool _challengeClicked;
+        private int _challengeSlot;
+        private bool _challengeIsAttackCard;
+        private CardView _challengeableCardView;
 
         // Полуширина веера в руке — по ней своё место встаёт вплотную к картам.
         private float _handHalfWidth;
@@ -121,13 +144,16 @@ namespace CardGameClient
         {
             var seed = UnityEngine.Random.Range(0, int.MaxValue);
             var playerNames = BuildPlayerNames(_settings.PlayerCount);
-            _game = DurakGame.Create(playerNames, _settings.BuildDeck(seed));
+            _game = DurakGame.Create(playerNames, _settings.BuildDeck(seed), _settings.BuildOptions());
             _pendingMove = null;
             _waitingForHuman = false;
             _lastActorIndex = null;
             _tableCardsShown.Clear();
             _tableSnapshot.Clear();
             _tableSignature = null;
+            _transferMode = false;
+            _challengeClicked = false;
+            _challengeableCardView = null;
             ShuffleAvatars();
 
             _lastAction.text = string.Empty;
@@ -155,9 +181,20 @@ namespace CardGameClient
                 {
                     _waitingForHuman = true;
                     _pendingMove = null;
+                    _challengeClicked = false;
                     Refresh();
 
-                    yield return new WaitUntil(() => _pendingMove.HasValue);
+                    // Своя очередь ходить — время на клик по последней карте не ограничено:
+                    // человек и так смотрит на стол, прежде чем решить, чем отвечать.
+                    yield return new WaitUntil(() => _pendingMove.HasValue || _challengeClicked);
+
+                    if (_challengeClicked)
+                    {
+                        ResolveHumanChallenge();
+                        _waitingForHuman = false;
+                        Refresh();
+                        continue;
+                    }
 
                     var move = _pendingMove.Value;
                     _waitingForHuman = false;
@@ -176,11 +213,34 @@ namespace CardGameClient
 
                     Refresh();
                     yield return new WaitForSeconds(CardView.FlightDuration);
+
+                    if (TryBotBystanderChallenge())
+                    {
+                        Refresh();
+                        continue;
+                    }
                 }
                 else
                 {
                     Refresh();
-                    yield return new WaitForSeconds(1.1f);
+
+                    // Окно на реакцию перед ходом бота: параллельно можно нажать на карту,
+                    // которую сыграли только что (человеком или другим ботом).
+                    var thinkDelay = _settings.AllowCheating ? CheatBotThinkDelay : BotThinkDelay;
+                    _challengeClicked = false;
+                    var elapsed = 0f;
+                    while (elapsed < thinkDelay && !_challengeClicked)
+                    {
+                        elapsed += Time.deltaTime;
+                        yield return null;
+                    }
+
+                    if (_challengeClicked)
+                    {
+                        ResolveHumanChallenge();
+                        Refresh();
+                        continue;
+                    }
 
                     var move = _bot.ChooseMove(_game, actor.Value);
                     if (move == null)
@@ -198,11 +258,77 @@ namespace CardGameClient
 
                     Refresh();
                     yield return new WaitForSeconds(CardView.FlightDuration);
+
+                    if (TryBotBystanderChallenge())
+                    {
+                        Refresh();
+                        continue;
+                    }
                 }
             }
 
             Refresh();
             _restartButton.gameObject.SetActive(true);
+        }
+
+        /// <summary>Применяет клик человека по последней сыгранной карте — оспаривание, а не ход.</summary>
+        private void ResolveHumanChallenge()
+        {
+            _challengeClicked = false;
+            var cheaterIndex = _game.ChallengeablePlayerIndex;
+            var slot = _challengeSlot;
+            var isAttackCard = _challengeIsAttackCard;
+
+            if (_game.TryChallenge(HumanIndex, slot, isAttackCard, out var error))
+            {
+                var cheaterName = cheaterIndex.HasValue ? _game.Players[cheaterIndex.Value].Name : "?";
+                SetLastAction("Обман! " + cheaterName + " забирает карту обратно.");
+            }
+            else
+            {
+                SetLastAction(error ?? "Ничего не изменилось.");
+            }
+
+            ClearChallengeableCardView();
+        }
+
+        /// <summary>
+        /// Даёт ботам-свидетелям (не тому, кто ходил, и не человеку) шанс словить обман сразу
+        /// после хода — до того, как очередь дойдёт до следующего игрока.
+        /// </summary>
+        private bool TryBotBystanderChallenge()
+        {
+            if (!_game.HasChallengeableMove)
+            {
+                return false;
+            }
+
+            var actedPlayer = _game.ChallengeablePlayerIndex;
+            foreach (var player in _game.Players)
+            {
+                if (player.IsOut || player.Index == HumanIndex || player.Index == actedPlayer)
+                {
+                    continue;
+                }
+
+                if (_bot.TryChallenge(_game, player.Index, BotCheatNoticeChance, out _))
+                {
+                    SetLastAction(player.Name + ": поймал на обмане!");
+                    ClearChallengeableCardView();
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ClearChallengeableCardView()
+        {
+            if (_challengeableCardView != null)
+            {
+                _challengeableCardView.SetPlain();
+                _challengeableCardView = null;
+            }
         }
 
         private void Refresh()
@@ -279,12 +405,14 @@ namespace CardGameClient
 
             _tableSignature = signature;
             Clear(_tableRow);
+            _challengeableCardView = null;
 
             const float tableCardScale = 1.1f;
             var stillOnTable = new HashSet<Card>();
 
-            foreach (var pair in pairs)
+            for (var slotIndex = 0; slotIndex < pairs.Count; slotIndex++)
             {
+                var pair = pairs[slotIndex];
                 var container = new GameObject("Slot", typeof(RectTransform));
                 container.transform.SetParent(_tableRow, false);
                 ((RectTransform)container.transform).sizeDelta = new Vector2(190f, 260f);
@@ -298,6 +426,7 @@ namespace CardGameClient
                 attack.SetPlain();
                 AnimateArrival(attack, pair.Attack);
                 stillOnTable.Add(pair.Attack);
+                WireChallengeIfPending(attack, slotIndex, isAttackCard: true);
 
                 if (pair.Defense.HasValue)
                 {
@@ -310,6 +439,7 @@ namespace CardGameClient
                     defense.SetPlain();
                     AnimateArrival(defense, pair.Defense.Value);
                     stillOnTable.Add(pair.Defense.Value);
+                    WireChallengeIfPending(defense, slotIndex, isAttackCard: false);
                 }
             }
 
@@ -318,6 +448,26 @@ namespace CardGameClient
             {
                 _tableCardsShown.Add(card);
             }
+        }
+
+        /// <summary>
+        /// Ровно одна карта на столе кликабельна — та, что легла последней. Не важно, честный
+        /// это был ход или нет: подсветка одинаковая в обоих случаях (см. CardView.SetChallengeable).
+        /// </summary>
+        private void WireChallengeIfPending(CardView view, int slotIndex, bool isAttackCard)
+        {
+            if (!_game.HasChallengeableMove || _game.ChallengeableSlot != slotIndex || _game.ChallengeableIsAttackCard != isAttackCard)
+            {
+                return;
+            }
+
+            _challengeableCardView = view;
+            view.SetChallengeable(() =>
+            {
+                _challengeSlot = slotIndex;
+                _challengeIsAttackCard = isAttackCard;
+                _challengeClicked = true;
+            });
         }
 
         /// <summary>
@@ -349,7 +499,8 @@ namespace CardGameClient
         /// <summary>Дописывает в запомненный расклад последний ход — его логика успевает стереть до перерисовки.</summary>
         private void RememberLastDefense(DurakMove move)
         {
-            if (move.Type != DurakMoveType.Defend || move.TargetSlot < 0 || move.TargetSlot >= _tableSnapshot.Count)
+            var isDefense = move.Type == DurakMoveType.Defend || move.Type == DurakMoveType.CheatDefend;
+            if (!isDefense || move.TargetSlot < 0 || move.TargetSlot >= _tableSnapshot.Count)
             {
                 return;
             }
@@ -479,8 +630,9 @@ namespace CardGameClient
                 depth = Mathf.Min(depth, Mathf.Max(0f, overCardsLimit));
             }
 
-            // А крайние места не должны сползти на колоду и кнопки в нижних углах.
-            var cornerLimit = canvasRect.height - 350f - SeatTopMargin - layout.BlockHeight;
+            // А крайние места не должны сползти на колоду и кнопки в нижних углах
+            // (справа их теперь три: перевод, пас, забрать).
+            var cornerLimit = canvasRect.height - 390f - SeatTopMargin - layout.BlockHeight;
             depth = Mathf.Min(depth, Mathf.Max(0f, cornerLimit));
 
             return new Vector2(x, -(SeatTopMargin + depth));
@@ -536,6 +688,10 @@ namespace CardGameClient
             // по этой границе рядом встаёт своё место, и карта его не задевает.
             _handHalfWidth = spacing * mid + cardWidth * 0.5f + 18f;
 
+            var cheatMoves = _waitingForHuman && !_transferMode && _settings.AllowCheating
+                ? _game.GetCheatMoves(HumanIndex)
+                : Array.Empty<DurakMove>();
+
             for (var i = 0; i < count; i++)
             {
                 var card = hand[i];
@@ -546,7 +702,25 @@ namespace CardGameClient
                 var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f);
                 view.SetRestTransform(position, -offset * angleStep);
 
-                var move = FindMoveForCard(legalMoves, card);
+                DurakMove? move = null;
+                if (_waitingForHuman)
+                {
+                    if (_transferMode)
+                    {
+                        // Режим перевода: карта либо переводит, либо не делает ничего — не путаем
+                        // с обычным отбоем, даже если формально годится и туда, и туда.
+                        move = FindTransferMoveForCard(legalMoves, card);
+                    }
+                    else
+                    {
+                        move = FindMoveForCard(legalMoves, card);
+                        if (!move.HasValue && cheatMoves.Count > 0)
+                        {
+                            move = FindCheatMoveForCard(cheatMoves, card);
+                        }
+                    }
+                }
+
                 if (move.HasValue)
                 {
                     var captured = move.Value;
@@ -857,9 +1031,18 @@ namespace CardGameClient
         {
             var canPass = legalMoves.Any(m => m.Type == DurakMoveType.Pass);
             var canTake = legalMoves.Any(m => m.Type == DurakMoveType.Take);
+            var canTransfer = legalMoves.Any(m => m.Type == DurakMoveType.Transfer);
 
             _passButton.gameObject.SetActive(canPass);
             _takeButton.gameObject.SetActive(canTake);
+
+            _transferButton.gameObject.SetActive(canTransfer);
+            if (!canTransfer)
+            {
+                _transferMode = false;
+            }
+
+            _transferButtonImage.sprite = UiTextures.RoundedRect(140, 76, 18f, _transferMode ? ActiveGlow : TransferOffColor);
 
             if (_game.IsFinished)
             {
@@ -880,9 +1063,21 @@ namespace CardGameClient
             }
 
             _status.color = ActiveGlow;
+            if (_transferMode)
+            {
+                _status.text = "Перевод: выбери карту того же достоинства";
+                return;
+            }
+
             _status.text = _game.DefenderIndex == HumanIndex
                 ? "Отбивайся: выбери карту или забери"
                 : "Твой ход: подкинь карту";
+        }
+
+        private void ToggleTransferMode()
+        {
+            _transferMode = !_transferMode;
+            Refresh();
         }
 
         private DurakMove? FindMoveForCard(IReadOnlyList<DurakMove> legalMoves, Card card)
@@ -902,6 +1097,48 @@ namespace CardGameClient
                 }
 
                 if (move.Type == DurakMoveType.Defend && (!best.HasValue || move.TargetSlot < best.Value.TargetSlot))
+                {
+                    best = move;
+                }
+            }
+
+            return best;
+        }
+
+        private static DurakMove? FindTransferMoveForCard(IReadOnlyList<DurakMove> legalMoves, Card card)
+        {
+            foreach (var move in legalMoves)
+            {
+                if (move.Type == DurakMoveType.Transfer && move.Card == card)
+                {
+                    return move;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Та же логика подбора, что и FindMoveForCard, но по списку из GetCheatMoves —
+        /// только для карт, которые честно сыграть сейчас нельзя.
+        /// </summary>
+        private static DurakMove? FindCheatMoveForCard(IReadOnlyList<DurakMove> cheatMoves, Card card)
+        {
+            DurakMove? best = null;
+
+            foreach (var move in cheatMoves)
+            {
+                if (move.Card != card)
+                {
+                    continue;
+                }
+
+                if (move.Type == DurakMoveType.CheatAttack)
+                {
+                    return move;
+                }
+
+                if (move.Type == DurakMoveType.CheatDefend && (!best.HasValue || move.TargetSlot < best.Value.TargetSlot))
                 {
                     best = move;
                 }
@@ -1000,6 +1237,12 @@ namespace CardGameClient
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
             Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(900f, 40f));
+
+            // Выше остальных: показывается только когда доступен перевод (правило включено
+            // в настройках комнаты и в раздаче ещё ничего не отбито).
+            _transferButton = CreateButton(root, "Перевести", new Vector2(1f, 0f), new Vector2(-190f, 350f),
+                TransferOffColor, ToggleTransferMode);
+            _transferButtonImage = _transferButton.GetComponent<Image>();
 
             _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());

@@ -1,3 +1,5 @@
+using CardGame.Core.Games.Durak;
+
 namespace CardGameClient
 {
     public enum DeckKind
@@ -14,10 +16,18 @@ namespace CardGameClient
         public int PlayerCount;
         public DeckKind DeckSize;
 
+        // Необязательные варианты правил — по умолчанию классика без них.
+        public bool AllowTransfer;
+        public ThrowInMode ThrowInMode;
+        public bool AllowCheating;
+
         public static DurakMatchSettings Default => new DurakMatchSettings
         {
             PlayerCount = 3,
-            DeckSize = DeckKind.ThirtySix
+            DeckSize = DeckKind.ThirtySix,
+            AllowTransfer = false,
+            ThrowInMode = ThrowInMode.All,
+            AllowCheating = false
         };
 
         /// <summary>Сколько игроков умещается в выбранной колоде без пересдачи по кругу.</summary>
@@ -52,5 +62,7 @@ namespace CardGameClient
                 default: return CardGame.Core.Cards.Deck.Standard54(seed);
             }
         }
+
+        public DurakOptions BuildOptions() => new DurakOptions(AllowTransfer, ThrowInMode, AllowCheating);
     }
 }

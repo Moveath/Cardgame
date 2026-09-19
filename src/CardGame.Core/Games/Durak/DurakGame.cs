@@ -16,13 +16,16 @@ namespace CardGame.Core.Games.Durak
         private readonly List<Card> _discard = new List<Card>();
         private readonly HashSet<int> _passed = new HashSet<int>();
         private readonly Deck _deck;
+        private readonly DurakOptions _options;
+        private PendingChallenge? _pendingChallenge;
 
-        private DurakGame(List<DurakPlayer> players, Deck deck, Card trumpCard)
+        private DurakGame(List<DurakPlayer> players, Deck deck, Card trumpCard, DurakOptions options)
         {
             _players = players;
             _deck = deck;
             TrumpCard = trumpCard;
             Trump = trumpCard.Suit;
+            _options = options;
         }
 
         public Suit Trump { get; }
@@ -31,6 +34,7 @@ namespace CardGame.Core.Games.Durak
         public int DefenderIndex { get; private set; }
         public bool DefenderTook { get; private set; }
         public bool IsFinished { get; private set; }
+        public DurakOptions Options => _options;
 
         /// <summary>Индекс проигравшего (дурака). null — ничья.</summary>
         public int? LoserIndex { get; private set; }
@@ -43,11 +47,32 @@ namespace CardGame.Core.Games.Durak
         public DurakPlayer Attacker => _players[AttackerIndex];
         public DurakPlayer Defender => _players[DefenderIndex];
 
+        /// <summary>
+        /// Последний ход, который ещё можно оспорить: окно закрывается автоматически, как только
+        /// применяется следующий ход (любой, не обязательно к этой же карте). Само по себе не
+        /// говорит, был ли это обман, — иначе шулерство теряло бы смысл, выдавая себя в интерфейсе.
+        /// </summary>
+        public bool HasChallengeableMove => _pendingChallenge.HasValue;
+        public int? ChallengeableSlot => _pendingChallenge?.SlotIndex;
+        public bool? ChallengeableIsAttackCard => _pendingChallenge?.WasAttack;
+        public int? ChallengeablePlayerIndex => _pendingChallenge?.PlayerIndex;
+
+        /// <summary>
+        /// Только для ИИ соперников: было ли последнее оспариваемое действие обманом на самом деле.
+        /// Человеку это показывать нельзя — экран должен заставлять смотреть на саму карту,
+        /// а не подсвечивать обман заранее, иначе шулерство теряет смысл.
+        /// </summary>
+        public bool ChallengeTargetIsActuallyIllegal() => _pendingChallenge is { WasActuallyIllegal: true };
+
         public static DurakGame Create(IReadOnlyList<string> playerNames, int seed) =>
-            Create(playerNames, Deck.Standard36(seed));
+            Create(playerNames, Deck.Standard36(seed), DurakOptions.Classic);
 
         /// <summary>Та же партия, но с колодой на выбор (24/36/52/54 карты) — например из настроек комнаты.</summary>
-        public static DurakGame Create(IReadOnlyList<string> playerNames, Deck deck)
+        public static DurakGame Create(IReadOnlyList<string> playerNames, Deck deck) =>
+            Create(playerNames, deck, DurakOptions.Classic);
+
+        /// <summary>Полный контроль: колода и необязательные варианты правил (перевод, соседи, шулерство).</summary>
+        public static DurakGame Create(IReadOnlyList<string> playerNames, Deck deck, DurakOptions options)
         {
             if (playerNames.Count < 2 || playerNames.Count > 8)
             {
@@ -57,7 +82,7 @@ namespace CardGame.Core.Games.Durak
             var trumpCard = deck.Bottom!.Value;
             var players = playerNames.Select((name, i) => new DurakPlayer(i, name)).ToList();
 
-            var game = new DurakGame(players, deck, trumpCard);
+            var game = new DurakGame(players, deck, trumpCard, options);
             game.DealOpeningHands();
             game.AttackerIndex = game.FindFirstAttacker();
             game.DefenderIndex = game.NextActive(game.AttackerIndex);
@@ -101,6 +126,18 @@ namespace CardGame.Core.Games.Durak
                     }
                 }
 
+                if (CanTransfer())
+                {
+                    var ranksOnTable = _table.Select(s => s.Attack.Rank).ToHashSet();
+                    foreach (var card in player.Hand)
+                    {
+                        if (ranksOnTable.Contains(card.Rank))
+                        {
+                            moves.Add(DurakMove.Transfer(card));
+                        }
+                    }
+                }
+
                 if (_table.Any(s => !s.IsDefended))
                 {
                     moves.Add(DurakMove.Take());
@@ -123,6 +160,92 @@ namespace CardGame.Core.Games.Durak
             }
 
             return moves;
+        }
+
+        /// <summary>
+        /// Шулерские ходы: те же карты, что и обычно, но именно те, которые НЕ подходят по правилам —
+        /// честную карту незачем подсовывать под видом обмана. Отдельный список, а не часть
+        /// GetLegalMoves, — иначе бот и обычный интерфейс начали бы принимать обман за легальный ход.
+        /// </summary>
+        public IReadOnlyList<DurakMove> GetCheatMoves(int playerIndex)
+        {
+            var moves = new List<DurakMove>();
+            if (!_options.AllowCheating || IsFinished)
+            {
+                return moves;
+            }
+
+            var player = _players[playerIndex];
+            if (player.IsOut)
+            {
+                return moves;
+            }
+
+            if (playerIndex == DefenderIndex)
+            {
+                if (DefenderTook)
+                {
+                    return moves;
+                }
+
+                for (var slot = 0; slot < _table.Count; slot++)
+                {
+                    if (_table[slot].IsDefended)
+                    {
+                        continue;
+                    }
+
+                    foreach (var card in player.Hand)
+                    {
+                        if (!DurakRules.Beats(card, _table[slot].Attack, Trump))
+                        {
+                            moves.Add(DurakMove.CheatDefend(card, slot));
+                        }
+                    }
+                }
+
+                return moves;
+            }
+
+            if (_table.Count == 0 || !CanAttackStructurally(playerIndex))
+            {
+                return moves;
+            }
+
+            foreach (var card in player.Hand)
+            {
+                if (!MatchesTableRank(card))
+                {
+                    moves.Add(DurakMove.CheatAttack(card));
+                }
+            }
+
+            return moves;
+        }
+
+        /// <summary>Можно ли сейчас перевести: ничего в этой раздаче ещё не отбито, и у следующего хватит карт принять.</summary>
+        private bool CanTransfer()
+        {
+            if (!_options.AllowTransfer || DefenderTook || _table.Count == 0)
+            {
+                return false;
+            }
+
+            if (_table.Any(s => s.IsDefended))
+            {
+                return false;
+            }
+
+            var next = NextActive(DefenderIndex);
+
+            // Переводить некому: со следующим игроком защита вернулась бы тому же
+            // атакующему, что и начал раздачу, — в игре вдвоём такое бессмысленно.
+            if (next == AttackerIndex)
+            {
+                return false;
+            }
+
+            return _players[next].Hand.Count > _table.Count;
         }
 
         public bool TryApplyMove(int playerIndex, DurakMove move, out string? error)
@@ -151,10 +274,70 @@ namespace CardGame.Core.Games.Durak
                     return TryTake(playerIndex, ref error);
                 case DurakMoveType.Pass:
                     return TryPass(playerIndex, ref error);
+                case DurakMoveType.Transfer:
+                    return TryTransfer(playerIndex, move.Card, ref error);
+                case DurakMoveType.CheatAttack:
+                    return TryCheatAttack(playerIndex, move.Card, ref error);
+                case DurakMoveType.CheatDefend:
+                    return TryCheatDefend(playerIndex, move.Card, move.TargetSlot, ref error);
                 default:
                     error = "Неизвестный тип хода.";
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Оспорить последний ход: если он и правда оказался обманом — карта возвращается
+        /// шулеру и ход переигрывается по-настоящему; если ход был честным — ничего не
+        /// происходит (штрафа за ложное обвинение нет, можно пробовать снова и снова).
+        /// </summary>
+        public bool TryChallenge(int challengerIndex, int slotIndex, bool isAttackCard, out string? error)
+        {
+            error = null;
+
+            if (challengerIndex < 0 || challengerIndex >= _players.Count || _players[challengerIndex].IsOut)
+            {
+                error = "Такой игрок не может оспаривать ходы.";
+                return false;
+            }
+
+            if (_pendingChallenge is not { } pending || pending.SlotIndex != slotIndex || pending.WasAttack != isAttackCard)
+            {
+                error = "Эту карту уже нельзя оспорить.";
+                return false;
+            }
+
+            if (pending.PlayerIndex == challengerIndex)
+            {
+                error = "Нельзя оспорить свой же ход.";
+                return false;
+            }
+
+            if (!pending.WasActuallyIllegal)
+            {
+                _pendingChallenge = null;
+                error = "Ход был честным.";
+                return false;
+            }
+
+            var cheater = _players[pending.PlayerIndex];
+            if (pending.WasAttack)
+            {
+                var card = _table[slotIndex].Attack;
+                _table.RemoveAt(slotIndex);
+                cheater.Add(card);
+            }
+            else
+            {
+                var slot = _table[slotIndex];
+                var card = slot.Defense!.Value;
+                slot.Defense = null;
+                cheater.Add(card);
+            }
+
+            _passed.Clear();
+            _pendingChallenge = null;
+            return true;
         }
 
         private bool TryAttack(int playerIndex, Card card, ref string? error)
@@ -180,6 +363,10 @@ namespace CardGame.Core.Games.Durak
             _players[playerIndex].Remove(card);
             _table.Add(new TableSlot(card));
             _passed.Clear();
+
+            // Честный ход тоже помечается "оспариваемым" (заведомо не обманом) — иначе сама
+            // возможность оспорить именно эту карту выдавала бы, что где-то есть подвох.
+            _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true, wasActuallyIllegal: false);
             ResolveBoutIfReady();
             return true;
         }
@@ -225,6 +412,7 @@ namespace CardGame.Core.Games.Durak
 
             _players[playerIndex].Remove(card);
             slot.Defense = card;
+            _pendingChallenge = new PendingChallenge(playerIndex, slotIndex, wasAttack: false, wasActuallyIllegal: false);
             ResolveBoutIfReady();
             return true;
         }
@@ -251,6 +439,7 @@ namespace CardGame.Core.Games.Durak
 
             DefenderTook = true;
             _passed.Clear();
+            _pendingChallenge = null;
             ResolveBoutIfReady();
             return true;
         }
@@ -270,11 +459,169 @@ namespace CardGame.Core.Games.Durak
             }
 
             _passed.Add(playerIndex);
+            _pendingChallenge = null;
             ResolveBoutIfReady();
             return true;
         }
 
+        private bool TryTransfer(int playerIndex, Card card, ref string? error)
+        {
+            if (!_options.AllowTransfer)
+            {
+                error = "Перевод выключен в этой партии.";
+                return false;
+            }
+
+            if (playerIndex != DefenderIndex)
+            {
+                error = "Переводить может только защищающийся.";
+                return false;
+            }
+
+            if (DefenderTook)
+            {
+                error = "Карты уже забраны, переводить поздно.";
+                return false;
+            }
+
+            if (_table.Count == 0 || _table.Any(s => s.IsDefended))
+            {
+                error = "Переводить можно, только пока в этой раздаче ничего не отбито.";
+                return false;
+            }
+
+            if (!_players[playerIndex].Hand.Contains(card))
+            {
+                error = "Карты нет на руке.";
+                return false;
+            }
+
+            if (!MatchesTableRank(card))
+            {
+                error = "Нет карты такого достоинства на столе.";
+                return false;
+            }
+
+            var nextDefender = NextActive(DefenderIndex);
+            if (nextDefender == AttackerIndex)
+            {
+                error = "Переводить некому — вернётся тому же атакующему.";
+                return false;
+            }
+
+            if (_players[nextDefender].Hand.Count <= _table.Count)
+            {
+                error = "У следующего игрока не хватит карт принять перевод.";
+                return false;
+            }
+
+            _players[playerIndex].Remove(card);
+            _table.Add(new TableSlot(card));
+            _passed.Clear();
+            _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true, wasActuallyIllegal: false);
+            DefenderIndex = nextDefender;
+            ResolveBoutIfReady();
+            return true;
+        }
+
+        private bool TryCheatAttack(int playerIndex, Card card, ref string? error)
+        {
+            if (!_options.AllowCheating)
+            {
+                error = "Шулерство выключено в этой партии.";
+                return false;
+            }
+
+            if (!_players[playerIndex].Hand.Contains(card))
+            {
+                error = "Карты нет на руке.";
+                return false;
+            }
+
+            if (_table.Count == 0 || !CanAttackStructurally(playerIndex))
+            {
+                error = "Так подкинуть сейчас нельзя, даже обманом.";
+                return false;
+            }
+
+            var actuallyLegal = MatchesTableRank(card);
+
+            _players[playerIndex].Remove(card);
+            _table.Add(new TableSlot(card));
+            _passed.Clear();
+            _pendingChallenge = new PendingChallenge(playerIndex, _table.Count - 1, wasAttack: true, wasActuallyIllegal: !actuallyLegal);
+            ResolveBoutIfReady();
+            return true;
+        }
+
+        private bool TryCheatDefend(int playerIndex, Card card, int slotIndex, ref string? error)
+        {
+            if (!_options.AllowCheating)
+            {
+                error = "Шулерство выключено в этой партии.";
+                return false;
+            }
+
+            if (playerIndex != DefenderIndex)
+            {
+                error = "Отбиваться, пусть и обманом, может только защищающийся.";
+                return false;
+            }
+
+            if (DefenderTook)
+            {
+                error = "Карты уже забраны, отбиваться поздно.";
+                return false;
+            }
+
+            if (slotIndex < 0 || slotIndex >= _table.Count)
+            {
+                error = "Нет такой карты на столе.";
+                return false;
+            }
+
+            var slot = _table[slotIndex];
+            if (slot.IsDefended)
+            {
+                error = "Эта карта уже отбита.";
+                return false;
+            }
+
+            if (!_players[playerIndex].Hand.Contains(card))
+            {
+                error = "Карты нет на руке.";
+                return false;
+            }
+
+            var actuallyLegal = DurakRules.Beats(card, slot.Attack, Trump);
+
+            _players[playerIndex].Remove(card);
+            slot.Defense = card;
+            _pendingChallenge = new PendingChallenge(playerIndex, slotIndex, wasAttack: false, wasActuallyIllegal: !actuallyLegal);
+            ResolveBoutIfReady();
+            return true;
+        }
+
+        private bool MatchesTableRank(Card card) =>
+            _table.Any(s => s.Attack.Rank == card.Rank || (s.IsDefended && s.Defense!.Value.Rank == card.Rank));
+
         private bool CanAttackWith(int playerIndex, Card card)
+        {
+            if (!CanAttackStructurally(playerIndex))
+            {
+                return false;
+            }
+
+            if (_table.Count == 0)
+            {
+                return playerIndex == AttackerIndex;
+            }
+
+            return MatchesTableRank(card);
+        }
+
+        /// <summary>Проверки, не зависящие от конкретной карты: место на столе, очередь, право подкидывать вообще.</summary>
+        private bool CanAttackStructurally(int playerIndex)
         {
             if (playerIndex == DefenderIndex || _players[playerIndex].IsOut)
             {
@@ -297,12 +644,18 @@ namespace CardGame.Core.Games.Durak
                 return false;
             }
 
-            if (_table.Count == 0)
+            // Открывать раздачу может только атакующий вне зависимости от режима подкидывания —
+            // ограничение "только соседи" касается только добавочных карт.
+            if (_table.Count > 0 && _options.ThrowInMode == ThrowInMode.NeighboursOnly)
             {
-                return playerIndex == AttackerIndex;
+                var nextAfterDefender = NextActive(DefenderIndex);
+                if (playerIndex != AttackerIndex && playerIndex != nextAfterDefender)
+                {
+                    return false;
+                }
             }
 
-            return _table.Any(s => s.Attack.Rank == card.Rank || (s.IsDefended && s.Defense!.Value.Rank == card.Rank));
+            return true;
         }
 
         private bool AllAttackersDone()
@@ -494,6 +847,27 @@ namespace CardGame.Core.Games.Durak
             }
 
             return bestPlayer < 0 ? 0 : bestPlayer;
+        }
+
+        /// <summary>
+        /// Единственный ход, который ещё можно оспорить. WasActuallyIllegal нарочно не
+        /// публикуется наружу отдельным свойством — иначе интерфейс мог бы подсветить
+        /// обман до того, как игрок сам его заметит, и шулерство потеряло бы смысл.
+        /// </summary>
+        private readonly struct PendingChallenge
+        {
+            public PendingChallenge(int playerIndex, int slotIndex, bool wasAttack, bool wasActuallyIllegal)
+            {
+                PlayerIndex = playerIndex;
+                SlotIndex = slotIndex;
+                WasAttack = wasAttack;
+                WasActuallyIllegal = wasActuallyIllegal;
+            }
+
+            public int PlayerIndex { get; }
+            public int SlotIndex { get; }
+            public bool WasAttack { get; }
+            public bool WasActuallyIllegal { get; }
         }
     }
 }

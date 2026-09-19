@@ -27,6 +27,7 @@ namespace CardGameClient
         private static readonly Color RedInk = new Color(0.78f, 0.13f, 0.15f);
         private static readonly Color BlackInk = new Color(0.13f, 0.13f, 0.16f);
         private static readonly Color TrumpGlow = new Color(1f, 0.82f, 0.25f);
+        private static readonly Color ChallengeGlow = new Color(0.85f, 0.55f, 1f);
 
         private static readonly Dictionary<string, Sprite> ArtCache = new Dictionary<string, Sprite>();
 
@@ -197,6 +198,24 @@ namespace CardGameClient
             _hoverEnabled = false;
             _group.alpha = 1f;
             _outline.enabled = false;
+        }
+
+        /// <summary>
+        /// Последняя сыгранная карта на столе — всегда кликабельна для оспаривания, независимо
+        /// от того, был ли ход обманом на самом деле. Если подсвечивать только настоящий обман,
+        /// сама подсветка станет подсказкой и механика потеряет смысл — поэтому вид у "честной"
+        /// и "нечестной" последней карты совершенно одинаковый.
+        /// </summary>
+        public void SetChallengeable(Action onClick)
+        {
+            _button.onClick.RemoveAllListeners();
+            _button.interactable = true;
+            _hoverEnabled = true;
+            _group.alpha = 1f;
+            _outline.enabled = true;
+            _outline.effectColor = ChallengeGlow;
+            _outline.effectDistance = new Vector2(4f, 4f);
+            _button.onClick.AddListener(() => onClick());
         }
 
         /// <summary>Задаёт позицию покоя карты (для веерной раскладки руки). Наведение курсором анимируется от неё.</summary>

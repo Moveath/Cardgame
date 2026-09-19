@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CardGame.Core.Games.Durak;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -31,6 +32,15 @@ namespace CardGameClient
         private readonly List<Image> _deckButtonImages = new List<Image>();
         private readonly List<Button> _playerCountButtons = new List<Button>();
         private readonly List<Image> _playerCountButtonImages = new List<Image>();
+
+        // Каждый переключатель — ровно два варианта, поэтому пара кнопок и пара картинок на опцию.
+        private readonly Button[] _transferButtons = new Button[2];
+        private readonly Image[] _transferButtonImages = new Image[2];
+        private readonly Button[] _throwInButtons = new Button[2];
+        private readonly Image[] _throwInButtonImages = new Image[2];
+        private readonly Button[] _cheatButtons = new Button[2];
+        private readonly Image[] _cheatButtonImages = new Image[2];
+
         private Text _seatsSummary;
 
         private void Start()
@@ -126,12 +136,15 @@ namespace CardGameClient
             Stretch((RectTransform)_lobbyScreen.transform);
             _lobbyScreen.SetActive(false);
 
-            var title = CreateText(_lobbyScreen.transform, "Настройка комнаты — дурак", 44, TextAnchor.MiddleCenter);
-            Place((RectTransform)title.transform, new Vector2(0.5f, 0.88f), Vector2.zero, new Vector2(1100f, 70f));
+            // Весь список привязан к верхнему краю фиксированными отступами, а не долями
+            // экрана: на широком окне Unity ужимает высоту холста, и доли начинают
+            // наезжать друг на друга (та же ловушка, что была со столом).
+            var title = CreateText(_lobbyScreen.transform, "Настройка комнаты — дурак", 40, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
 
             // Ряд размеров колоды.
-            var deckLabel = CreateText(_lobbyScreen.transform, "Колода", 28, TextAnchor.MiddleCenter);
-            Place((RectTransform)deckLabel.transform, new Vector2(0.5f, 0.72f), Vector2.zero, new Vector2(400f, 40f));
+            var deckLabel = CreateText(_lobbyScreen.transform, "Колода", 26, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)deckLabel.transform, 0f, 168f, new Vector2(400f, 34f));
 
             var deckOptions = new[] { DeckKind.Twenty4, DeckKind.ThirtySix, DeckKind.FiftyTwo, DeckKind.FiftyFour };
             var deckLabels = new[] { "24", "36", "52", "54" };
@@ -143,14 +156,14 @@ namespace CardGameClient
                 var option = deckOptions[i];
                 var x = deckStartX + i * deckSpacing;
                 var image = CreateChoiceButton(_lobbyScreen.transform, deckLabels[i], () => SelectDeck(option), out var button);
-                Place((RectTransform)button.transform, new Vector2(0.5f, 0.62f), new Vector2(x, 0f), new Vector2(150f, 90f));
+                PlaceFromTop((RectTransform)button.transform, x, 210f, new Vector2(150f, 84f));
                 _deckButtons.Add(button);
                 _deckButtonImages.Add(image);
             }
 
             // Ряд количества игроков.
-            var playersLabel = CreateText(_lobbyScreen.transform, "Игроков за столом", 28, TextAnchor.MiddleCenter);
-            Place((RectTransform)playersLabel.transform, new Vector2(0.5f, 0.46f), Vector2.zero, new Vector2(500f, 40f));
+            var playersLabel = CreateText(_lobbyScreen.transform, "Игроков за столом", 26, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)playersLabel.transform, 0f, 330f, new Vector2(500f, 34f));
 
             var playerSpacing = 100f;
             var playerStartX = -(8 - 2) * playerSpacing / 2f;
@@ -160,14 +173,25 @@ namespace CardGameClient
                 var captured = count;
                 var x = playerStartX + (count - 2) * playerSpacing;
                 var image = CreateChoiceButton(_lobbyScreen.transform, count.ToString(), () => SelectPlayerCount(captured), out var button);
-                Place((RectTransform)button.transform, new Vector2(0.5f, 0.36f), new Vector2(x, 0f), new Vector2(84f, 84f));
+                PlaceFromTop((RectTransform)button.transform, x, 372f, new Vector2(80f, 80f));
                 _playerCountButtons.Add(button);
                 _playerCountButtonImages.Add(image);
             }
 
-            _seatsSummary = CreateText(_lobbyScreen.transform, string.Empty, 26, TextAnchor.MiddleCenter);
+            // Необязательные варианты правил — компактные переключатели "туда-сюда", без затемнения
+            // (в отличие от колоды и числа игроков тут нет невозможных сочетаний).
+            BuildBinaryToggle(484f, "Переводной", "Нет", "Да", _transferButtons, _transferButtonImages,
+                () => SelectTransfer(false), () => SelectTransfer(true));
+
+            BuildBinaryToggle(544f, "Подкидывают", "Все", "Соседи", _throwInButtons, _throwInButtonImages,
+                () => SelectThrowIn(ThrowInMode.All), () => SelectThrowIn(ThrowInMode.NeighboursOnly));
+
+            BuildBinaryToggle(604f, "Шулерство", "Без", "С шулером", _cheatButtons, _cheatButtonImages,
+                () => SelectCheating(false), () => SelectCheating(true));
+
+            _seatsSummary = CreateText(_lobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
             _seatsSummary.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
-            Place((RectTransform)_seatsSummary.transform, new Vector2(0.5f, 0.22f), Vector2.zero, new Vector2(700f, 40f));
+            PlaceFromTop((RectTransform)_seatsSummary.transform, 0f, 674f, new Vector2(760f, 32f));
 
             CreateButton(_lobbyScreen.transform, "Играть", new Vector2(0.5f, 0f), new Vector2(0f, 110f),
                 new Color(0.21f, 0.45f, 0.29f), StartMatch);
@@ -176,6 +200,20 @@ namespace CardGameClient
                 new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_modeSelectScreen));
 
             RefreshLobbySelection();
+        }
+
+        /// <summary>Одна строка с подписью слева и двумя вариантами справа — компактнее, чем подпись сверху.</summary>
+        private void BuildBinaryToggle(float offsetFromTop, string label, string optionA, string optionB,
+            Button[] buttons, Image[] images, Action onSelectA, Action onSelectB)
+        {
+            var labelText = CreateText(_lobbyScreen.transform, label, 26, TextAnchor.MiddleLeft);
+            PlaceFromTop((RectTransform)labelText.transform, -260f, offsetFromTop, new Vector2(280f, 52f));
+
+            images[0] = CreateChoiceButton(_lobbyScreen.transform, optionA, onSelectA, out buttons[0]);
+            PlaceFromTop((RectTransform)buttons[0].transform, 40f, offsetFromTop, new Vector2(170f, 52f));
+
+            images[1] = CreateChoiceButton(_lobbyScreen.transform, optionB, onSelectB, out buttons[1]);
+            PlaceFromTop((RectTransform)buttons[1].transform, 220f, offsetFromTop, new Vector2(170f, 52f));
         }
 
         private void SelectDeck(DeckKind deck)
@@ -215,6 +253,24 @@ namespace CardGameClient
             RefreshLobbySelection();
         }
 
+        private void SelectTransfer(bool allow)
+        {
+            _settings.AllowTransfer = allow;
+            RefreshLobbySelection();
+        }
+
+        private void SelectThrowIn(ThrowInMode mode)
+        {
+            _settings.ThrowInMode = mode;
+            RefreshLobbySelection();
+        }
+
+        private void SelectCheating(bool allow)
+        {
+            _settings.AllowCheating = allow;
+            RefreshLobbySelection();
+        }
+
         private void RefreshLobbySelection()
         {
             var deckOptions = new[] { DeckKind.Twenty4, DeckKind.ThirtySix, DeckKind.FiftyTwo, DeckKind.FiftyFour };
@@ -233,6 +289,15 @@ namespace CardGameClient
                 var isSelected = _settings.PlayerCount == count;
                 SetChoiceState(_playerCountButtons[index], _playerCountButtonImages[index], isValid, isSelected);
             }
+
+            SetChoiceState(_transferButtons[0], _transferButtonImages[0], true, !_settings.AllowTransfer);
+            SetChoiceState(_transferButtons[1], _transferButtonImages[1], true, _settings.AllowTransfer);
+
+            SetChoiceState(_throwInButtons[0], _throwInButtonImages[0], true, _settings.ThrowInMode == ThrowInMode.All);
+            SetChoiceState(_throwInButtons[1], _throwInButtonImages[1], true, _settings.ThrowInMode == ThrowInMode.NeighboursOnly);
+
+            SetChoiceState(_cheatButtons[0], _cheatButtonImages[0], true, !_settings.AllowCheating);
+            SetChoiceState(_cheatButtons[1], _cheatButtonImages[1], true, _settings.AllowCheating);
 
             var botCount = _settings.PlayerCount - 1;
             _seatsSummary.text = "За столом: ты + " + botCount + (botCount == 1 ? " бот" : botCount < 5 ? " бота" : " ботов")
@@ -394,6 +459,16 @@ namespace CardGameClient
             rect.anchorMax = anchor;
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+        }
+
+        /// <summary>Отступ от верхнего края холста фиксированными пикселями — не сдвигается,
+        /// когда Unity ужимает высоту холста на широких окнах.</summary>
+        private static void PlaceFromTop(RectTransform rect, float x, float offsetFromTop, Vector2 size)
+        {
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(x, -offsetFromTop);
             rect.sizeDelta = size;
         }
 
