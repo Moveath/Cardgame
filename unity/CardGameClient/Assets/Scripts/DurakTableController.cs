@@ -178,6 +178,10 @@ namespace CardGameClient
         private void StartNewGame()
         {
             var seed = UnityEngine.Random.Range(0, int.MaxValue);
+
+            // Сначала лица, потом имена: бот с лицом реального человека называется так же,
+            // и имя уходит в правила при создании партии — переименовать потом уже нельзя.
+            ShuffleAvatars(_settings.PlayerCount);
             var playerNames = BuildPlayerNames(_settings.PlayerCount);
             _game = DurakGame.Create(playerNames, _settings.BuildDeck(seed), _settings.BuildOptions());
             _pendingMove = null;
@@ -198,7 +202,6 @@ namespace CardGameClient
             _tableRow.localScale = Vector3.one;
             _tableGroup.alpha = 1f;
             Clear(_flyLayer);
-            ShuffleAvatars();
 
             _lastAction.text = string.Empty;
 
@@ -674,12 +677,31 @@ namespace CardGameClient
             RefreshDeckPile();
         }
 
-        private static List<string> BuildPlayerNames(int playerCount)
+        private List<string> BuildPlayerNames(int playerCount)
         {
             var names = new List<string> { HumanName };
-            for (var i = 0; i < playerCount - 1; i++)
+            var fromPool = 0;
+
+            for (var player = 1; player < playerCount; player++)
             {
-                names.Add(BotNamePool[i % BotNamePool.Length]);
+                // Лицо реального человека приносит с собой и имя: иначе за столом сидит
+                // «Вера» с лицом Данила. Выдуманным персонажам имя берём из списка.
+                var title = AvatarCatalog.PersonalTitleOf(PortraitFor(player));
+                if (title != null && !names.Contains(title))
+                {
+                    names.Add(title);
+                    continue;
+                }
+
+                var name = BotNamePool[fromPool % BotNamePool.Length];
+                while (names.Contains(name) && fromPool < BotNamePool.Length)
+                {
+                    fromPool++;
+                    name = BotNamePool[fromPool % BotNamePool.Length];
+                }
+
+                fromPool++;
+                names.Add(name);
             }
 
             return names;
@@ -1495,23 +1517,19 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Портреты: себе игрок выбирает аватар сам (экран выбора), соперникам раздаются
-        /// случайные из общего пула выдуманных персонажей. Лица реальных людей ботам не
-        /// достаются: странно играть против собственного лица, пока сам за столом.
+        /// Портреты: себе игрок выбирает аватар сам (экран выбора), соперникам достаётся
+        /// случайный из остальных — и выдуманные персонажи, и лица реальных людей.
+        /// Набор, из которого выбрал себя игрок, из раздачи исключён.
         /// Пока картинок нет, всё работает по-старому — цветной кружок с буквой.
         /// </summary>
-        private void ShuffleAvatars()
+        private void ShuffleAvatars(int playerCount)
         {
-            _playerPortraits = new Sprite[_game.Players.Count];
+            _playerPortraits = new Sprite[playerCount];
             _playerPortraits[HumanIndex] = PlayerProfile.Avatar;
 
-            var pool = new List<Sprite>(AvatarCatalog.CommonAvatars);
-
-            // Свой аватар из колоды соперников убираем, чтобы за столом не сидел двойник.
-            if (_playerPortraits[HumanIndex] != null)
-            {
-                pool.Remove(_playerPortraits[HumanIndex]);
-            }
+            // Соперникам достаются и выдуманные персонажи, и лица реальных людей —
+            // по одному человеку на набор, свой набор вычеркнут. Двойника за столом не будет.
+            var pool = AvatarCatalog.OpponentPool(_playerPortraits[HumanIndex]);
 
             for (var i = pool.Count - 1; i > 0; i--)
             {

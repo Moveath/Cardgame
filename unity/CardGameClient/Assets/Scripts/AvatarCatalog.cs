@@ -20,7 +20,10 @@ namespace CardGameClient
             { "yegor", "Егор" },
             { "alisher", "Алишер" },
             { "yelnur", "Ельнур" },
-            { "marat", "Марат" }
+            { "marat", "Марат" },
+            { "ali", "Али" },
+            { "aslan", "Аслан" },
+            { "danil", "Данил" }
         };
 
         private static List<AvatarGroup> _groups;
@@ -41,7 +44,7 @@ namespace CardGameClient
             }
         }
 
-        /// <summary>Выдуманные персонажи: их и раздаём ботам, чтобы они не надевали лица людей.</summary>
+        /// <summary>Общий пул выдуманных персонажей.</summary>
         public static IReadOnlyList<Sprite> CommonAvatars
         {
             get
@@ -57,6 +60,94 @@ namespace CardGameClient
 
                 return new List<Sprite>();
             }
+        }
+
+        /// <summary>
+        /// Портреты для соперников: по одному человеку на набор. Из набора реального
+        /// человека берётся один случайный костюм, потому что два бота с одним лицом в
+        /// разной одежде за столом читаются как ошибка, а не как разнообразие. Набор,
+        /// из которого игрок выбрал себя, исключается целиком — иначе играешь против себя.
+        /// </summary>
+        public static List<Sprite> OpponentPool(Sprite own)
+        {
+            Load();
+
+            var ownGroup = GroupIdOf(own);
+            var pool = new List<Sprite>();
+
+            foreach (var group in _groups)
+            {
+                if (group.Sprites.Count == 0)
+                {
+                    continue;
+                }
+
+                if (group.Id == CommonGroupId)
+                {
+                    // В общем наборе каждая картинка — отдельный персонаж, а не костюм,
+                    // поэтому здесь вычёркивается только сам выбранный портрет.
+                    foreach (var sprite in group.Sprites)
+                    {
+                        if (sprite != own)
+                        {
+                            pool.Add(sprite);
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (group.Id == ownGroup)
+                {
+                    continue;
+                }
+
+                pool.Add(group.Sprites[Random.Range(0, group.Sprites.Count)]);
+            }
+
+            return pool;
+        }
+
+        /// <summary>
+        /// Подпись набора, если портрет — лицо реального человека. Для выдуманных
+        /// персонажей возвращает null: у них своего имени нет.
+        /// </summary>
+        public static string PersonalTitleOf(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return null;
+            }
+
+            Load();
+            foreach (var group in _groups)
+            {
+                if (group.Id != CommonGroupId && group.Sprites.Contains(sprite))
+                {
+                    return group.Title;
+                }
+            }
+
+            return null;
+        }
+
+        public static string GroupIdOf(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return null;
+            }
+
+            Load();
+            foreach (var group in _groups)
+            {
+                if (group.Sprites.Contains(sprite))
+                {
+                    return group.Id;
+                }
+            }
+
+            return null;
         }
 
         public static Sprite Find(string spriteName)
