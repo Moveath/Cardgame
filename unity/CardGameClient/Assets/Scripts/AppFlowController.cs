@@ -17,6 +17,9 @@ namespace CardGameClient
         private static readonly Color TextColor = new Color(0.94f, 0.95f, 0.93f);
         private static readonly Color DimTextColor = new Color(0.94f, 0.95f, 0.93f, 0.35f);
 
+        // Подложка ячейки: чуть светлее сукна, чтобы граница читалась, но не спорила с портретом.
+        private static readonly Color CellColor = new Color(0.10f, 0.26f, 0.18f);
+
         private Font _font;
         private RectTransform _root;
 
@@ -159,11 +162,7 @@ namespace CardGameClient
                 PlaceFromTop((RectTransform)empty.transform, 0f, 220f, new Vector2(1100f, 40f));
             }
 
-            // Превью крупные: это главный экран выбора, лицо должно быть видно.
-            var available = Mathf.Min(1500f, _root.rect.width - 240f);
-            var step = Mathf.Min(240f, available / Mathf.Max(groups.Count, 1));
-            var tileHeight = Mathf.Min(300f, step * 1.25f);
-            var startX = -(groups.Count - 1) * step / 2f;
+            var grid = MeasureGrid(groups.Count, captionHeight: 40f);
 
             for (var i = 0; i < groups.Count; i++)
             {
@@ -174,15 +173,13 @@ namespace CardGameClient
                 }
 
                 var captured = group;
-                var button = CreateAvatarButton(_avatarGroupsPanel, PreviewOf(group), () => OpenAvatarGroup(captured));
-                PlaceFromTop((RectTransform)button.transform, startX + i * step, 170f, new Vector2(step - 12f, tileHeight));
+                var position = grid.CellTopLeft(i);
+                var button = CreateAvatarCell(_avatarGroupsPanel, PreviewOf(group), position, grid.CellSize,
+                    () => OpenAvatarGroup(captured));
 
-                var caption = CreateText(_avatarGroupsPanel, group.Title, 26, TextAnchor.MiddleCenter);
-                PlaceFromTop((RectTransform)caption.transform, startX + i * step, 170f + tileHeight + 10f, new Vector2(step, 34f));
-
-                var count = CreateText(_avatarGroupsPanel, group.Sprites.Count + " образов", 20, TextAnchor.MiddleCenter);
-                count.color = new Color(0.85f, 0.92f, 0.85f, 0.6f);
-                PlaceFromTop((RectTransform)count.transform, startX + i * step, 170f + tileHeight + 46f, new Vector2(step, 28f));
+                var caption = CreateText(_avatarGroupsPanel, group.Title, 24, TextAnchor.MiddleCenter);
+                PlaceFromTop((RectTransform)caption.transform, position.x, position.y + grid.CellSize.y + 6f,
+                    new Vector2(grid.CellSize.x + 12f, 30f));
 
                 _avatarGroupButtons.Add(button);
                 _avatarGroupIds.Add(group.Id);
@@ -218,23 +215,13 @@ namespace CardGameClient
             var title = CreateText(_avatarItemsPanel, group.Title, 40, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
 
-            // Два ряда по шесть: на одну строку из двенадцати портреты выходят вдвое мельче,
-            // а разглядеть надо именно костюм.
-            const int columns = 6;
-            var rows = Mathf.CeilToInt(group.Sprites.Count / (float)columns);
-            var available = Mathf.Min(1500f, _root.rect.width - 240f);
-            var step = Mathf.Min(230f, available / columns);
-            var cellHeight = Mathf.Min(260f, (560f / Mathf.Max(rows, 1)) - 20f);
-            var startX = -(columns - 1) * step / 2f;
+            var grid = MeasureGrid(group.Sprites.Count, captionHeight: 0f);
 
             for (var i = 0; i < group.Sprites.Count; i++)
             {
                 var sprite = group.Sprites[i];
-                var button = CreateAvatarButton(_avatarItemsPanel, sprite, () => SelectAvatar(sprite.name));
-                PlaceFromTop((RectTransform)button.transform,
-                    startX + (i % columns) * step,
-                    150f + (i / columns) * (cellHeight + 20f),
-                    new Vector2(step - 12f, cellHeight));
+                var button = CreateAvatarCell(_avatarItemsPanel, sprite, grid.CellTopLeft(i), grid.CellSize,
+                    () => SelectAvatar(sprite.name));
 
                 _avatarButtons.Add(button);
                 _avatarButtonNames.Add(sprite.name);
@@ -288,14 +275,66 @@ namespace CardGameClient
             }
         }
 
-        private Button CreateAvatarButton(Transform parent, Sprite sprite, Action onClick)
+        /// <summary>Разметка сетки: сколько столбцов, какого размера ячейка и где какая стоит.</summary>
+        private readonly struct AvatarGrid
         {
-            var go = new GameObject("Avatar", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
-            go.transform.SetParent(parent, false);
+            public AvatarGrid(int columns, Vector2 cellSize, float step, float pitch)
+            {
+                Columns = columns;
+                CellSize = cellSize;
+                Step = step;
+                Pitch = pitch;
+            }
 
-            var image = go.GetComponent<Image>();
-            image.sprite = sprite;
-            image.preserveAspect = true;
+            public int Columns { get; }
+            public Vector2 CellSize { get; }
+            private float Step { get; }
+            private float Pitch { get; }
+
+            public Vector2 CellTopLeft(int index)
+            {
+                var column = index % Columns;
+                var row = index / Columns;
+                var startX = -(Columns - 1) * Step / 2f;
+                return new Vector2(startX + column * Step, GridTop + row * Pitch);
+            }
+        }
+
+        private const float GridTop = 150f;
+        private const float GridBottomLimit = 720f;
+
+        private AvatarGrid MeasureGrid(int count, float captionHeight)
+        {
+            var columns = Mathf.Max(1, Mathf.Min(6, count));
+            var rows = Mathf.Max(1, Mathf.CeilToInt(count / (float)columns));
+
+            var available = Mathf.Min(1500f, _root.rect.width - 240f);
+            var step = Mathf.Min(230f, available / columns);
+            var cellWidth = step - 14f;
+
+            // Высота подгоняется так, чтобы все ряды вместе с подписями влезли между
+            // заголовком и кнопкой "Назад" — иначе при десятке наборов сетка уезжает вниз.
+            var pitch = Mathf.Min(cellWidth * 1.15f + captionHeight + 16f, (GridBottomLimit - GridTop) / rows);
+            var cellHeight = pitch - captionHeight - 16f;
+
+            return new AvatarGrid(columns, new Vector2(cellWidth, cellHeight), step, pitch);
+        }
+
+        /// <summary>
+        /// Ячейка сетки: подложка-рамка, а внутри портрет, посаженный на нижний край.
+        /// Именно нижний: портреты разной высоты, и если центрировать, в сетке они
+        /// «плавают» — кто выше, кто ниже. По общей линии плеч ряд читается ровным.
+        /// </summary>
+        private Button CreateAvatarCell(Transform parent, Sprite sprite, Vector2 topLeft, Vector2 cellSize, Action onClick)
+        {
+            var go = new GameObject("AvatarCell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
+            go.transform.SetParent(parent, false);
+            PlaceFromTop((RectTransform)go.transform, topLeft.x, topLeft.y, cellSize);
+
+            var frame = go.GetComponent<Image>();
+            frame.sprite = UiTextures.RoundedRect(64, 64, 16f, Color.white);
+            frame.type = Image.Type.Sliced;
+            frame.color = CellColor;
 
             var outline = go.GetComponent<Outline>();
             outline.effectColor = AccentGlow;
@@ -303,15 +342,36 @@ namespace CardGameClient
             outline.enabled = false;
 
             var button = go.GetComponent<Button>();
-            button.targetGraphic = image;
+            button.targetGraphic = frame;
             button.transition = Selectable.Transition.ColorTint;
             var colors = button.colors;
-            colors.normalColor = new Color(0.72f, 0.72f, 0.72f, 1f);
-            colors.highlightedColor = Color.white;
-            colors.pressedColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
+            colors.pressedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
             colors.fadeDuration = 0.08f;
             button.colors = colors;
             button.onClick.AddListener(() => onClick());
+
+            var portrait = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            portrait.transform.SetParent(go.transform, false);
+
+            // Размер считаем сами по пропорциям спрайта: preserveAspect центрировал бы
+            // картинку в ячейке, а нам нужно прижать её к низу.
+            var innerWidth = cellSize.x - 16f;
+            var innerHeight = cellSize.y - 12f;
+            var aspect = sprite.rect.width / sprite.rect.height;
+            var height = Mathf.Min(innerHeight, innerWidth / aspect);
+            var width = height * aspect;
+
+            var portraitRect = (RectTransform)portrait.transform;
+            portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(0.5f, 0f);
+            portraitRect.pivot = new Vector2(0.5f, 0f);
+            portraitRect.anchoredPosition = new Vector2(0f, 6f);
+            portraitRect.sizeDelta = new Vector2(width, height);
+
+            var portraitImage = portrait.GetComponent<Image>();
+            portraitImage.sprite = sprite;
+            portraitImage.raycastTarget = false;
 
             return button;
         }
