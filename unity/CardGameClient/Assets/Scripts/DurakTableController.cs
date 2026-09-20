@@ -65,8 +65,22 @@ namespace CardGameClient
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
 
-        private const float AvatarWidth = 112f;
-        private const float AvatarHeight = 140f;
+        private const float AvatarWidth = 136f;
+        private const float AvatarHeight = 158f;
+
+        // Портреты нарезаны с одного листа, поэтому персонаж на всех примерно одной высоты
+        // в пикселях картинки. От неё и считаем масштаб — общий для всех мест. Подгонять
+        // каждый портрет под рамку по отдельности нельзя: широкий персонаж тогда ужимается
+        // и выглядит мельче остальных, а голова у всех должна быть одного размера.
+        private const float ReferencePortraitHeight = 290f;
+
+        // Шляпе волшебника и короне разрешено торчать выше рамки, но немного: над местами
+        // идёт строка последнего хода.
+        private const float MaxPortraitStretch = 1.05f;
+
+        // Самый широкий персонаж шире рамки примерно на четверть. Это учитывается при
+        // расчёте промежутков между местами, иначе плечи наезжали бы на соседа.
+        private const float PortraitWidthAllowance = 1.25f;
         private const float SeatNameHeight = 30f;
         // Только фигура и подпись: веер рубашек лежит сбоку и высоту места не ест.
         // Бейдж роли тоже нарисован поверх фигуры.
@@ -78,13 +92,16 @@ namespace CardGameClient
         // Весь верх стола выстроен сверху вниз от края экрана: статус, строка хода, места
         // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
         // высоту холста и они наезжают друг на друга.
-        private const float SeatTopMargin = 150f;
+        private const float SeatTopMargin = 130f;
         private const float TableRowTop = 524f;
-        private const float TableCardsHalfWidth = 610f;
+
+        // Ровно столько занимают шесть пар карт: шире стол не раскладывается. Значение
+        // заметно влияет на дугу — места, попавшие в эту полосу, опускать некуда.
+        private const float TableCardsHalfWidth = 580f;
         // Насколько карта на столе торчит вверх от центра ряда и сколько воздуха
         // обязательно остаётся между ней и местом соперника.
         private const float TableCardsHalfHeight = 112f;
-        private const float SeatToCardsGap = 70f;
+        private const float SeatToCardsGap = 44f;
         // Отступ от края сукна: дальше начинается деревянная рамка стола, на ней никто не сидит.
         private const float FeltEdgeMargin = 56f;
         // Высота своего места над нижним краем — вровень с веером в руке.
@@ -1029,7 +1046,7 @@ namespace CardGameClient
             {
                 // Между соседями должны поместиться веер одного и фигура другого.
                 // Если мест много, ужимается веер, а не расстояние между людьми.
-                var clearance = (AvatarWidth + SeatFanGap) * scale + 24f;
+                var clearance = (AvatarWidth * PortraitWidthAllowance + SeatFanGap) * scale + 24f;
                 var fits = (2f * room - clearance * (opponentCount - 1)) / (opponentCount + 1);
                 if (fanWidth > fits)
                 {
@@ -1041,7 +1058,7 @@ namespace CardGameClient
             {
                 Scale = scale,
                 BlockHeight = SeatBlockHeight * scale,
-                ArchDepth = opponentCount <= 2 ? 80f : (opponentCount == 3 ? 120f : 150f),
+                ArchDepth = opponentCount <= 2 ? 130f : (opponentCount == 3 ? 190f : 240f),
                 FanWidth = fanWidth,
                 MaxX = room - fanWidth
             };
@@ -1064,13 +1081,14 @@ namespace CardGameClient
                 return new Vector2(0f, -SeatTopMargin);
             }
 
-            var t = seatIndex / (float)(opponentCount - 1);
-            var x = Mathf.Lerp(-layout.MaxX, layout.MaxX, t);
-
-            // Высота падает по квадрату от середины ряда к краям: получается именно дуга,
-            // а не ряд с двумя провалившимися углами, как было при четвёртой степени.
-            var normalized = layout.MaxX > 0f ? x / layout.MaxX : 0f;
-            var depth = layout.ArchDepth * normalized * normalized;
+            // Места раскладываются по дуге равными углами, а не равными шагами по
+            // горизонтали. Разница видна сразу: при равных шагах по горизонтали средние
+            // места сбиваются в кучу у центра и оказываются почти на одной высоте —
+            // получается не дуга, а два ряда по краям. По углу они расходятся шире и
+            // каждое встаёт на свою высоту.
+            var angle = Mathf.Lerp(-Mathf.PI * 0.5f, Mathf.PI * 0.5f, seatIndex / (float)(opponentCount - 1));
+            var x = layout.MaxX * Mathf.Sin(angle);
+            var depth = layout.ArchDepth * (1f - Mathf.Cos(angle));
 
             var canvasRect = ((RectTransform)transform).rect;
             var figureHalf = AvatarWidth * 0.5f * layout.Scale;
@@ -1614,9 +1632,18 @@ namespace CardGameClient
             var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             portraitGo.transform.SetParent(wrapper.transform, false);
 
+            // Размер от масштаба, общего для всех мест, а не подгонкой под рамку. Сажаем на
+            // нижний край: тогда у всех совпадает линия плеч, а шляпа уходит вверх, а не
+            // выталкивает фигуру вниз на подпись с именем.
+            var portraitScale = Mathf.Min(
+                height / ReferencePortraitHeight,
+                height * MaxPortraitStretch / portrait.rect.height);
+
             var portraitRect = (RectTransform)portraitGo.transform;
-            portraitRect.anchorMin = portraitRect.anchorMax = portraitRect.pivot = new Vector2(0.5f, 0.5f);
-            portraitRect.sizeDelta = new Vector2(width, height);
+            portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(0.5f, 0f);
+            portraitRect.pivot = new Vector2(0.5f, 0f);
+            portraitRect.anchoredPosition = Vector2.zero;
+            portraitRect.sizeDelta = new Vector2(portrait.rect.width * portraitScale, portrait.rect.height * portraitScale);
 
             var portraitShadow = portraitGo.GetComponent<Shadow>();
             portraitShadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
@@ -1624,7 +1651,6 @@ namespace CardGameClient
 
             var portraitImage = portraitGo.GetComponent<Image>();
             portraitImage.sprite = portrait;
-            portraitImage.preserveAspect = true;
             portraitImage.raycastTarget = false;
 
             return wrapperRect;
@@ -1709,7 +1735,7 @@ namespace CardGameClient
             CreateCenterEmblem(root, new Color(0.08f, 0.32f, 0.20f));
 
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
-            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -60f), new Vector2(1100f, 70f));
+            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(1100f, 66f));
 
             // Соперники рассаживаются по дуге вокруг стола (см. SeatPosition), поэтому здесь
             // только пустая область на весь экран — каждое место позиционируется само.
@@ -1765,7 +1791,9 @@ namespace CardGameClient
 
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
-            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(900f, 40f));
+            // Строки статуса подтянуты кверху: каждый освободившийся пиксель уходит в дугу,
+            // потому что вниз местам мешают карты стола.
+            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -102f), new Vector2(900f, 38f));
 
             _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());
