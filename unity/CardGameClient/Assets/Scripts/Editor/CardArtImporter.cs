@@ -12,7 +12,9 @@ namespace CardGameClient.EditorTools
         private void OnPreprocessTexture()
         {
             var normalizedPath = assetPath.Replace('\\', '/');
-            if (!normalizedPath.Contains("/Resources/Cards/") && !normalizedPath.Contains("/Resources/Avatars/"))
+            if (!normalizedPath.Contains("/Resources/Cards/")
+                && !normalizedPath.Contains("/Resources/Avatars/")
+                && !normalizedPath.Contains("/Resources/PlayerAvatars/"))
             {
                 return;
             }

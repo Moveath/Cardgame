@@ -23,7 +23,23 @@ namespace CardGameClient
         private const string HumanName = "Егор";
 
         // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
-        private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
+        // Алишер первый: у него есть своё лицо, и играть против друга интереснее, чем против
+        // безымянного бота, поэтому он должен появляться даже за столом на двоих.
+        private static readonly string[] BotNamePool = { "Алишер", "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина" };
+
+        /// <summary>
+        /// Лица реальных людей лежат отдельно от общего пула и раздаются по имени, а не случайно:
+        /// иначе бот мог бы надеть твоё лицо, а тебе досталось бы чужое. Костюм внутри своего
+        /// набора всё равно выбирается случайно — один и тот же человек каждую партию выглядит
+        /// по-новому, но узнаваемо.
+        /// </summary>
+        private static readonly Dictionary<string, string> PersonalFaceFolders = new Dictionary<string, string>
+        {
+            { HumanName, "yegor" },
+            { "Алишер", "alisher" }
+        };
+
+        private static readonly Dictionary<string, Sprite[]> PersonalFaceCache = new Dictionary<string, Sprite[]>();
 
         private static readonly Color[] OpponentColors =
         {
@@ -1496,7 +1512,8 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Портреты берутся из Resources/Avatars и раздаются игрокам случайно на партию.
+        /// Портреты: у кого есть своё лицо (Resources/PlayerAvatars) — получает его по имени,
+        /// остальным раздаются случайные из общего пула (Resources/Avatars).
         /// Пока картинок нет, всё работает по-старому — цветной кружок с буквой.
         /// </summary>
         private void ShuffleAvatars()
@@ -1507,10 +1524,6 @@ namespace CardGameClient
             }
 
             _playerPortraits = new Sprite[_game.Players.Count];
-            if (_avatarPool.Length == 0)
-            {
-                return;
-            }
 
             var order = new List<int>();
             for (var i = 0; i < _avatarPool.Length; i++)
@@ -1524,10 +1537,39 @@ namespace CardGameClient
                 (order[i], order[j]) = (order[j], order[i]);
             }
 
+            var fromPool = 0;
             for (var player = 0; player < _playerPortraits.Length; player++)
             {
-                _playerPortraits[player] = _avatarPool[order[player % order.Count]];
+                var personal = LoadPersonalFaces(_game.Players[player].Name);
+                if (personal != null)
+                {
+                    _playerPortraits[player] = personal[UnityEngine.Random.Range(0, personal.Length)];
+                    continue;
+                }
+
+                if (order.Count > 0)
+                {
+                    _playerPortraits[player] = _avatarPool[order[fromPool % order.Count]];
+                    fromPool++;
+                }
             }
+        }
+
+        /// <summary>Набор костюмов конкретного человека. Грузится один раз на запуск игры.</summary>
+        private static Sprite[] LoadPersonalFaces(string playerName)
+        {
+            if (!PersonalFaceFolders.TryGetValue(playerName, out var folder))
+            {
+                return null;
+            }
+
+            if (!PersonalFaceCache.TryGetValue(folder, out var faces))
+            {
+                faces = Resources.LoadAll<Sprite>("PlayerAvatars/" + folder);
+                PersonalFaceCache[folder] = faces;
+            }
+
+            return faces != null && faces.Length > 0 ? faces : null;
         }
 
         private Sprite PortraitFor(int playerIndex)
