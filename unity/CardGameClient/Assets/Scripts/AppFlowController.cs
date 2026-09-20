@@ -24,7 +24,12 @@ namespace CardGameClient
         private GameObject _mainMenuScreen;
         private GameObject _modeSelectScreen;
         private GameObject _lobbyScreen;
+        private GameObject _avatarScreen;
         private GameObject _gameScreen;
+
+        // Кнопки галереи аватаров: подсветка выбранного пересобирается на каждый клик.
+        private readonly List<Button> _avatarButtons = new List<Button>();
+        private readonly List<string> _avatarButtonNames = new List<string>();
 
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
 
@@ -52,6 +57,7 @@ namespace CardGameClient
             BuildMainMenu();
             BuildModeSelect();
             BuildLobby();
+            BuildAvatarPicker();
 
             ShowScreen(_mainMenuScreen);
         }
@@ -106,6 +112,128 @@ namespace CardGameClient
 
             CreateButton(_mainMenuScreen.transform, "Играть", new Vector2(0.5f, 0.5f), new Vector2(0f, -60f),
                 new Color(0.21f, 0.45f, 0.29f), () => ShowScreen(_modeSelectScreen));
+
+            CreateButton(_mainMenuScreen.transform, "Аватар", new Vector2(0.5f, 0.5f), new Vector2(0f, -160f),
+                new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_avatarScreen));
+        }
+
+        // ---------- Выбор аватара ----------
+
+        /// <summary>
+        /// Галерея аватаров строками: сверху выдуманные персонажи, ниже по строке на каждого
+        /// реального человека. Строки, а не общая куча, нужны как раз потому, что двенадцать
+        /// костюмов одного лица вперемешку с остальными выглядели бы как засорённый список.
+        /// </summary>
+        private void BuildAvatarPicker()
+        {
+            _avatarScreen = new GameObject("AvatarPicker", typeof(RectTransform));
+            _avatarScreen.transform.SetParent(_root, false);
+            Stretch((RectTransform)_avatarScreen.transform);
+            _avatarScreen.SetActive(false);
+
+            var title = CreateText(_avatarScreen.transform, "Выбери аватар", 40, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
+
+            var groups = AvatarCatalog.Groups;
+            if (groups.Count == 0)
+            {
+                var empty = CreateText(_avatarScreen.transform, "Картинок нет — положи их в Resources/Avatars", 26, TextAnchor.MiddleCenter);
+                PlaceFromTop((RectTransform)empty.transform, 0f, 200f, new Vector2(1100f, 40f));
+            }
+
+            // Шаг между строками подгоняем под число наборов, чтобы список не уезжал за экран.
+            var pitch = Mathf.Min(190f, 560f / Mathf.Max(groups.Count, 1));
+            var rowHeight = Mathf.Min(120f, pitch - 46f);
+
+            for (var i = 0; i < groups.Count; i++)
+            {
+                var group = groups[i];
+                var top = 150f + i * pitch;
+
+                var caption = CreateText(_avatarScreen.transform, group.Title, 24, TextAnchor.MiddleLeft);
+                caption.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
+                PlaceFromTop((RectTransform)caption.transform, -560f, top, new Vector2(400f, 30f));
+
+                BuildAvatarRow(group, top + 38f, rowHeight);
+            }
+
+            CreateButton(_avatarScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+                new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_mainMenuScreen));
+
+            RefreshAvatarSelection();
+        }
+
+        private void BuildAvatarRow(AvatarCatalog.AvatarGroup group, float top, float rowHeight)
+        {
+            var count = group.Sprites.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            // Ширина ячейки считается от экрана: двенадцать костюмов должны помещаться
+            // и на узком окне, не наезжая друг на друга.
+            var available = Mathf.Min(1500f, _root.rect.width - 260f);
+            var step = Mathf.Min(rowHeight * 0.92f, available / count);
+            var startX = -(count - 1) * step / 2f;
+
+            for (var i = 0; i < count; i++)
+            {
+                var sprite = group.Sprites[i];
+                var button = CreateAvatarButton(_avatarScreen.transform, sprite, () => SelectAvatar(sprite.name));
+                PlaceFromTop((RectTransform)button.transform, startX + i * step, top, new Vector2(step - 6f, rowHeight));
+
+                _avatarButtons.Add(button);
+                _avatarButtonNames.Add(sprite.name);
+            }
+        }
+
+        private Button CreateAvatarButton(Transform parent, Sprite sprite, Action onClick)
+        {
+            var go = new GameObject("Avatar", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
+            go.transform.SetParent(parent, false);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = sprite;
+            image.preserveAspect = true;
+
+            var outline = go.GetComponent<Outline>();
+            outline.effectColor = AccentGlow;
+            outline.effectDistance = new Vector2(4f, 4f);
+            outline.enabled = false;
+
+            var button = go.GetComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.ColorTint;
+            var colors = button.colors;
+            colors.normalColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+            colors.highlightedColor = Color.white;
+            colors.pressedColor = new Color(0.9f, 0.9f, 0.9f, 1f);
+            colors.fadeDuration = 0.08f;
+            button.colors = colors;
+            button.onClick.AddListener(() => onClick());
+
+            return button;
+        }
+
+        private void SelectAvatar(string spriteName)
+        {
+            PlayerProfile.AvatarName = spriteName;
+            RefreshAvatarSelection();
+        }
+
+        private void RefreshAvatarSelection()
+        {
+            var chosen = PlayerProfile.AvatarName;
+            for (var i = 0; i < _avatarButtons.Count; i++)
+            {
+                var isChosen = _avatarButtonNames[i] == chosen;
+                _avatarButtons[i].GetComponent<Outline>().enabled = isChosen;
+
+                var colors = _avatarButtons[i].colors;
+                colors.normalColor = isChosen ? Color.white : new Color(0.72f, 0.72f, 0.72f, 1f);
+                _avatarButtons[i].colors = colors;
+            }
         }
 
         // ---------- Выбор игры ----------
@@ -350,6 +478,7 @@ namespace CardGameClient
             _mainMenuScreen.SetActive(screen == _mainMenuScreen);
             _modeSelectScreen.SetActive(screen == _modeSelectScreen);
             _lobbyScreen.SetActive(screen == _lobbyScreen);
+            _avatarScreen.SetActive(screen == _avatarScreen);
 
             if (_gameScreen != null)
             {

@@ -23,23 +23,7 @@ namespace CardGameClient
         private const string HumanName = "Егор";
 
         // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
-        // Алишер первый: у него есть своё лицо, и играть против друга интереснее, чем против
-        // безымянного бота, поэтому он должен появляться даже за столом на двоих.
-        private static readonly string[] BotNamePool = { "Алишер", "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина" };
-
-        /// <summary>
-        /// Лица реальных людей лежат отдельно от общего пула и раздаются по имени, а не случайно:
-        /// иначе бот мог бы надеть твоё лицо, а тебе досталось бы чужое. Костюм внутри своего
-        /// набора всё равно выбирается случайно — один и тот же человек каждую партию выглядит
-        /// по-новому, но узнаваемо.
-        /// </summary>
-        private static readonly Dictionary<string, string> PersonalFaceFolders = new Dictionary<string, string>
-        {
-            { HumanName, "yegor" },
-            { "Алишер", "alisher" }
-        };
-
-        private static readonly Dictionary<string, Sprite[]> PersonalFaceCache = new Dictionary<string, Sprite[]>();
+        private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
 
         private static readonly Color[] OpponentColors =
         {
@@ -167,7 +151,6 @@ namespace CardGameClient
         private readonly List<TablePair> _tableSnapshot = new List<TablePair>();
         private string _tableSignature;
         private int? _lastActorIndex;
-        private static Sprite[] _avatarPool;
         private Sprite[] _playerPortraits;
 
         private struct TablePair
@@ -1512,64 +1495,46 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Портреты: у кого есть своё лицо (Resources/PlayerAvatars) — получает его по имени,
-        /// остальным раздаются случайные из общего пула (Resources/Avatars).
+        /// Портреты: себе игрок выбирает аватар сам (экран выбора), соперникам раздаются
+        /// случайные из общего пула выдуманных персонажей. Лица реальных людей ботам не
+        /// достаются: странно играть против собственного лица, пока сам за столом.
         /// Пока картинок нет, всё работает по-старому — цветной кружок с буквой.
         /// </summary>
         private void ShuffleAvatars()
         {
-            if (_avatarPool == null)
-            {
-                _avatarPool = Resources.LoadAll<Sprite>("Avatars");
-            }
-
             _playerPortraits = new Sprite[_game.Players.Count];
+            _playerPortraits[HumanIndex] = PlayerProfile.Avatar;
 
-            var order = new List<int>();
-            for (var i = 0; i < _avatarPool.Length; i++)
+            var pool = new List<Sprite>(AvatarCatalog.CommonAvatars);
+
+            // Свой аватар из колоды соперников убираем, чтобы за столом не сидел двойник.
+            if (_playerPortraits[HumanIndex] != null)
             {
-                order.Add(i);
+                pool.Remove(_playerPortraits[HumanIndex]);
             }
 
-            for (var i = order.Count - 1; i > 0; i--)
+            for (var i = pool.Count - 1; i > 0; i--)
             {
                 var j = UnityEngine.Random.Range(0, i + 1);
-                (order[i], order[j]) = (order[j], order[i]);
+                (pool[i], pool[j]) = (pool[j], pool[i]);
             }
 
-            var fromPool = 0;
+            if (pool.Count == 0)
+            {
+                return;
+            }
+
+            var taken = 0;
             for (var player = 0; player < _playerPortraits.Length; player++)
             {
-                var personal = LoadPersonalFaces(_game.Players[player].Name);
-                if (personal != null)
+                if (_playerPortraits[player] != null)
                 {
-                    _playerPortraits[player] = personal[UnityEngine.Random.Range(0, personal.Length)];
                     continue;
                 }
 
-                if (order.Count > 0)
-                {
-                    _playerPortraits[player] = _avatarPool[order[fromPool % order.Count]];
-                    fromPool++;
-                }
+                _playerPortraits[player] = pool[taken % pool.Count];
+                taken++;
             }
-        }
-
-        /// <summary>Набор костюмов конкретного человека. Грузится один раз на запуск игры.</summary>
-        private static Sprite[] LoadPersonalFaces(string playerName)
-        {
-            if (!PersonalFaceFolders.TryGetValue(playerName, out var folder))
-            {
-                return null;
-            }
-
-            if (!PersonalFaceCache.TryGetValue(folder, out var faces))
-            {
-                faces = Resources.LoadAll<Sprite>("PlayerAvatars/" + folder);
-                PersonalFaceCache[folder] = faces;
-            }
-
-            return faces != null && faces.Length > 0 ? faces : null;
         }
 
         private Sprite PortraitFor(int playerIndex)
