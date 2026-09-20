@@ -104,6 +104,15 @@ namespace CardGameClient
         private const float SeatToCardsGap = 44f;
         // Отступ от края сукна: дальше начинается деревянная рамка стола, на ней никто не сидит.
         private const float FeltEdgeMargin = 56f;
+
+        // Сдвиг мест по дуге к краям. Единица — ровная развёртка по углу, больше единицы
+        // прижимает средние места к верхушке и уводит крайние в углы. За большим столом
+        // сдвиг сильнее: у самого края дуга идёт почти отвесно, и при ровной развёртке
+        // крайняя пара садится друг другу на плечи.
+        private static float SeatArcBias(int opponentCount)
+        {
+            return opponentCount >= 6 ? 1.55f : 1.3f;
+        }
         // Высота своего места над нижним краем — вровень с веером в руке.
         private const float PlayerSeatBottom = 150f;
 
@@ -1058,7 +1067,7 @@ namespace CardGameClient
             {
                 Scale = scale,
                 BlockHeight = SeatBlockHeight * scale,
-                ArchDepth = opponentCount <= 2 ? 130f : (opponentCount == 3 ? 190f : 240f),
+                ArchDepth = opponentCount <= 2 ? 150f : (opponentCount == 3 ? 220f : 290f),
                 FanWidth = fanWidth,
                 MaxX = room - fanWidth
             };
@@ -1084,9 +1093,15 @@ namespace CardGameClient
             // Места раскладываются по дуге равными углами, а не равными шагами по
             // горизонтали. Разница видна сразу: при равных шагах по горизонтали средние
             // места сбиваются в кучу у центра и оказываются почти на одной высоте —
-            // получается не дуга, а два ряда по краям. По углу они расходятся шире и
-            // каждое встаёт на свою высоту.
-            var angle = Mathf.Lerp(-Mathf.PI * 0.5f, Mathf.PI * 0.5f, seatIndex / (float)(opponentCount - 1));
+            // получается не дуга, а два ряда по краям.
+            //
+            // Углы разведены не поровну, а со сдвигом к краям: крайние уходят ниже и
+            // заполняют пустые углы сукна, а средние поджимаются к верхушке дуги.
+            // Ровная развёртка оставляла углы пустыми, а середину растянутой.
+            var spread = seatIndex / (float)(opponentCount - 1) * 2f - 1f;
+            var eased = Mathf.Sign(spread) * Mathf.Pow(Mathf.Abs(spread), SeatArcBias(opponentCount));
+            var angle = eased * Mathf.PI * 0.5f;
+
             var x = layout.MaxX * Mathf.Sin(angle);
             var depth = layout.ArchDepth * (1f - Mathf.Cos(angle));
 
