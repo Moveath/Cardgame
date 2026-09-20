@@ -687,9 +687,18 @@ namespace CardGameClient
                 // Лицо реального человека приносит с собой и имя: иначе за столом сидит
                 // «Вера» с лицом Данила. Выдуманным персонажам имя берём из списка.
                 var title = AvatarCatalog.PersonalTitleOf(PortraitFor(player));
-                if (title != null && !names.Contains(title))
+                if (title != null)
                 {
-                    names.Add(title);
+                    // Если друзей меньше, чем мест, один и тот же приходит вторым образом.
+                    // Имена всё равно должны различаться, иначе в логе ходов не разобрать,
+                    // кто есть кто.
+                    var personal = title;
+                    for (var repeat = 2; names.Contains(personal); repeat++)
+                    {
+                        personal = title + " " + repeat;
+                    }
+
+                    names.Add(personal);
                     continue;
                 }
 
@@ -1517,9 +1526,8 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Портреты: себе игрок выбирает аватар сам (экран выбора), соперникам достаётся
-        /// случайный из остальных — и выдуманные персонажи, и лица реальных людей.
-        /// Набор, из которого выбрал себя игрок, из раздачи исключён.
+        /// Портреты: себе игрок выбирает аватар сам (экран выбора), за соперников садятся
+        /// друзья — правила набора в AvatarCatalog.OpponentPortraits.
         /// Пока картинок нет, всё работает по-старому — цветной кружок с буквой.
         /// </summary>
         private void ShuffleAvatars(int playerCount)
@@ -1527,15 +1535,7 @@ namespace CardGameClient
             _playerPortraits = new Sprite[playerCount];
             _playerPortraits[HumanIndex] = PlayerProfile.Avatar;
 
-            // Соперникам достаются и выдуманные персонажи, и лица реальных людей —
-            // по одному человеку на набор, свой набор вычеркнут. Двойника за столом не будет.
-            var pool = AvatarCatalog.OpponentPool(_playerPortraits[HumanIndex]);
-
-            for (var i = pool.Count - 1; i > 0; i--)
-            {
-                var j = UnityEngine.Random.Range(0, i + 1);
-                (pool[i], pool[j]) = (pool[j], pool[i]);
-            }
+            var pool = AvatarCatalog.OpponentPortraits(_playerPortraits[HumanIndex], playerCount - 1);
 
             if (pool.Count == 0)
             {

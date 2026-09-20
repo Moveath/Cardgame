@@ -63,49 +63,113 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Портреты для соперников: по одному человеку на набор. Из набора реального
-        /// человека берётся один случайный костюм, потому что два бота с одним лицом в
-        /// разной одежде за столом читаются как ошибка, а не как разнообразие. Набор,
-        /// из которого игрок выбрал себя, исключается целиком — иначе играешь против себя.
+        /// Портреты для соперников, по одному на бота. Сначала разбираются наборы реальных
+        /// людей — по одному образу с каждого, чтобы за столом сидели разные друзья, а не
+        /// один и тот же в разной одежде. Если друзей меньше, чем мест, кто-то приходит
+        /// вторым образом. Общий пул выдуманных персонажей — уже на самый крайний случай:
+        /// сейчас смысл в том, чтобы играть будто с друзьями. Набор, из которого игрок
+        /// выбрал себя, исключён целиком — иначе играешь против собственного лица.
         /// </summary>
-        public static List<Sprite> OpponentPool(Sprite own)
+        public static List<Sprite> OpponentPortraits(Sprite own, int count)
         {
             Load();
 
-            var ownGroup = GroupIdOf(own);
-            var pool = new List<Sprite>();
-
-            foreach (var group in _groups)
+            var result = new List<Sprite>();
+            if (count <= 0)
             {
-                if (group.Sprites.Count == 0)
-                {
-                    continue;
-                }
-
-                if (group.Id == CommonGroupId)
-                {
-                    // В общем наборе каждая картинка — отдельный персонаж, а не костюм,
-                    // поэтому здесь вычёркивается только сам выбранный портрет.
-                    foreach (var sprite in group.Sprites)
-                    {
-                        if (sprite != own)
-                        {
-                            pool.Add(sprite);
-                        }
-                    }
-
-                    continue;
-                }
-
-                if (group.Id == ownGroup)
-                {
-                    continue;
-                }
-
-                pool.Add(group.Sprites[Random.Range(0, group.Sprites.Count)]);
+                return result;
             }
 
-            return pool;
+            var ownGroup = GroupIdOf(own);
+            var personal = new List<AvatarGroup>();
+            foreach (var group in _groups)
+            {
+                if (group.Id != CommonGroupId && group.Id != ownGroup && group.Sprites.Count > 0)
+                {
+                    personal.Add(group);
+                }
+            }
+
+            Shuffle(personal);
+
+            foreach (var group in personal)
+            {
+                if (result.Count >= count)
+                {
+                    break;
+                }
+
+                result.Add(group.Sprites[Random.Range(0, group.Sprites.Count)]);
+            }
+
+            // Друзей не хватило — тот же человек садится ещё раз, но в другом образе.
+            for (var guard = 0; result.Count < count && personal.Count > 0 && guard < 12; guard++)
+            {
+                foreach (var group in personal)
+                {
+                    if (result.Count >= count)
+                    {
+                        break;
+                    }
+
+                    var spare = FirstUnused(group.Sprites, result);
+                    if (spare != null)
+                    {
+                        result.Add(spare);
+                    }
+                }
+            }
+
+            if (result.Count >= count)
+            {
+                return result;
+            }
+
+            var common = new List<Sprite>();
+            foreach (var sprite in CommonAvatars)
+            {
+                if (sprite != own)
+                {
+                    common.Add(sprite);
+                }
+            }
+
+            Shuffle(common);
+            foreach (var sprite in common)
+            {
+                if (result.Count >= count)
+                {
+                    break;
+                }
+
+                result.Add(sprite);
+            }
+
+            return result;
+        }
+
+        private static Sprite FirstUnused(List<Sprite> sprites, List<Sprite> taken)
+        {
+            var offset = Random.Range(0, sprites.Count);
+            for (var i = 0; i < sprites.Count; i++)
+            {
+                var sprite = sprites[(offset + i) % sprites.Count];
+                if (!taken.Contains(sprite))
+                {
+                    return sprite;
+                }
+            }
+
+            return null;
+        }
+
+        private static void Shuffle<T>(List<T> items)
+        {
+            for (var i = items.Count - 1; i > 0; i--)
+            {
+                var j = Random.Range(0, i + 1);
+                (items[i], items[j]) = (items[j], items[i]);
+            }
         }
 
         /// <summary>

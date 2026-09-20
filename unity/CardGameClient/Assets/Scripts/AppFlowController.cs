@@ -162,20 +162,28 @@ namespace CardGameClient
                 PlaceFromTop((RectTransform)empty.transform, 0f, 220f, new Vector2(1100f, 40f));
             }
 
-            var grid = MeasureGrid(groups.Count, captionHeight: 40f);
-
-            for (var i = 0; i < groups.Count; i++)
+            var previews = new List<Sprite>();
+            var shown = new List<AvatarCatalog.AvatarGroup>();
+            foreach (var group in groups)
             {
-                var group = groups[i];
                 if (group.Sprites.Count == 0)
                 {
                     continue;
                 }
 
+                previews.Add(PreviewOf(group));
+                shown.Add(group);
+            }
+
+            var grid = MeasureGrid(previews, captionHeight: 40f);
+
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var group = shown[i];
                 var captured = group;
                 var position = grid.CellTopLeft(i);
-                var button = CreateAvatarCell(_avatarGroupsPanel, PreviewOf(group), position, grid.CellSize,
-                    () => OpenAvatarGroup(captured));
+                var button = CreateAvatarCell(_avatarGroupsPanel, previews[i], position, grid.CellSize,
+                    grid.PortraitScale, () => OpenAvatarGroup(captured));
 
                 var caption = CreateText(_avatarGroupsPanel, group.Title, 24, TextAnchor.MiddleCenter);
                 PlaceFromTop((RectTransform)caption.transform, position.x, position.y + grid.CellSize.y + 6f,
@@ -215,13 +223,13 @@ namespace CardGameClient
             var title = CreateText(_avatarItemsPanel, group.Title, 40, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
 
-            var grid = MeasureGrid(group.Sprites.Count, captionHeight: 0f);
+            var grid = MeasureGrid(group.Sprites, captionHeight: 0f);
 
             for (var i = 0; i < group.Sprites.Count; i++)
             {
                 var sprite = group.Sprites[i];
                 var button = CreateAvatarCell(_avatarItemsPanel, sprite, grid.CellTopLeft(i), grid.CellSize,
-                    () => SelectAvatar(sprite.name));
+                    grid.PortraitScale, () => SelectAvatar(sprite.name));
 
                 _avatarButtons.Add(button);
                 _avatarButtonNames.Add(sprite.name);
@@ -278,16 +286,22 @@ namespace CardGameClient
         /// <summary>Разметка сетки: сколько столбцов, какого размера ячейка и где какая стоит.</summary>
         private readonly struct AvatarGrid
         {
-            public AvatarGrid(int columns, Vector2 cellSize, float step, float pitch)
+            public AvatarGrid(int columns, Vector2 cellSize, float step, float pitch, float portraitScale)
             {
                 Columns = columns;
                 CellSize = cellSize;
                 Step = step;
                 Pitch = pitch;
+                PortraitScale = portraitScale;
             }
 
             public int Columns { get; }
             public Vector2 CellSize { get; }
+
+            /// <summary>Сколько экранных пикселей приходится на пиксель картинки. Общий для
+            /// всей сетки: только так головы у всех получаются одного размера.</summary>
+            public float PortraitScale { get; }
+
             private float Step { get; }
             private float Pitch { get; }
 
@@ -302,9 +316,16 @@ namespace CardGameClient
 
         private const float GridTop = 150f;
         private const float GridBottomLimit = 720f;
+        private const float PortraitInsetX = 16f;
+        private const float PortraitInsetY = 12f;
 
-        private AvatarGrid MeasureGrid(int count, float captionHeight)
+        /// <summary>Насколько плечам позволено вылезти за ячейку, прежде чем масштаб
+        /// придётся уменьшить. Немного подрезать самого широкого дешевле, чем измельчить всех.</summary>
+        private const float MaxPortraitOverflow = 1.3f;
+
+        private AvatarGrid MeasureGrid(List<Sprite> sprites, float captionHeight)
         {
+            var count = sprites.Count;
             var columns = Mathf.Max(1, Mathf.Min(6, count));
             var rows = Mathf.Max(1, Mathf.CeilToInt(count / (float)columns));
 
@@ -317,7 +338,22 @@ namespace CardGameClient
             var pitch = Mathf.Min(cellWidth * 1.15f + captionHeight + 16f, (GridBottomLimit - GridTop) / rows);
             var cellHeight = pitch - captionHeight - 16f;
 
-            return new AvatarGrid(columns, new Vector2(cellWidth, cellHeight), step, pitch);
+            // Масштаб один на всю сетку. Если вписывать каждый портрет в ячейку по
+            // отдельности, широкий персонаж ужимается и выглядит мельче остальных —
+            // именно так и получилось с Ельнуром. Общий масштаб держит головы вровень,
+            // а широким плечам разрешаем вылезти за ячейку: их подрежет маска.
+            var tallest = 1f;
+            var widest = 1f;
+            foreach (var sprite in sprites)
+            {
+                tallest = Mathf.Max(tallest, sprite.rect.height);
+                widest = Mathf.Max(widest, sprite.rect.width);
+            }
+
+            var scale = (cellHeight - PortraitInsetY) / tallest;
+            scale = Mathf.Min(scale, (cellWidth - PortraitInsetX) * MaxPortraitOverflow / widest);
+
+            return new AvatarGrid(columns, new Vector2(cellWidth, cellHeight), step, pitch, scale);
         }
 
         /// <summary>
@@ -325,7 +361,8 @@ namespace CardGameClient
         /// Именно нижний: портреты разной высоты, и если центрировать, в сетке они
         /// «плавают» — кто выше, кто ниже. По общей линии плеч ряд читается ровным.
         /// </summary>
-        private Button CreateAvatarCell(Transform parent, Sprite sprite, Vector2 topLeft, Vector2 cellSize, Action onClick)
+        private Button CreateAvatarCell(Transform parent, Sprite sprite, Vector2 topLeft, Vector2 cellSize,
+            float portraitScale, Action onClick)
         {
             var go = new GameObject("AvatarCell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
             go.transform.SetParent(parent, false);
@@ -352,22 +389,28 @@ namespace CardGameClient
             button.colors = colors;
             button.onClick.AddListener(() => onClick());
 
+            // Портрет живёт в маске: при общем масштабе самый широкий персонаж шире ячейки,
+            // и без маски его плечи залезли бы на соседей. Маска висит на отдельном объекте,
+            // а не на самой ячейке, иначе она срезала бы и золотую обводку выбора.
+            var clip = new GameObject("Clip", typeof(RectTransform), typeof(RectMask2D));
+            clip.transform.SetParent(go.transform, false);
+
+            var clipRect = (RectTransform)clip.transform;
+            clipRect.anchorMin = Vector2.zero;
+            clipRect.anchorMax = Vector2.one;
+            clipRect.offsetMin = new Vector2(PortraitInsetX / 2f, 6f);
+            clipRect.offsetMax = new Vector2(-PortraitInsetX / 2f, -PortraitInsetY / 2f);
+
             var portrait = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-            portrait.transform.SetParent(go.transform, false);
+            portrait.transform.SetParent(clip.transform, false);
 
-            // Размер считаем сами по пропорциям спрайта: preserveAspect центрировал бы
-            // картинку в ячейке, а нам нужно прижать её к низу.
-            var innerWidth = cellSize.x - 16f;
-            var innerHeight = cellSize.y - 12f;
-            var aspect = sprite.rect.width / sprite.rect.height;
-            var height = Mathf.Min(innerHeight, innerWidth / aspect);
-            var width = height * aspect;
-
+            // Размер считаем сами: preserveAspect центрировал бы картинку в ячейке,
+            // а нам нужно прижать её к низу, по общей линии плеч.
             var portraitRect = (RectTransform)portrait.transform;
             portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(0.5f, 0f);
             portraitRect.pivot = new Vector2(0.5f, 0f);
-            portraitRect.anchoredPosition = new Vector2(0f, 6f);
-            portraitRect.sizeDelta = new Vector2(width, height);
+            portraitRect.anchoredPosition = Vector2.zero;
+            portraitRect.sizeDelta = new Vector2(sprite.rect.width * portraitScale, sprite.rect.height * portraitScale);
 
             var portraitImage = portrait.GetComponent<Image>();
             portraitImage.sprite = sprite;
