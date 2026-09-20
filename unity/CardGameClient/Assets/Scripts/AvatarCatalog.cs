@@ -18,7 +18,9 @@ namespace CardGameClient
         {
             { CommonGroupId, "Персонажи" },
             { "yegor", "Егор" },
-            { "alisher", "Алишер" }
+            { "alisher", "Алишер" },
+            { "yelnur", "Елнур" },
+            { "marat", "Марат" }
         };
 
         private static List<AvatarGroup> _groups;

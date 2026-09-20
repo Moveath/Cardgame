@@ -27,7 +27,11 @@ namespace CardGameClient
         private GameObject _avatarScreen;
         private GameObject _gameScreen;
 
-        // Кнопки галереи аватаров: подсветка выбранного пересобирается на каждый клик.
+        // Галерея аватаров: первый уровень — наборы, второй — образы внутри набора.
+        private RectTransform _avatarGroupsPanel;
+        private RectTransform _avatarItemsPanel;
+        private readonly List<Button> _avatarGroupButtons = new List<Button>();
+        private readonly List<string> _avatarGroupIds = new List<string>();
         private readonly List<Button> _avatarButtons = new List<Button>();
         private readonly List<string> _avatarButtonNames = new List<string>();
 
@@ -120,9 +124,9 @@ namespace CardGameClient
         // ---------- Выбор аватара ----------
 
         /// <summary>
-        /// Галерея аватаров строками: сверху выдуманные персонажи, ниже по строке на каждого
-        /// реального человека. Строки, а не общая куча, нужны как раз потому, что двенадцать
-        /// костюмов одного лица вперемешку с остальными выглядели бы как засорённый список.
+        /// Галерея в два шага: сначала выбираешь, кто это будет, потом — в каком образе.
+        /// Одним экраном не обойтись: людей уже пятеро, и если вывалить все их костюмы
+        /// сразу, портреты ужимаются до размера, на котором лица не различить.
         /// </summary>
         private void BuildAvatarPicker()
         {
@@ -131,60 +135,156 @@ namespace CardGameClient
             Stretch((RectTransform)_avatarScreen.transform);
             _avatarScreen.SetActive(false);
 
-            var title = CreateText(_avatarScreen.transform, "Выбери аватар", 40, TextAnchor.MiddleCenter);
+            _avatarGroupsPanel = new GameObject("Groups", typeof(RectTransform)).GetComponent<RectTransform>();
+            _avatarGroupsPanel.SetParent(_avatarScreen.transform, false);
+            Stretch(_avatarGroupsPanel);
+
+            _avatarItemsPanel = new GameObject("Items", typeof(RectTransform)).GetComponent<RectTransform>();
+            _avatarItemsPanel.SetParent(_avatarScreen.transform, false);
+            Stretch(_avatarItemsPanel);
+            _avatarItemsPanel.gameObject.SetActive(false);
+
+            BuildAvatarGroups();
+        }
+
+        private void BuildAvatarGroups()
+        {
+            var title = CreateText(_avatarGroupsPanel, "Выбери аватар", 40, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
 
             var groups = AvatarCatalog.Groups;
             if (groups.Count == 0)
             {
-                var empty = CreateText(_avatarScreen.transform, "Картинок нет — положи их в Resources/Avatars", 26, TextAnchor.MiddleCenter);
-                PlaceFromTop((RectTransform)empty.transform, 0f, 200f, new Vector2(1100f, 40f));
+                var empty = CreateText(_avatarGroupsPanel, "Картинок нет — положи их в Resources/Avatars", 26, TextAnchor.MiddleCenter);
+                PlaceFromTop((RectTransform)empty.transform, 0f, 220f, new Vector2(1100f, 40f));
             }
 
-            // Шаг между строками подгоняем под число наборов, чтобы список не уезжал за экран.
-            var pitch = Mathf.Min(190f, 560f / Mathf.Max(groups.Count, 1));
-            var rowHeight = Mathf.Min(120f, pitch - 46f);
+            // Превью крупные: это главный экран выбора, лицо должно быть видно.
+            var available = Mathf.Min(1500f, _root.rect.width - 240f);
+            var step = Mathf.Min(240f, available / Mathf.Max(groups.Count, 1));
+            var tileHeight = Mathf.Min(300f, step * 1.25f);
+            var startX = -(groups.Count - 1) * step / 2f;
 
             for (var i = 0; i < groups.Count; i++)
             {
                 var group = groups[i];
-                var top = 150f + i * pitch;
+                if (group.Sprites.Count == 0)
+                {
+                    continue;
+                }
 
-                var caption = CreateText(_avatarScreen.transform, group.Title, 24, TextAnchor.MiddleLeft);
-                caption.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
-                PlaceFromTop((RectTransform)caption.transform, -560f, top, new Vector2(400f, 30f));
+                var captured = group;
+                var button = CreateAvatarButton(_avatarGroupsPanel, PreviewOf(group), () => OpenAvatarGroup(captured));
+                PlaceFromTop((RectTransform)button.transform, startX + i * step, 170f, new Vector2(step - 12f, tileHeight));
 
-                BuildAvatarRow(group, top + 38f, rowHeight);
+                var caption = CreateText(_avatarGroupsPanel, group.Title, 26, TextAnchor.MiddleCenter);
+                PlaceFromTop((RectTransform)caption.transform, startX + i * step, 170f + tileHeight + 10f, new Vector2(step, 34f));
+
+                var count = CreateText(_avatarGroupsPanel, group.Sprites.Count + " образов", 20, TextAnchor.MiddleCenter);
+                count.color = new Color(0.85f, 0.92f, 0.85f, 0.6f);
+                PlaceFromTop((RectTransform)count.transform, startX + i * step, 170f + tileHeight + 46f, new Vector2(step, 28f));
+
+                _avatarGroupButtons.Add(button);
+                _avatarGroupIds.Add(group.Id);
             }
 
-            CreateButton(_avatarScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+            CreateButton(_avatarGroupsPanel, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
                 new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_mainMenuScreen));
 
-            RefreshAvatarSelection();
+            RefreshGroupSelection();
         }
 
-        private void BuildAvatarRow(AvatarCatalog.AvatarGroup group, float top, float rowHeight)
+        /// <summary>Превью набора — уже выбранный аватар, если он отсюда, иначе просто первый.</summary>
+        private static Sprite PreviewOf(AvatarCatalog.AvatarGroup group)
         {
-            var count = group.Sprites.Count;
-            if (count == 0)
+            var chosen = PlayerProfile.AvatarName;
+            foreach (var sprite in group.Sprites)
             {
-                return;
+                if (sprite.name == chosen)
+                {
+                    return sprite;
+                }
             }
 
-            // Ширина ячейки считается от экрана: двенадцать костюмов должны помещаться
-            // и на узком окне, не наезжая друг на друга.
-            var available = Mathf.Min(1500f, _root.rect.width - 260f);
-            var step = Mathf.Min(rowHeight * 0.92f, available / count);
-            var startX = -(count - 1) * step / 2f;
+            return group.Sprites[0];
+        }
 
-            for (var i = 0; i < count; i++)
+        private void OpenAvatarGroup(AvatarCatalog.AvatarGroup group)
+        {
+            Clear(_avatarItemsPanel);
+            _avatarButtons.Clear();
+            _avatarButtonNames.Clear();
+
+            var title = CreateText(_avatarItemsPanel, group.Title, 40, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
+
+            // Два ряда по шесть: на одну строку из двенадцати портреты выходят вдвое мельче,
+            // а разглядеть надо именно костюм.
+            const int columns = 6;
+            var rows = Mathf.CeilToInt(group.Sprites.Count / (float)columns);
+            var available = Mathf.Min(1500f, _root.rect.width - 240f);
+            var step = Mathf.Min(230f, available / columns);
+            var cellHeight = Mathf.Min(260f, (560f / Mathf.Max(rows, 1)) - 20f);
+            var startX = -(columns - 1) * step / 2f;
+
+            for (var i = 0; i < group.Sprites.Count; i++)
             {
                 var sprite = group.Sprites[i];
-                var button = CreateAvatarButton(_avatarScreen.transform, sprite, () => SelectAvatar(sprite.name));
-                PlaceFromTop((RectTransform)button.transform, startX + i * step, top, new Vector2(step - 6f, rowHeight));
+                var button = CreateAvatarButton(_avatarItemsPanel, sprite, () => SelectAvatar(sprite.name));
+                PlaceFromTop((RectTransform)button.transform,
+                    startX + (i % columns) * step,
+                    150f + (i / columns) * (cellHeight + 20f),
+                    new Vector2(step - 12f, cellHeight));
 
                 _avatarButtons.Add(button);
                 _avatarButtonNames.Add(sprite.name);
+            }
+
+            CreateButton(_avatarItemsPanel, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+                new Color(0.3f, 0.3f, 0.32f), ShowAvatarGroups);
+
+            RefreshAvatarSelection();
+
+            _avatarGroupsPanel.gameObject.SetActive(false);
+            _avatarItemsPanel.gameObject.SetActive(true);
+        }
+
+        private void ShowAvatarGroups()
+        {
+            // Превью набора могло смениться вместе с выбором — пересобираем список.
+            Clear(_avatarGroupsPanel);
+            _avatarGroupButtons.Clear();
+            _avatarGroupIds.Clear();
+            BuildAvatarGroups();
+
+            _avatarItemsPanel.gameObject.SetActive(false);
+            _avatarGroupsPanel.gameObject.SetActive(true);
+        }
+
+        private void RefreshGroupSelection()
+        {
+            var chosen = PlayerProfile.AvatarName;
+            for (var i = 0; i < _avatarGroupButtons.Count; i++)
+            {
+                var owns = false;
+                foreach (var group in AvatarCatalog.Groups)
+                {
+                    if (group.Id != _avatarGroupIds[i])
+                    {
+                        continue;
+                    }
+
+                    foreach (var sprite in group.Sprites)
+                    {
+                        if (sprite.name == chosen)
+                        {
+                            owns = true;
+                            break;
+                        }
+                    }
+                }
+
+                _avatarGroupButtons[i].GetComponent<Outline>().enabled = owns;
             }
         }
 
@@ -220,6 +320,16 @@ namespace CardGameClient
         {
             PlayerProfile.AvatarName = spriteName;
             RefreshAvatarSelection();
+        }
+
+        private static void Clear(Transform parent)
+        {
+            for (var i = parent.childCount - 1; i >= 0; i--)
+            {
+                var child = parent.GetChild(i);
+                child.SetParent(null, false);
+                Destroy(child.gameObject);
+            }
         }
 
         private void RefreshAvatarSelection()
@@ -488,6 +598,12 @@ namespace CardGameClient
             if (screen == _lobbyScreen)
             {
                 RefreshLobbySelection();
+            }
+
+            // В галерею всегда заходим с первого уровня — со списка, кто это будет.
+            if (screen == _avatarScreen && _avatarItemsPanel.gameObject.activeSelf)
+            {
+                ShowAvatarGroups();
             }
         }
 
