@@ -8,7 +8,8 @@ namespace CardGameClient
 {
     /// <summary>
     /// Навигация между экранами: главное меню -> выбор игры -> настройка комнаты -> сама партия.
-    /// Пока в игре только дурак, поэтому "выбор игры" содержит один пункт.
+    /// Игр две, и у каждой своя комната: наборы настроек не пересекаются совсем, поэтому
+    /// общий экран с половиной погашенных строк был бы только путаницей.
     /// </summary>
     public sealed class AppFlowController : MonoBehaviour
     {
@@ -26,7 +27,9 @@ namespace CardGameClient
         private GameObject _background;
         private GameObject _mainMenuScreen;
         private GameObject _modeSelectScreen;
-        private GameObject _lobbyScreen;
+        private GameObject _durakLobbyScreen;
+        private GameObject _bluffLobbyScreen;
+        private GameObject _bluffSoonScreen;
         private GameObject _avatarScreen;
         private GameObject _gameScreen;
 
@@ -39,11 +42,19 @@ namespace CardGameClient
         private readonly List<string> _avatarButtonNames = new List<string>();
 
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
+        private BluffMatchSettings _bluffSettings = BluffMatchSettings.Default;
 
         private readonly List<Button> _deckButtons = new List<Button>();
         private readonly List<Image> _deckButtonImages = new List<Image>();
         private readonly List<Button> _playerCountButtons = new List<Button>();
         private readonly List<Image> _playerCountButtonImages = new List<Image>();
+
+        private readonly List<Button> _bluffDeckButtons = new List<Button>();
+        private readonly List<Image> _bluffDeckButtonImages = new List<Image>();
+        private readonly List<Button> _bluffPlayerButtons = new List<Button>();
+        private readonly List<Image> _bluffPlayerButtonImages = new List<Image>();
+        private readonly Button[] _bluffFourButtons = new Button[2];
+        private readonly Image[] _bluffFourButtonImages = new Image[2];
 
         // Каждый переключатель — ровно два варианта, поэтому пара кнопок и пара картинок на опцию.
         private readonly Button[] _transferButtons = new Button[2];
@@ -54,6 +65,7 @@ namespace CardGameClient
         private readonly Image[] _cheatButtonImages = new Image[2];
 
         private Text _seatsSummary;
+        private Text _bluffSeatsSummary;
 
         private void Start()
         {
@@ -64,6 +76,8 @@ namespace CardGameClient
             BuildMainMenu();
             BuildModeSelect();
             BuildLobby();
+            BuildBluffLobby();
+            BuildBluffSoon();
             BuildAvatarPicker();
 
             ShowScreen(_mainMenuScreen);
@@ -113,7 +127,9 @@ namespace CardGameClient
             _mainMenuScreen.transform.SetParent(_root, false);
             Stretch((RectTransform)_mainMenuScreen.transform);
 
-            var title = CreateText(_mainMenuScreen.transform, "Дурак", 96, TextAnchor.MiddleCenter);
+            // Игр стало две, поэтому на главной больше не название одной из них.
+            // Имя проекта временное — меняется этой строкой.
+            var title = CreateText(_mainMenuScreen.transform, "Карточный стол", 96, TextAnchor.MiddleCenter);
             title.fontStyle = FontStyle.Bold;
             Place((RectTransform)title.transform, new Vector2(0.5f, 0.6f), Vector2.zero, new Vector2(900f, 140f));
 
@@ -461,8 +477,21 @@ namespace CardGameClient
             var title = CreateText(_modeSelectScreen.transform, "Выбери игру", 56, TextAnchor.MiddleCenter);
             Place((RectTransform)title.transform, new Vector2(0.5f, 0.8f), Vector2.zero, new Vector2(900f, 90f));
 
-            CreateButton(_modeSelectScreen.transform, "Дурак", new Vector2(0.5f, 0.5f), new Vector2(0f, 0f),
-                new Color(0.21f, 0.45f, 0.29f), () => ShowScreen(_lobbyScreen));
+            // Две игры рядом, у каждой своя комната. Кнопка ведёт не в партию, а в настройку:
+            // колода и число игроков у них разные, и выбирать их надо до раздачи.
+            CreateButton(_modeSelectScreen.transform, "Дурак", new Vector2(0.5f, 0.5f), new Vector2(-165f, 0f),
+                new Color(0.21f, 0.45f, 0.29f), () => ShowScreen(_durakLobbyScreen));
+
+            CreateButton(_modeSelectScreen.transform, "Верю — не верю", new Vector2(0.5f, 0.5f), new Vector2(165f, 0f),
+                new Color(0.42f, 0.26f, 0.45f), () => ShowScreen(_bluffLobbyScreen));
+
+            var durakHint = CreateText(_modeSelectScreen.transform, "классика на 2–8", 22, TextAnchor.MiddleCenter);
+            durakHint.color = new Color(0.85f, 0.92f, 0.85f, 0.75f);
+            Place((RectTransform)durakHint.transform, new Vector2(0.5f, 0.5f), new Vector2(-165f, -62f), new Vector2(300f, 30f));
+
+            var bluffHint = CreateText(_modeSelectScreen.transform, "блеф и проверки", 22, TextAnchor.MiddleCenter);
+            bluffHint.color = new Color(0.85f, 0.92f, 0.85f, 0.75f);
+            Place((RectTransform)bluffHint.transform, new Vector2(0.5f, 0.5f), new Vector2(165f, -62f), new Vector2(300f, 30f));
 
             CreateButton(_modeSelectScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
                 new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_mainMenuScreen));
@@ -472,19 +501,19 @@ namespace CardGameClient
 
         private void BuildLobby()
         {
-            _lobbyScreen = new GameObject("Lobby", typeof(RectTransform));
-            _lobbyScreen.transform.SetParent(_root, false);
-            Stretch((RectTransform)_lobbyScreen.transform);
-            _lobbyScreen.SetActive(false);
+            _durakLobbyScreen = new GameObject("Lobby", typeof(RectTransform));
+            _durakLobbyScreen.transform.SetParent(_root, false);
+            Stretch((RectTransform)_durakLobbyScreen.transform);
+            _durakLobbyScreen.SetActive(false);
 
             // Весь список привязан к верхнему краю фиксированными отступами, а не долями
             // экрана: на широком окне Unity ужимает высоту холста, и доли начинают
             // наезжать друг на друга (та же ловушка, что была со столом).
-            var title = CreateText(_lobbyScreen.transform, "Настройка комнаты — дурак", 40, TextAnchor.MiddleCenter);
+            var title = CreateText(_durakLobbyScreen.transform, "Настройка комнаты — дурак", 40, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
 
             // Ряд размеров колоды.
-            var deckLabel = CreateText(_lobbyScreen.transform, "Колода", 26, TextAnchor.MiddleCenter);
+            var deckLabel = CreateText(_durakLobbyScreen.transform, "Колода", 26, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)deckLabel.transform, 0f, 168f, new Vector2(400f, 34f));
 
             var deckOptions = new[] { DeckKind.Twenty4, DeckKind.ThirtySix, DeckKind.FiftyTwo, DeckKind.FiftyFour };
@@ -496,14 +525,14 @@ namespace CardGameClient
             {
                 var option = deckOptions[i];
                 var x = deckStartX + i * deckSpacing;
-                var image = CreateChoiceButton(_lobbyScreen.transform, deckLabels[i], () => SelectDeck(option), out var button);
+                var image = CreateChoiceButton(_durakLobbyScreen.transform, deckLabels[i], () => SelectDeck(option), out var button);
                 PlaceFromTop((RectTransform)button.transform, x, 210f, new Vector2(150f, 84f));
                 _deckButtons.Add(button);
                 _deckButtonImages.Add(image);
             }
 
             // Ряд количества игроков.
-            var playersLabel = CreateText(_lobbyScreen.transform, "Игроков за столом", 26, TextAnchor.MiddleCenter);
+            var playersLabel = CreateText(_durakLobbyScreen.transform, "Игроков за столом", 26, TextAnchor.MiddleCenter);
             PlaceFromTop((RectTransform)playersLabel.transform, 0f, 330f, new Vector2(500f, 34f));
 
             var playerSpacing = 100f;
@@ -513,7 +542,7 @@ namespace CardGameClient
             {
                 var captured = count;
                 var x = playerStartX + (count - 2) * playerSpacing;
-                var image = CreateChoiceButton(_lobbyScreen.transform, count.ToString(), () => SelectPlayerCount(captured), out var button);
+                var image = CreateChoiceButton(_durakLobbyScreen.transform, count.ToString(), () => SelectPlayerCount(captured), out var button);
                 PlaceFromTop((RectTransform)button.transform, x, 372f, new Vector2(80f, 80f));
                 _playerCountButtons.Add(button);
                 _playerCountButtonImages.Add(image);
@@ -521,39 +550,208 @@ namespace CardGameClient
 
             // Необязательные варианты правил — компактные переключатели "туда-сюда", без затемнения
             // (в отличие от колоды и числа игроков тут нет невозможных сочетаний).
-            BuildBinaryToggle(484f, "Переводной", "Нет", "Да", _transferButtons, _transferButtonImages,
+            BuildBinaryToggle(_durakLobbyScreen.transform, 484f, "Переводной", "Нет", "Да", _transferButtons, _transferButtonImages,
                 () => SelectTransfer(false), () => SelectTransfer(true));
 
-            BuildBinaryToggle(544f, "Подкидывают", "Все", "Соседи", _throwInButtons, _throwInButtonImages,
+            BuildBinaryToggle(_durakLobbyScreen.transform, 544f, "Подкидывают", "Все", "Соседи", _throwInButtons, _throwInButtonImages,
                 () => SelectThrowIn(ThrowInMode.All), () => SelectThrowIn(ThrowInMode.NeighboursOnly));
 
-            BuildBinaryToggle(604f, "Шулерство", "Без", "С шулером", _cheatButtons, _cheatButtonImages,
+            BuildBinaryToggle(_durakLobbyScreen.transform, 604f, "Шулерство", "Без", "С шулером", _cheatButtons, _cheatButtonImages,
                 () => SelectCheating(false), () => SelectCheating(true));
 
-            _seatsSummary = CreateText(_lobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
+            _seatsSummary = CreateText(_durakLobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
             _seatsSummary.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
             PlaceFromTop((RectTransform)_seatsSummary.transform, 0f, 674f, new Vector2(760f, 32f));
 
-            CreateButton(_lobbyScreen.transform, "Играть", new Vector2(0.5f, 0f), new Vector2(0f, 110f),
+            CreateButton(_durakLobbyScreen.transform, "Играть", new Vector2(0.5f, 0f), new Vector2(0f, 110f),
                 new Color(0.21f, 0.45f, 0.29f), StartMatch);
 
-            CreateButton(_lobbyScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+            CreateButton(_durakLobbyScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
                 new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_modeSelectScreen));
 
             RefreshLobbySelection();
         }
 
+        // ---------- Настройка комнаты: верю — не верю ----------
+
+        private void BuildBluffLobby()
+        {
+            _bluffLobbyScreen = new GameObject("BluffLobby", typeof(RectTransform));
+            _bluffLobbyScreen.transform.SetParent(_root, false);
+            Stretch((RectTransform)_bluffLobbyScreen.transform);
+            _bluffLobbyScreen.SetActive(false);
+
+            var title = CreateText(_bluffLobbyScreen.transform, "Настройка комнаты — верю не верю", 40, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)title.transform, 0f, 56f, new Vector2(1100f, 60f));
+
+            var deckLabel = CreateText(_bluffLobbyScreen.transform, "Колода", 26, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)deckLabel.transform, 0f, 168f, new Vector2(400f, 34f));
+
+            var deckOptions = BluffMatchSettings.DeckOptions;
+            var deckLabels = new[] { "24", "36", "52" };
+            var deckSpacing = 170f;
+            var deckStartX = -(deckOptions.Length - 1) * deckSpacing / 2f;
+
+            for (var i = 0; i < deckOptions.Length; i++)
+            {
+                var option = deckOptions[i];
+                var x = deckStartX + i * deckSpacing;
+                var image = CreateChoiceButton(_bluffLobbyScreen.transform, deckLabels[i],
+                    () => SelectBluffDeck(option), out var button);
+                PlaceFromTop((RectTransform)button.transform, x, 210f, new Vector2(150f, 84f));
+                _bluffDeckButtons.Add(button);
+                _bluffDeckButtonImages.Add(image);
+            }
+
+            var playersLabel = CreateText(_bluffLobbyScreen.transform, "Игроков за столом", 26, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)playersLabel.transform, 0f, 330f, new Vector2(500f, 34f));
+
+            var playerSpacing = 100f;
+            var playerStartX = -(8 - 2) * playerSpacing / 2f;
+
+            for (var count = 2; count <= 8; count++)
+            {
+                var captured = count;
+                var x = playerStartX + (count - 2) * playerSpacing;
+                var image = CreateChoiceButton(_bluffLobbyScreen.transform, count.ToString(),
+                    () => SelectBluffPlayerCount(captured), out var button);
+                PlaceFromTop((RectTransform)button.transform, x, 372f, new Vector2(80f, 80f));
+                _bluffPlayerButtons.Add(button);
+                _bluffPlayerButtonImages.Add(image);
+            }
+
+            BuildBinaryToggle(_bluffLobbyScreen.transform, 484f, "Каре", "Без", "Сбрасывать",
+                _bluffFourButtons, _bluffFourButtonImages,
+                () => SelectBluffFour(false), () => SelectBluffFour(true));
+
+            // Правила, которые не настраиваются: они держат всю игру и переключателями не бывают.
+            var rules = CreateText(_bluffLobbyScreen.transform,
+                "Тузами заявляться нельзя — их можно только подкладывать втихую.\n"
+                + "Партия идёт, пока у всех на руках не останутся одни тузы.\n"
+                + "Проигрывает тот, у кого их больше всех.",
+                22, TextAnchor.UpperCenter);
+            rules.color = new Color(0.85f, 0.92f, 0.85f, 0.75f);
+            PlaceFromTop((RectTransform)rules.transform, 0f, 556f, new Vector2(900f, 90f));
+
+            _bluffSeatsSummary = CreateText(_bluffLobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
+            _bluffSeatsSummary.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
+            PlaceFromTop((RectTransform)_bluffSeatsSummary.transform, 0f, 672f, new Vector2(760f, 32f));
+
+            CreateButton(_bluffLobbyScreen.transform, "Играть", new Vector2(0.5f, 0f), new Vector2(0f, 110f),
+                new Color(0.42f, 0.26f, 0.45f), StartBluffMatch);
+
+            CreateButton(_bluffLobbyScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+                new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_modeSelectScreen));
+
+            RefreshBluffLobbySelection();
+        }
+
+        private void SelectBluffDeck(DeckKind deck)
+        {
+            _bluffSettings.DeckSize = deck;
+
+            var max = BluffMatchSettings.MaxPlayersFor(deck);
+            if (_bluffSettings.PlayerCount > max)
+            {
+                _bluffSettings.PlayerCount = max;
+            }
+
+            RefreshBluffLobbySelection();
+        }
+
+        private void SelectBluffPlayerCount(int count)
+        {
+            _bluffSettings.PlayerCount = count;
+
+            // Выбранная колода не тянет столько игроков — берём самую маленькую, которая тянет.
+            if (BluffMatchSettings.MaxPlayersFor(_bluffSettings.DeckSize) < count)
+            {
+                foreach (var deck in BluffMatchSettings.DeckOptions)
+                {
+                    if (BluffMatchSettings.MaxPlayersFor(deck) >= count)
+                    {
+                        _bluffSettings.DeckSize = deck;
+                        break;
+                    }
+                }
+            }
+
+            RefreshBluffLobbySelection();
+        }
+
+        private void SelectBluffFour(bool allow)
+        {
+            _bluffSettings.AllowFourOfAKind = allow;
+            RefreshBluffLobbySelection();
+        }
+
+        private void RefreshBluffLobbySelection()
+        {
+            var deckOptions = BluffMatchSettings.DeckOptions;
+            for (var i = 0; i < deckOptions.Length; i++)
+            {
+                var isValid = BluffMatchSettings.MaxPlayersFor(deckOptions[i]) >= _bluffSettings.PlayerCount;
+                var isSelected = _bluffSettings.DeckSize == deckOptions[i];
+                SetChoiceState(_bluffDeckButtons[i], _bluffDeckButtonImages[i], isValid, isSelected);
+            }
+
+            var max = BluffMatchSettings.MaxPlayersFor(_bluffSettings.DeckSize);
+            for (var count = 2; count <= 8; count++)
+            {
+                var index = count - 2;
+                var isValid = count <= max;
+                var isSelected = _bluffSettings.PlayerCount == count;
+                SetChoiceState(_bluffPlayerButtons[index], _bluffPlayerButtonImages[index], isValid, isSelected);
+            }
+
+            SetChoiceState(_bluffFourButtons[0], _bluffFourButtonImages[0], true, !_bluffSettings.AllowFourOfAKind);
+            SetChoiceState(_bluffFourButtons[1], _bluffFourButtonImages[1], true, _bluffSettings.AllowFourOfAKind);
+
+            var botCount = _bluffSettings.PlayerCount - 1;
+            _bluffSeatsSummary.text = "За столом: ты + " + botCount
+                + (botCount == 1 ? " бот" : botCount < 5 ? " бота" : " ботов")
+                + "  ·  на руки по " + _bluffSettings.CardsPerPlayer + " карт";
+        }
+
+        /// <summary>
+        /// Правила игры уже работают и покрыты тестами, а стола под них ещё нет. Пустая
+        /// кнопка врала бы, поэтому экран говорит прямо, чего не хватает.
+        /// </summary>
+        private void BuildBluffSoon()
+        {
+            _bluffSoonScreen = new GameObject("BluffSoon", typeof(RectTransform));
+            _bluffSoonScreen.transform.SetParent(_root, false);
+            Stretch((RectTransform)_bluffSoonScreen.transform);
+            _bluffSoonScreen.SetActive(false);
+
+            var title = CreateText(_bluffSoonScreen.transform, "Стол ещё собирается", 48, TextAnchor.MiddleCenter);
+            PlaceFromTop((RectTransform)title.transform, 0f, 200f, new Vector2(1100f, 70f));
+
+            var text = CreateText(_bluffSoonScreen.transform,
+                "Правила уже написаны и работают: котёл, проверки, каре, тузы\n"
+                + "и подсчёт проигравшего. Не готова сама сцена — котёл рубашкой\n"
+                + "вверх, выбор ранга и количества, кнопка «не верю» и боты.",
+                26, TextAnchor.UpperCenter);
+            text.color = new Color(0.85f, 0.92f, 0.85f, 0.85f);
+            PlaceFromTop((RectTransform)text.transform, 0f, 300f, new Vector2(1000f, 140f));
+
+            CreateButton(_bluffSoonScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
+                new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_bluffLobbyScreen));
+        }
+
+        private void StartBluffMatch() => ShowScreen(_bluffSoonScreen);
+
         /// <summary>Одна строка с подписью слева и двумя вариантами справа — компактнее, чем подпись сверху.</summary>
-        private void BuildBinaryToggle(float offsetFromTop, string label, string optionA, string optionB,
+        private void BuildBinaryToggle(Transform parent, float offsetFromTop, string label, string optionA, string optionB,
             Button[] buttons, Image[] images, Action onSelectA, Action onSelectB)
         {
-            var labelText = CreateText(_lobbyScreen.transform, label, 26, TextAnchor.MiddleLeft);
+            var labelText = CreateText(parent, label, 26, TextAnchor.MiddleLeft);
             PlaceFromTop((RectTransform)labelText.transform, -260f, offsetFromTop, new Vector2(280f, 52f));
 
-            images[0] = CreateChoiceButton(_lobbyScreen.transform, optionA, onSelectA, out buttons[0]);
+            images[0] = CreateChoiceButton(parent, optionA, onSelectA, out buttons[0]);
             PlaceFromTop((RectTransform)buttons[0].transform, 40f, offsetFromTop, new Vector2(170f, 52f));
 
-            images[1] = CreateChoiceButton(_lobbyScreen.transform, optionB, onSelectB, out buttons[1]);
+            images[1] = CreateChoiceButton(parent, optionB, onSelectB, out buttons[1]);
             PlaceFromTop((RectTransform)buttons[1].transform, 220f, offsetFromTop, new Vector2(170f, 52f));
         }
 
@@ -682,7 +880,7 @@ namespace CardGameClient
             _gameScreen.SetActive(false);
 
             var table = _gameScreen.AddComponent<DurakTableController>();
-            table.Configure(_settings, () => ShowScreen(_lobbyScreen));
+            table.Configure(_settings, () => ShowScreen(_durakLobbyScreen));
         }
 
         private void ShowScreen(GameObject screen)
@@ -690,7 +888,9 @@ namespace CardGameClient
             _background.SetActive(screen != _gameScreen);
             _mainMenuScreen.SetActive(screen == _mainMenuScreen);
             _modeSelectScreen.SetActive(screen == _modeSelectScreen);
-            _lobbyScreen.SetActive(screen == _lobbyScreen);
+            _durakLobbyScreen.SetActive(screen == _durakLobbyScreen);
+            _bluffLobbyScreen.SetActive(screen == _bluffLobbyScreen);
+            _bluffSoonScreen.SetActive(screen == _bluffSoonScreen);
             _avatarScreen.SetActive(screen == _avatarScreen);
 
             if (_gameScreen != null)
@@ -698,7 +898,7 @@ namespace CardGameClient
                 _gameScreen.SetActive(screen == _gameScreen);
             }
 
-            if (screen == _lobbyScreen)
+            if (screen == _durakLobbyScreen)
             {
                 RefreshLobbySelection();
             }
