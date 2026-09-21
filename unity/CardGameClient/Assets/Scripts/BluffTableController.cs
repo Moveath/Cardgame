@@ -52,6 +52,9 @@ namespace CardGameClient
         private const float RankRowBottom = 270f;
         private const float SelectedCardLift = 42f;
 
+        /// <summary>Сколько рубашек рисуем в котле. Дальше стопка растёт только в высоту зря.</summary>
+        private const int MaxPotCards = 14;
+
         private const float BotThinkDelay = 1.1f;
         private const float ThrowPause = 0.45f;
         private const float RevealHold = 1.6f;
@@ -66,7 +69,6 @@ namespace CardGameClient
 
         private Text _status;
         private Text _lastAction;
-        private Text _potCaption;
         private Text _rankBadge;
 
         private RectTransform _opponentsArea;
@@ -348,10 +350,13 @@ namespace CardGameClient
         private void Refresh()
         {
             RefreshStatus();
+            RefreshPot();
+
+            // Рука считается раньше мест: своё место встаёт вплотную к её левому краю,
+            // и без свежей ширины веера оно уезжало под карты.
+            RefreshHand();
             RefreshOpponents();
             RefreshPlayerSeat();
-            RefreshPot();
-            RefreshHand();
             RefreshRankRow();
             RefreshControls();
         }
@@ -408,10 +413,17 @@ namespace CardGameClient
             for (var seat = 0; seat < opponents; seat++)
             {
                 var player = _game.Players[seat + 1];
-                var container = BuildSeatBlock(_opponentsArea, player, layout.Scale);
+                var position = SeatPosition(seat, opponents, layout);
+
+                // Веер уходит в свою сторону экрана: у левых соперников влево, у правых вправо.
+                var fanSide = position.x < 0f ? -1f : 1f;
+                var container = BuildSeatBlock(_opponentsArea, player, layout.Scale, layout.FanWidth, fanSide);
+
+                // Привязка и пивот сверху: место задаётся отступом от верха экрана, иначе
+                // блок растёт вверх и наезжает на строку статуса.
                 container.anchorMin = container.anchorMax = new Vector2(0.5f, 1f);
-                container.pivot = new Vector2(0.5f, 0f);
-                container.anchoredPosition = SeatPosition(seat, opponents, layout);
+                container.pivot = new Vector2(0.5f, 1f);
+                container.anchoredPosition = position;
             }
         }
 
@@ -429,7 +441,8 @@ namespace CardGameClient
             block.anchoredPosition = Vector2.zero;
         }
 
-        private RectTransform BuildSeatBlock(Transform parent, BluffPlayer player, float scale)
+        private RectTransform BuildSeatBlock(Transform parent, BluffPlayer player, float scale,
+            float fanWidth = 0f, float fanSide = 1f)
         {
             var container = new GameObject("Seat", typeof(RectTransform));
             container.transform.SetParent(parent, false);
@@ -451,37 +464,79 @@ namespace CardGameClient
             PlaceUnderAvatar((RectTransform)label.transform, (SeatFigure.Height + SeatFigure.NameGap) * scale,
                 new Vector2(220f * scale, SeatFigure.NameHeight * scale));
 
-            // Сколько карт на руках — информация публичная: за столом это видно и так.
-            var count = player.IsOut ? "вышел" : player.Hand.Count + " " + BluffRules.CardsWord(player.Hand.Count);
-            var countText = CreateText(container.transform, count, Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
-            countText.color = DimColor;
-            PlaceUnderAvatar((RectTransform)countText.transform,
-                (SeatFigure.Height + SeatFigure.NameGap + SeatFigure.NameHeight) * scale,
-                new Vector2(200f * scale, 26f * scale));
+            if (player.IsOut)
+            {
+                var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
+                outText.color = DimColor;
+                PlaceUnderAvatar((RectTransform)outText.transform,
+                    (SeatFigure.Height + SeatFigure.NameGap + SeatFigure.NameHeight) * scale,
+                    new Vector2(200f * scale, 26f * scale));
+
+                return containerRect;
+            }
+
+            // Сколько карт на руках, видно по вееру рубашек — цифрой это писать не надо,
+            // за настоящим столом её тоже никто не объявляет.
+            if (fanWidth > 0f && player.Hand.Count > 0)
+            {
+                BuildSeatFan(containerRect, player.Hand.Count, scale, fanWidth, fanSide);
+            }
 
             return containerRect;
+        }
+
+        /// <summary>
+        /// Веер рубашек сбоку от фигуры, на высоте рук. Ширина задана снаружи, поэтому
+        /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
+        /// </summary>
+        private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
+        {
+            var backScale = 0.55f * scale;
+            var backWidth = CardView.Width * backScale;
+            var angleStep = Mathf.Min(6f, 24f / Mathf.Max(handCount - 1, 1));
+            var spacing = Mathf.Min(backWidth * 0.55f, Mathf.Max(fanWidth - backWidth, 0f) / Mathf.Max(handCount - 1, 1));
+
+            var row = new GameObject("Cards", typeof(RectTransform));
+            row.transform.SetParent(container, false);
+
+            var rowRect = (RectTransform)row.transform;
+            rowRect.anchorMin = rowRect.anchorMax = new Vector2(0.5f, 1f);
+            // Пивот на той стороне, которой веер примыкает к фигуре, — так он растёт наружу.
+            rowRect.pivot = new Vector2(fanSide < 0f ? 1f : 0f, 0.5f);
+            rowRect.anchoredPosition = new Vector2(
+                fanSide * (SeatFigure.Width * 0.5f + SeatFanGap) * scale,
+                -SeatFigure.Height * 0.58f * scale);
+            rowRect.sizeDelta = new Vector2(spacing * (handCount - 1) + backWidth, CardView.Height * backScale + 16f * scale);
+
+            var mid = (handCount - 1) / 2f;
+            for (var h = 0; h < handCount; h++)
+            {
+                var back = CardView.Create(row.transform, _font, backScale);
+                back.ShowBack();
+                back.SetPlain();
+
+                var offset = h - mid;
+                back.SetRestTransform(new Vector2(offset * spacing, -Mathf.Abs(offset) * 3f), -offset * angleStep);
+            }
         }
 
         private void RefreshPot()
         {
             Clear(_potArea);
 
-            // Показываем ровно то, что слышали за столом: сумму заявленных пакетов.
-            // Настоящий размер котла — скрытая информация, и подсматривать её незачем.
-            var declared = _game.DeclaredPotCount;
-            var visible = Mathf.Clamp(_game.Packets.Count, 0, 6);
+            // Стопка растёт на то, что игроки назвали вслух, а не на то, что легло на самом
+            // деле: пересчитать котёл со стороны нельзя, и глазом тоже не должно получаться.
+            var visible = Mathf.Clamp(_game.DeclaredPotCount, 0, MaxPotCards);
 
             for (var i = 0; i < visible; i++)
             {
                 var view = CardView.Create(_potArea, _font, 1.1f);
                 view.ShowBack();
                 view.SetPlain();
-                view.SetRestTransform(new Vector2(i * 7f - visible * 3f, i * -5f + visible * 2f), (i - visible * 0.5f) * 3f);
+                view.SetRestTransform(
+                    new Vector2(i * 3.5f - visible * 1.75f, i * -2.5f + visible * 1.25f),
+                    Mathf.Sin(i * 2.3f) * 4f);
             }
-
-            _potCaption.text = declared == 0
-                ? "котёл пуст"
-                : "в котле по заявкам: " + declared + " " + BluffRules.CardsWord(declared);
 
             _rankBadge.text = _game.CurrentRank.HasValue
                 ? "круг идёт под " + BluffRules.RankPlural(_game.CurrentRank.Value)
@@ -810,11 +865,11 @@ namespace CardGameClient
             feltImage.type = Image.Type.Sliced;
 
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
-            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(1200f, 66f));
+            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -50f), new Vector2(1200f, 56f));
 
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = DimColor;
-            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -102f), new Vector2(1100f, 38f));
+            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -100f), new Vector2(1100f, 36f));
 
             _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
             _opponentsArea.SetParent(root, false);
@@ -824,11 +879,7 @@ namespace CardGameClient
 
             _rankBadge = CreateText(root, string.Empty, 28, TextAnchor.MiddleCenter);
             _rankBadge.color = AccentGlow;
-            Place((RectTransform)_rankBadge.transform, new Vector2(0.5f, 1f), new Vector2(0f, -(PotTop + 140f)), new Vector2(700f, 38f));
-
-            _potCaption = CreateText(root, string.Empty, 24, TextAnchor.MiddleCenter);
-            _potCaption.color = DimColor;
-            Place((RectTransform)_potCaption.transform, new Vector2(0.5f, 1f), new Vector2(0f, -(PotTop + 180f)), new Vector2(700f, 34f));
+            Place((RectTransform)_rankBadge.transform, new Vector2(0.5f, 1f), new Vector2(0f, -(PotTop + 130f)), new Vector2(700f, 38f));
 
             _playerSeatArea = CreatePanel("PlayerSeat", root, new Vector2(0.5f, 0f), new Vector2(-520f, 150f), new Vector2(180f, 220f));
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, HandRowBottom), new Vector2(1600f, 200f));
