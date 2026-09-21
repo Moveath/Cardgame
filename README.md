@@ -33,6 +33,15 @@ powershell -ExecutionPolicy Bypass -File scripts/build-for-unity.ps1
 Скрипт кладёт свежие DLL в `unity/CardGameClient/Assets/Plugins/CardGame/`. Эти файлы —
 результат сборки, поэтому в репозиторий не попадают: после клонирования запусти скрипт.
 
+**Запускать лучше при закрытом редакторе.** Подмена плагина на ходу заставляет Unity
+перекомпилировать всё прямо во время работы, и сборщик `bee_backend` иногда не может
+подключиться к редактору по именованному каналу. Выглядит это как «All compiler errors
+have to be fixed before you can enter playmode», хотя ни одной ошибки в коде нет — в логе
+`unity/CardGameClient/Logs/Editor.log` не будет ни строчки `error CS`, зато будет
+`bee_backend: error: Failed IPC_Client_InitializeAndConnectToParent`. Лечится перезапуском
+Unity; если повторяется — удалить папку `Library/Bee` при закрытом редакторе, это кэш
+сборки и он соберётся заново.
+
 Seed определяет перемешивание колоды, поэтому любой баг воспроизводится по номеру раздачи.
 
 ## Дальше
