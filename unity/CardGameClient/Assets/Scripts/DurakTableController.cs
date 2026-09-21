@@ -65,27 +65,16 @@ namespace CardGameClient
         private DurakMatchSettings _settings = DurakMatchSettings.Default;
         private Action _onExit;
 
-        private const float AvatarWidth = 136f;
-        private const float AvatarHeight = 158f;
-
-        // Портреты нарезаны с одного листа, поэтому персонаж на всех примерно одной высоты
-        // в пикселях картинки. От неё и считаем масштаб — общий для всех мест. Подгонять
-        // каждый портрет под рамку по отдельности нельзя: широкий персонаж тогда ужимается
-        // и выглядит мельче остальных, а голова у всех должна быть одного размера.
-        private const float ReferencePortraitHeight = 290f;
-
-        // Шляпе волшебника и короне разрешено торчать выше рамки, но немного: над местами
-        // идёт строка последнего хода.
-        private const float MaxPortraitStretch = 1.05f;
-
-        // Самый широкий персонаж шире рамки примерно на четверть. Это учитывается при
-        // расчёте промежутков между местами, иначе плечи наезжали бы на соседа.
-        private const float PortraitWidthAllowance = 1.25f;
-        private const float SeatNameHeight = 30f;
+        // Размеры фигуры и правила масштабирования портрета общие для всех игр — они
+        // живут в SeatFigure, чтобы не расходиться между столами.
+        private const float AvatarWidth = SeatFigure.Width;
+        private const float AvatarHeight = SeatFigure.Height;
+        private const float PortraitWidthAllowance = SeatFigure.PortraitWidthAllowance;
+        private const float SeatNameHeight = SeatFigure.NameHeight;
         // Только фигура и подпись: веер рубашек лежит сбоку и высоту места не ест.
         // Бейдж роли тоже нарисован поверх фигуры.
-        private const float SeatNameOffset = AvatarHeight + 12f;
-        private const float SeatBlockHeight = SeatNameOffset + SeatNameHeight;
+        private const float SeatNameOffset = AvatarHeight + SeatFigure.NameGap;
+        private const float SeatBlockHeight = SeatFigure.BlockHeight;
         private const float SeatFanMaxWidth = 170f;
         private const float SeatFanGap = 12f;
 
@@ -1595,81 +1584,8 @@ namespace CardGameClient
                 : null;
         }
 
-        private RectTransform CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait, float scale)
-        {
-            var width = AvatarWidth * scale;
-            var height = AvatarHeight * scale;
-
-            var wrapper = new GameObject("Avatar", typeof(RectTransform));
-            wrapper.transform.SetParent(parent, false);
-            var wrapperRect = (RectTransform)wrapper.transform;
-            wrapperRect.sizeDelta = new Vector2(width, height);
-
-            if (isActing)
-            {
-                // Подсветка ходящего игрока: мягкое пятно света под персонажем вместо рамки,
-                // потому что рамка вернула бы ту самую "картинку в коробочке", от которой ушли.
-                var glow = new GameObject("Glow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-                glow.transform.SetParent(wrapper.transform, false);
-                var glowRect = (RectTransform)glow.transform;
-                glowRect.anchorMin = glowRect.anchorMax = glowRect.pivot = new Vector2(0.5f, 0.5f);
-                glowRect.sizeDelta = new Vector2(width * 1.35f, height * 0.95f);
-                var glowImage = glow.GetComponent<Image>();
-                glowImage.sprite = UiTextures.RadialGlow(96, ActiveGlow);
-                glowImage.color = new Color(1f, 1f, 1f, 0.55f);
-                glowImage.raycastTarget = false;
-            }
-
-            if (portrait == null)
-            {
-                var circle = new GameObject("Circle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
-                circle.transform.SetParent(wrapper.transform, false);
-                var circleRect = (RectTransform)circle.transform;
-                circleRect.anchorMin = circleRect.anchorMax = circleRect.pivot = new Vector2(0.5f, 0.5f);
-                circleRect.sizeDelta = new Vector2(width * 0.75f, width * 0.75f);
-
-                var circleShadow = circle.GetComponent<Shadow>();
-                circleShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
-                circleShadow.effectDistance = new Vector2(2f, -3f);
-
-                var circleImage = circle.GetComponent<Image>();
-                circleImage.sprite = UiTextures.Circle(64, color);
-                circleImage.type = Image.Type.Sliced;
-
-                var label = CreateText(circle.transform, initial.ToUpperInvariant(), Mathf.RoundToInt(36 * scale), TextAnchor.MiddleCenter);
-                Stretch((RectTransform)label.transform);
-                label.color = Color.white;
-                label.fontStyle = FontStyle.Bold;
-                return wrapperRect;
-            }
-
-            // Никакой подложки: персонаж вырезан по контуру и сидит прямо на сукне.
-            var portraitGo = new GameObject("Portrait", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
-            portraitGo.transform.SetParent(wrapper.transform, false);
-
-            // Размер от масштаба, общего для всех мест, а не подгонкой под рамку. Сажаем на
-            // нижний край: тогда у всех совпадает линия плеч, а шляпа уходит вверх, а не
-            // выталкивает фигуру вниз на подпись с именем.
-            var portraitScale = Mathf.Min(
-                height / ReferencePortraitHeight,
-                height * MaxPortraitStretch / portrait.rect.height);
-
-            var portraitRect = (RectTransform)portraitGo.transform;
-            portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(0.5f, 0f);
-            portraitRect.pivot = new Vector2(0.5f, 0f);
-            portraitRect.anchoredPosition = Vector2.zero;
-            portraitRect.sizeDelta = new Vector2(portrait.rect.width * portraitScale, portrait.rect.height * portraitScale);
-
-            var portraitShadow = portraitGo.GetComponent<Shadow>();
-            portraitShadow.effectColor = new Color(0f, 0f, 0f, 0.4f);
-            portraitShadow.effectDistance = new Vector2(3f, -4f);
-
-            var portraitImage = portraitGo.GetComponent<Image>();
-            portraitImage.sprite = portrait;
-            portraitImage.raycastTarget = false;
-
-            return wrapperRect;
-        }
+        private RectTransform CreateAvatar(Transform parent, string initial, Color color, bool isActing, Sprite portrait, float scale) =>
+            SeatFigure.Create(parent, _font, initial, color, isActing, portrait, scale);
 
         private void RefreshControls()
         {

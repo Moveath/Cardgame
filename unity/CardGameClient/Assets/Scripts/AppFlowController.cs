@@ -29,7 +29,6 @@ namespace CardGameClient
         private GameObject _modeSelectScreen;
         private GameObject _durakLobbyScreen;
         private GameObject _bluffLobbyScreen;
-        private GameObject _bluffSoonScreen;
         private GameObject _avatarScreen;
         private GameObject _gameScreen;
 
@@ -77,7 +76,6 @@ namespace CardGameClient
             BuildModeSelect();
             BuildLobby();
             BuildBluffLobby();
-            BuildBluffSoon();
             BuildAvatarPicker();
 
             ShowScreen(_mainMenuScreen);
@@ -713,33 +711,27 @@ namespace CardGameClient
                 + "  ·  на руки по " + _bluffSettings.CardsPerPlayer + " карт";
         }
 
-        /// <summary>
-        /// Правила игры уже работают и покрыты тестами, а стола под них ещё нет. Пустая
-        /// кнопка врала бы, поэтому экран говорит прямо, чего не хватает.
-        /// </summary>
-        private void BuildBluffSoon()
+        private void StartBluffMatch()
         {
-            _bluffSoonScreen = new GameObject("BluffSoon", typeof(RectTransform));
-            _bluffSoonScreen.transform.SetParent(_root, false);
-            Stretch((RectTransform)_bluffSoonScreen.transform);
-            _bluffSoonScreen.SetActive(false);
-
-            var title = CreateText(_bluffSoonScreen.transform, "Стол ещё собирается", 48, TextAnchor.MiddleCenter);
-            PlaceFromTop((RectTransform)title.transform, 0f, 200f, new Vector2(1100f, 70f));
-
-            var text = CreateText(_bluffSoonScreen.transform,
-                "Правила уже написаны и работают: котёл, проверки, каре, тузы\n"
-                + "и подсчёт проигравшего. Не готова сама сцена — котёл рубашкой\n"
-                + "вверх, выбор ранга и количества, кнопка «не верю» и боты.",
-                26, TextAnchor.UpperCenter);
-            text.color = new Color(0.85f, 0.92f, 0.85f, 0.85f);
-            PlaceFromTop((RectTransform)text.transform, 0f, 300f, new Vector2(1000f, 140f));
-
-            CreateButton(_bluffSoonScreen.transform, "Назад", new Vector2(0f, 0f), new Vector2(160f, 90f),
-                new Color(0.3f, 0.3f, 0.32f), () => ShowScreen(_bluffLobbyScreen));
+            BuildBluffGameScreen();
+            ShowScreen(_gameScreen);
         }
 
-        private void StartBluffMatch() => ShowScreen(_bluffSoonScreen);
+        private void BuildBluffGameScreen()
+        {
+            if (_gameScreen != null)
+            {
+                Destroy(_gameScreen);
+            }
+
+            _gameScreen = new GameObject("BluffGameScreen", typeof(RectTransform));
+            _gameScreen.transform.SetParent(_root, false);
+            Stretch((RectTransform)_gameScreen.transform);
+            _gameScreen.SetActive(false);
+
+            var table = _gameScreen.AddComponent<BluffTableController>();
+            table.Configure(_bluffSettings, () => ShowScreen(_bluffLobbyScreen));
+        }
 
         /// <summary>Одна строка с подписью слева и двумя вариантами справа — компактнее, чем подпись сверху.</summary>
         private void BuildBinaryToggle(Transform parent, float offsetFromTop, string label, string optionA, string optionB,
@@ -890,7 +882,6 @@ namespace CardGameClient
             _modeSelectScreen.SetActive(screen == _modeSelectScreen);
             _durakLobbyScreen.SetActive(screen == _durakLobbyScreen);
             _bluffLobbyScreen.SetActive(screen == _bluffLobbyScreen);
-            _bluffSoonScreen.SetActive(screen == _bluffSoonScreen);
             _avatarScreen.SetActive(screen == _avatarScreen);
 
             if (_gameScreen != null)
