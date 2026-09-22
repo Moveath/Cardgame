@@ -54,10 +54,35 @@ namespace CardGameClient
         private const float SeatArcBiasBig = 1.55f;
 
         private const float HandRowBottom = 130f;
-        private const float RankRowBottom = 300f;
 
-        // Выбранная карта поднимается — и не должна доставать до ряда рангов над рукой.
-        private const float SelectedCardLift = 34f;
+        /// <summary>Размер карты в руке, пока веер помещается без тесноты.</summary>
+        private const float ComfortableHandScale = 1.05f;
+
+        /// <summary>Выбранная карта приподнимается над остальными.</summary>
+        private const float SelectedCardLift = 26f;
+
+        /// <summary>
+        /// Насколько веер выгибается книзу по краям. Ограничиваем прогиб целиком, а не шаг:
+        /// у большой руки крайние карты иначе уезжают за нижний край экрана.
+        /// </summary>
+        private const float HandFanDrop = 30f;
+
+        private const float RankRowHeight = 56f;
+        private const float RankRowGap = 14f;
+
+        /// <summary>
+        /// Докуда дотягивается рука в самом высоком своём состоянии: выбранная карта уже
+        /// приподнята, курсор поднимает её ещё раз и увеличивает, сверху добавляется
+        /// обводка. Ряд рангов считаем от этой величины, иначе карта лезет ему под ноги.
+        /// </summary>
+        private const float HandTopReach = SelectedCardLift + CardView.HoverLift
+                                           + CardView.Height * ComfortableHandScale * CardView.HoverScale * 0.5f
+                                           + CardView.SelectedGlowMargin;
+
+        private const float RankRowBottom = HandRowBottom + HandTopReach + RankRowGap + RankRowHeight * 0.5f;
+
+        /// <summary>Ниже этой черты места соперников не опускаются: там уже ранги и рука.</summary>
+        private const float SeatFloor = RankRowBottom + RankRowHeight * 0.5f + 18f;
 
         /// <summary>
         /// Сколько от карты обязано остаться видно из-под соседней. Угол с рангом и мастью
@@ -676,6 +701,8 @@ namespace CardGameClient
             var mid = (sorted.Count - 1) / 2f;
             _handHalfWidth = spacing * mid + cardWidth * 0.5f + 18f;
 
+            var dropStep = Mathf.Min(6f, HandFanDrop / Mathf.Max(mid, 1f));
+
             for (var i = 0; i < sorted.Count; i++)
             {
                 var card = sorted[i];
@@ -684,7 +711,9 @@ namespace CardGameClient
 
                 var offset = i - mid;
                 var isSelected = _selected.Contains(card);
-                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f + (isSelected ? SelectedCardLift : 0f));
+                var position = new Vector2(
+                    offset * spacing,
+                    -Mathf.Abs(offset) * dropStep + (isSelected ? SelectedCardLift : 0f));
                 view.SetRestTransform(position, isSelected ? 0f : -offset * angleStep);
 
                 if (!_waitingForHuman)
@@ -706,16 +735,15 @@ namespace CardGameClient
         /// </summary>
         private static float HandScale(int count, float available)
         {
-            const float comfortable = 1.05f;
             if (count <= 1)
             {
-                return comfortable;
+                return ComfortableHandScale;
             }
 
             var needed = CardView.Width * (MinHandStride * (count - 1) + 1f);
-            if (needed * comfortable <= available)
+            if (needed * ComfortableHandScale <= available)
             {
-                return comfortable;
+                return ComfortableHandScale;
             }
 
             return Mathf.Max(0.62f, available / needed);
@@ -955,7 +983,7 @@ namespace CardGameClient
                 depth = Mathf.Min(depth, Mathf.Max(0f, overPot));
             }
 
-            var corner = ((RectTransform)transform).rect.height - 360f - SeatTopMargin - layout.BlockHeight;
+            var corner = ((RectTransform)transform).rect.height - SeatFloor - SeatTopMargin - layout.BlockHeight;
             depth = Mathf.Min(depth, Mathf.Max(0f, corner));
 
             return new Vector2(x, -(SeatTopMargin + depth));
@@ -1104,7 +1132,8 @@ namespace CardGameClient
 
         private void BuildRankRow(RectTransform root)
         {
-            _rankRow = CreatePanel("Ranks", root, new Vector2(0.5f, 0f), new Vector2(0f, RankRowBottom), new Vector2(1600f, 60f));
+            _rankRow = CreatePanel("Ranks", root, new Vector2(0.5f, 0f), new Vector2(0f, RankRowBottom),
+                new Vector2(1600f, RankRowHeight));
 
             var ranks = AvailableRanks();
             var spacing = Mathf.Min(96f, 1400f / Mathf.Max(ranks.Count, 1));
@@ -1114,7 +1143,7 @@ namespace CardGameClient
             {
                 var rank = ranks[i];
                 var button = CreateChip(_rankRow, RankShort(rank), new Vector2(start + i * spacing, 0f),
-                    new Vector2(spacing - 12f, 56f), () => SelectRank(rank));
+                    new Vector2(spacing - 12f, RankRowHeight), () => SelectRank(rank));
                 _rankButtons.Add(button);
                 _rankButtonRanks.Add(rank);
             }

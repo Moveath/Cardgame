@@ -20,8 +20,14 @@ namespace CardGameClient
         // задержаться у того, кто её кладёт, иначе не прочитать, откуда она прилетела.
         public const float FlightDuration = 0.45f;
 
-        private const float HoverLift = 24f;
-        private const float HoverScale = 1.12f;
+        // Наплыв под курсором публичный: карта в этот момент занимает заметно больше
+        // места, чем её прямоугольник, и раскладка обязана это место заранее оставить.
+        public const float HoverLift = 24f;
+        public const float HoverScale = 1.12f;
+
+        /// <summary>Насколько обводка выбранной карты выходит за её край.</summary>
+        public const float SelectedGlowMargin = 6f;
+
         private const float HoverDuration = 0.12f;
 
         private static readonly Color FaceColor = new Color(0.97f, 0.96f, 0.92f);
@@ -204,7 +210,9 @@ namespace CardGameClient
         {
             _outline.enabled = true;
             _outline.effectColor = selected ? SelectedGlow : TrumpGlow;
-            _outline.effectDistance = selected ? new Vector2(6f, 6f) : new Vector2(2f, 2f);
+            _outline.effectDistance = selected
+            ? new Vector2(SelectedGlowMargin, SelectedGlowMargin)
+            : new Vector2(2f, 2f);
             _group.alpha = selected ? 1f : 0.78f;
         }
 
