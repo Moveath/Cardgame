@@ -18,11 +18,27 @@ namespace CardGame.Bots
         /// <summary>Сколько карт одного ранга в колоде. На этом строится весь подсчёт лжи.</summary>
         private const int CardsPerRank = 4;
 
-        /// <summary>Базовая подозрительность, когда арифметика ничего не доказывает.</summary>
-        private const double BaseSuspicion = 0.18;
+        /// <summary>
+        /// Даже доказанную ложь бот замечает не всегда. Идеальный арифметик за столом
+        /// убивает игру: соврать нельзя вообще, а туз с руки не уходит никогда. Живой
+        /// игрок тоже не пересчитывает чужие заявки каждый ход.
+        /// </summary>
+        private const double NoticeCertainLieChance = 0.8;
 
-        /// <summary>Насколько охотнее бот проверяет, когда рука почти пуста и котёл обидно брать.</summary>
-        private const double SuspicionPerMissingCard = 0.07;
+        /// <summary>Базовая подозрительность, когда арифметика ничего не доказывает.</summary>
+        private const double BaseSuspicion = 0.08;
+
+        /// <summary>Прибавка за каждую свою карту заявленного ранга — её у соперника точно нет.</summary>
+        private const double SuspicionPerKnownCard = 0.13;
+
+        /// <summary>Прибавка за размер броска: честных троек одного ранга мало.</summary>
+        private const double SuspicionPerExtraCard = 0.07;
+
+        /// <summary>Скидка за размер котла: ошибиться на большом котле дорого.</summary>
+        private const double CalmPerPotCard = 0.015;
+
+        /// <summary>Насколько осторожнее бот, когда рука почти пуста и котёл обидно брать.</summary>
+        private const double CalmPerMissingCard = 0.05;
 
         /// <summary>Шанс избавиться от туза враньём, когда честный ход тоже возможен.</summary>
         private const double DumpAceChance = 0.45;
@@ -207,30 +223,34 @@ namespace CardGame.Bots
             var hand = game.Players[playerIndex].Hand;
             var mine = CountOf(hand, packet.DeclaredRank);
 
+            // Столько карт этого ранга в колоде просто нет — соврал наверняка. Но замечаем
+            // не каждый раз, иначе блефовать против ботов было бы невозможно в принципе.
             if (mine + packet.DeclaredCount > CardsPerRank)
             {
-                return true;
+                return _random.NextDouble() < NoticeCertainLieChance;
             }
 
             var suspicion = BaseSuspicion;
 
             // Каждая карта заявленного ранга на своей руке — это карта, которой у соперника
             // точно нет. Три заявленные шестёрки при двух своих уже почти ложь.
-            suspicion += 0.22 * mine;
-
-            // Большой бросок подозрительнее маленького: честных троек одного ранга мало.
-            suspicion += 0.12 * (packet.DeclaredCount - 1);
+            suspicion += SuspicionPerKnownCard * mine;
+            suspicion += SuspicionPerExtraCard * (packet.DeclaredCount - 1);
 
             // Когда у соперника вот-вот кончатся карты, проверка — последний шанс его вернуть.
             if (game.Players[packet.PlayerIndex].Hand.Count == 0)
             {
-                suspicion += 0.45;
+                suspicion += 0.5;
             }
 
-            // Чем меньше своих карт, тем обиднее забирать котёл — и тем осторожнее бот.
-            suspicion -= SuspicionPerMissingCard * Math.Max(0, 6 - hand.Count);
+            // Чем больше котёл, тем дороже ошибиться — и тем спокойнее бот смотрит на чужие
+            // заявки. Из этого сама собой получается нарастающая по кругу тишина.
+            suspicion -= CalmPerPotCard * game.DeclaredPotCount;
 
-            return _random.NextDouble() < suspicion;
+            // Чем меньше своих карт, тем обиднее забирать котёл.
+            suspicion -= CalmPerMissingCard * Math.Max(0, 6 - hand.Count);
+
+            return _random.NextDouble() < Math.Min(0.95, Math.Max(0.04, suspicion));
         }
 
         // ---------- мелочи ----------

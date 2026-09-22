@@ -49,8 +49,19 @@ namespace CardGameClient
         private const float SeatArcBiasBig = 1.55f;
 
         private const float HandRowBottom = 130f;
-        private const float RankRowBottom = 270f;
-        private const float SelectedCardLift = 42f;
+        private const float RankRowBottom = 300f;
+
+        // Выбранная карта поднимается — и не должна доставать до ряда рангов над рукой.
+        private const float SelectedCardLift = 34f;
+
+        /// <summary>
+        /// Сколько от карты обязано остаться видно из-под соседней. Угол с рангом и мастью
+        /// занимает примерно треть ширины, так что меньше сорока процентов — уже гадание.
+        /// </summary>
+        private const float MinHandStride = 0.42f;
+
+        /// <summary>Место под своё место слева и кнопки справа. Остальное отдаём вееру.</summary>
+        private const float HandSideReserve = 820f;
 
         /// <summary>Сколько рубашек рисуем в котле. Дальше стопка растёт только в высоту зря.</summary>
         private const int MaxPotCards = 14;
@@ -554,24 +565,31 @@ namespace CardGameClient
                 return;
             }
 
-            const float handCardScale = 1.05f;
-            var cardWidth = CardView.Width * handCardScale;
-            var angleStep = Mathf.Min(5f, 22f / Mathf.Max(hand.Count - 1, 1));
-
-            const int comfortable = 8;
-            var available = Mathf.Min(1500f, ((RectTransform)transform).rect.width - 1200f);
-            if (hand.Count > comfortable)
+            // Показываем руку по рангам, а не в порядке раздачи: в блефе весь смысл в том,
+            // сколько у тебя карт одного номинала, и глазами это должно читаться сразу.
+            var sorted = new List<Card>(hand);
+            sorted.Sort((left, right) =>
             {
-                available *= Mathf.Sqrt(comfortable / (float)hand.Count);
-            }
+                var byRank = left.Rank.CompareTo(right.Rank);
+                return byRank != 0 ? byRank : left.Suit.CompareTo(right.Suit);
+            });
 
-            var spacing = Mathf.Min(cardWidth * 0.82f, available / hand.Count);
-            var mid = (hand.Count - 1) / 2f;
+            var available = Mathf.Min(1600f, ((RectTransform)transform).rect.width - HandSideReserve);
+            var handCardScale = HandScale(sorted.Count, available);
+
+            var cardWidth = CardView.Width * handCardScale;
+            var angleStep = Mathf.Min(5f, 22f / Mathf.Max(sorted.Count - 1, 1));
+
+            var spacing = Mathf.Min(
+                cardWidth * 0.82f,
+                (available - cardWidth) / Mathf.Max(sorted.Count - 1, 1));
+
+            var mid = (sorted.Count - 1) / 2f;
             _handHalfWidth = spacing * mid + cardWidth * 0.5f + 18f;
 
-            for (var i = 0; i < hand.Count; i++)
+            for (var i = 0; i < sorted.Count; i++)
             {
-                var card = hand[i];
+                var card = sorted[i];
                 var view = CardView.Create(_handRow, _font, handCardScale);
                 view.ShowFace(card);
 
@@ -589,6 +607,28 @@ namespace CardGameClient
                 var captured = card;
                 view.SetClickable(() => ToggleCard(captured));
             }
+        }
+
+        /// <summary>
+        /// Пока карты помещаются с читаемым нахлёстом, размер не трогаем. Когда перестают —
+        /// уменьшаем весь веер, а не ужимаем промежутки дальше: из-под соседней карты
+        /// должен торчать угол с рангом, иначе руку невозможно прочитать.
+        /// </summary>
+        private static float HandScale(int count, float available)
+        {
+            const float comfortable = 1.05f;
+            if (count <= 1)
+            {
+                return comfortable;
+            }
+
+            var needed = CardView.Width * (MinHandStride * (count - 1) + 1f);
+            if (needed * comfortable <= available)
+            {
+                return comfortable;
+            }
+
+            return Mathf.Max(0.62f, available / needed);
         }
 
         private void ToggleCard(Card card)
@@ -634,6 +674,7 @@ namespace CardGameClient
 
             _throwButton.gameObject.SetActive(_waitingForHuman);
             _throwButton.interactable = canThrow;
+            _throwButton.GetComponentInChildren<Text>().text = ThrowLabel();
 
             _challengeButton.gameObject.SetActive(_waitingForHuman && _game.Phase == BluffPhase.Chain);
 
@@ -644,6 +685,44 @@ namespace CardGameClient
                 _fourButton.GetComponentInChildren<Text>().text = "Каре " + BluffRules.RankPlural(fours[0]);
             }
 
+        }
+
+        /// <summary>
+        /// Кнопка проговаривает заявку целиком: «Кидаю 2 валета». Так сразу видно, что
+        /// именно услышат соседи — и что число берётся из чипов, а не из выбранных карт.
+        /// </summary>
+        private string ThrowLabel()
+        {
+            var rank = _game.Phase == BluffPhase.RoundStart ? _declaredRank : _game.CurrentRank;
+            if (!rank.HasValue || _declaredCount <= 0)
+            {
+                return "Кинуть";
+            }
+
+            return "Кидаю " + _declaredCount + " " + RankCounted(rank.Value, _declaredCount);
+        }
+
+        /// <summary>«1 валет», «2 валета», «3 дамы» — форма зависит от числа.</summary>
+        private static string RankCounted(Rank rank, int count)
+        {
+            var single = count % 10 == 1 && count % 100 != 11;
+
+            switch (rank)
+            {
+                case Rank.Jack: return single ? "валет" : "валета";
+                case Rank.Queen: return single ? "дама" : "дамы";
+                case Rank.King: return single ? "король" : "короля";
+                case Rank.Ace: return single ? "туз" : "туза";
+                case Rank.Two: return single ? "двойка" : "двойки";
+                case Rank.Three: return single ? "тройка" : "тройки";
+                case Rank.Four: return single ? "четвёрка" : "четвёрки";
+                case Rank.Five: return single ? "пятёрка" : "пятёрки";
+                case Rank.Six: return single ? "шестёрка" : "шестёрки";
+                case Rank.Seven: return single ? "семёрка" : "семёрки";
+                case Rank.Eight: return single ? "восьмёрка" : "восьмёрки";
+                case Rank.Nine: return single ? "девятка" : "девятки";
+                default: return single ? "десятка" : "десятки";
+            }
         }
 
         private void ShowResult()
@@ -918,28 +997,31 @@ namespace CardGameClient
                     _onExit?.Invoke();
                 });
 
-            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 170f), new Vector2(260f, 76f),
+            // Всё управление одной колонкой справа. Внизу слева стоит своё место, и каре
+            // там налезало прямо на фигуру.
+            _fourButton = CreateButton(root, "Каре", new Vector2(1f, 0f), new Vector2(-190f, 130f), new Vector2(260f, 68f),
+                new Color(0.42f, 0.26f, 0.45f), PlayFourOfAKind);
+
+            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 230f), new Vector2(260f, 76f),
                 new Color(0.21f, 0.45f, 0.29f), Throw);
 
-            _challengeButton = CreateButton(root, "Не верю", new Vector2(1f, 0f), new Vector2(-190f, 262f), new Vector2(260f, 76f),
+            _challengeButton = CreateButton(root, "Не верю", new Vector2(1f, 0f), new Vector2(-190f, 340f), new Vector2(260f, 76f),
                 new Color(0.62f, 0.26f, 0.22f), () => _pendingMove = BluffMove.Challenge());
-
-            _fourButton = CreateButton(root, "Каре", new Vector2(0f, 0f), new Vector2(200f, 170f), new Vector2(260f, 68f),
-                new Color(0.42f, 0.26f, 0.45f), PlayFourOfAKind);
 
             _restartButton = CreateButton(root, "Ещё партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(300f, 80f),
                 new Color(0.21f, 0.45f, 0.29f), StartNewGame);
             _restartButton.gameObject.SetActive(false);
 
             // Заявленное количество отдельно от выбранных карт: в этом вся вторая ось блефа.
-            var countLabel = CreateText(root, "заявить", 22, TextAnchor.MiddleCenter);
+            // Подпись объясняет, что это именно слова, а не сколько карт реально уйдёт.
+            var countLabel = CreateText(root, "говорю, что карт:", 22, TextAnchor.MiddleCenter);
             countLabel.color = DimColor;
-            Place((RectTransform)countLabel.transform, new Vector2(1f, 0f), new Vector2(-190f, 390f), new Vector2(200f, 28f));
+            Place((RectTransform)countLabel.transform, new Vector2(1f, 0f), new Vector2(-190f, 490f), new Vector2(260f, 28f));
 
             for (var count = 1; count <= 3; count++)
             {
                 var captured = count;
-                var button = CreateChip(root, count.ToString(), new Vector2(-270f + (count - 1) * 80f, 348f),
+                var button = CreateChip(root, count.ToString(), new Vector2(-270f + (count - 1) * 80f, 440f),
                     new Vector2(70f, 56f), () => SelectCount(captured));
                 var rect = (RectTransform)button.transform;
                 rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);

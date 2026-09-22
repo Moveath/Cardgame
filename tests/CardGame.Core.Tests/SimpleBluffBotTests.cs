@@ -37,11 +37,12 @@ public class SimpleBluffBotTests
 
     /// <summary>
     /// Главный приём бота — арифметика: каждого ранга в колоде четыре. Три шестёрки на
-    /// своей руке плюс три заявленные не помещаются в колоду, значит это ложь, и никакой
-    /// случайности тут быть не должно.
+    /// своей руке плюс три заявленные в колоду не помещаются, значит это ложь. Замечает
+    /// бот её не каждый раз — идеальный арифметик за столом убивает игру, — но заметно
+    /// чаще, чем просто подозревает.
     /// </summary>
     [Fact]
-    public void Bot_AlwaysCatchesAnImpossibleClaim()
+    public void Bot_CatchesAnImpossibleClaimAlmostAlways()
     {
         var game = BluffGame.Create(new[] { "Врун", "Бот" }, BuildDeck(
             new[] { C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs) },
@@ -50,12 +51,45 @@ public class SimpleBluffBotTests
         Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six, 3,
             new[] { C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs) }), out var error), error);
 
-        // Даже с самым «доверчивым» генератором бот обязан вскрыть: сходится арифметика.
-        for (var seed = 0; seed < 20; seed++)
+        var caught = 0;
+        for (var seed = 0; seed < 200; seed++)
         {
             var bot = new SimpleBluffBot(new Random(seed));
-            Assert.True(bot.ShouldChallenge(game, 1));
+            if (bot.ShouldChallenge(game, 1))
+            {
+                caught++;
+            }
         }
+
+        Assert.InRange(caught, 140, 190);
+    }
+
+    /// <summary>
+    /// Обратная сторона: скромную заявку, которую нечем опровергнуть, бот в основном
+    /// пропускает. Иначе с руки не уходит ни один туз и играть не во что.
+    /// </summary>
+    [Fact]
+    public void Bot_UsuallyBelievesAModestClaim()
+    {
+        var game = BluffGame.Create(new[] { "Игрок", "Бот" }, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs) },
+            new[] { C(Rank.Nine, Suit.Hearts), C(Rank.Eight, Suit.Diamonds), C(Rank.Seven, Suit.Clubs) }));
+
+        // Кладём туза под видом шестёрок: у бота шестёрок нет, опровергнуть нечем.
+        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six, 1,
+            new[] { C(Rank.Ace, Suit.Spades) }), out var error), error);
+
+        var challenged = 0;
+        for (var seed = 0; seed < 200; seed++)
+        {
+            var bot = new SimpleBluffBot(new Random(seed));
+            if (bot.ShouldChallenge(game, 1))
+            {
+                challenged++;
+            }
+        }
+
+        Assert.InRange(challenged, 1, 50);
     }
 
     [Fact]
