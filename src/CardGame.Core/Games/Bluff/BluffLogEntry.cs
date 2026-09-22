@@ -12,6 +12,10 @@ namespace CardGame.Core.Games.Bluff
 
         Challenge,
         FourOfAKind,
+
+        /// <summary>Игрок сдался сам.</summary>
+        Concede,
+
         PlayerOut,
         GameOver
     }
@@ -116,6 +120,10 @@ namespace CardGame.Core.Games.Bluff
                 DeclaredRank = rank,
                 DeclaredCount = 4
             };
+
+        internal static BluffLogEntry Concede(BluffPlayer player) =>
+            new BluffLogEntry(BluffLogKind.Concede, player.Index,
+                player.Name + " сдался: честно ходить нечем, одни тузы");
 
         internal static BluffLogEntry PlayerOut(BluffPlayer player, int place) =>
             new BluffLogEntry(BluffLogKind.PlayerOut, player.Index,

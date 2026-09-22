@@ -40,6 +40,9 @@ namespace CardGame.Core.Games.Bluff
         private bool _shootoutOffered;
         private int _roundsSinceShootout = ShootoutCooldownRounds + 1;
 
+        /// <summary>Кто сдался. Сдавшийся и есть проигравший, тузы уже ничего не решают.</summary>
+        private int? _conceded;
+
         private readonly List<Card> _pot = new List<Card>();
         private readonly List<BluffPacket> _packets = new List<BluffPacket>();
 
@@ -175,6 +178,50 @@ namespace CardGame.Core.Games.Bluff
 
         public int? LoserIndex => _losers.Count == 1 ? _losers[0] : (int?)null;
 
+        /// <summary>
+        /// Тузы разделились поровну, и добить партию нечем — это ничья, а не проигрыш
+        /// на всех: кидать больше некому и нечем, так что победителя тут просто нет.
+        /// </summary>
+        public bool IsDraw => _losers.Count > 1;
+
+        /// <summary>Кто сдался сам, если партия кончилась так.</summary>
+        public int? ConcededIndex => _conceded;
+
+        /// <summary>
+        /// Может ли игрок сдаться. Кнопка появляется только тогда, когда партия для него
+        /// уже решена: честно ходить нечем — на руках одни тузы, — и тузов у него не
+        /// меньше, чем у любого другого за столом. Тянуть такое до конца незачем, а
+        /// раньше времени кнопка сдачи только путала бы.
+        /// </summary>
+        public bool CanConcede(int playerIndex)
+        {
+            if (IsFinished || !IsSeated(playerIndex) || HoldersCount < 2)
+            {
+                return false;
+            }
+
+            var player = _players[playerIndex];
+            if (player.IsOut || !player.HoldsOnlyAces)
+            {
+                return false;
+            }
+
+            foreach (var other in _players)
+            {
+                if (other.IsOut || other.Index == playerIndex)
+                {
+                    continue;
+                }
+
+                if (other.AceCount > player.AceCount)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>Сколько игроков ещё держат карты.</summary>
         public int HoldersCount
         {
@@ -234,6 +281,11 @@ namespace CardGame.Core.Games.Bluff
                 result.Add(BluffMoveType.DiscardFour);
             }
 
+            if (CanConcede(playerIndex))
+            {
+                result.Add(BluffMoveType.Concede);
+            }
+
             return result;
         }
 
@@ -269,6 +321,8 @@ namespace CardGame.Core.Games.Bluff
                     return TryChallenge(playerIndex, out error);
                 case BluffMoveType.DiscardFour:
                     return TryDiscardFour(playerIndex, move.Rank, out error);
+                case BluffMoveType.Concede:
+                    return TryConcede(playerIndex, out error);
                 default:
                     error = "Неизвестный ход.";
                     return false;
@@ -519,6 +573,24 @@ namespace CardGame.Core.Games.Bluff
             return true;
         }
 
+        // ---------- сдача ----------
+
+        private bool TryConcede(int playerIndex, out string? error)
+        {
+            if (!CanConcede(playerIndex))
+            {
+                error = "Сдаваться пока рано.";
+                return false;
+            }
+
+            _conceded = playerIndex;
+            _log.Add(BluffLogEntry.Concede(_players[playerIndex]));
+
+            Finish("Партию не доиграли.");
+            error = null;
+            return true;
+        }
+
         // ---------- состояние круга ----------
 
         private void StartRound(int leaderIndex)
@@ -634,6 +706,8 @@ namespace CardGame.Core.Games.Bluff
             ShootoutStarterIndex = null;
             _shootoutOffered = false;
 
+            ReclaimPot();
+
             var holders = new List<BluffPlayer>();
             foreach (var player in _players)
             {
@@ -665,7 +739,13 @@ namespace CardGame.Core.Games.Bluff
             }
 
             _losers.Clear();
-            if (holders.Count > 0)
+
+            // Сдавшийся проигрывает сам по себе: он это и признал.
+            if (_conceded.HasValue)
+            {
+                _losers.Add(_conceded.Value);
+            }
+            else if (holders.Count > 0)
             {
                 var most = 0;
                 foreach (var player in holders)
@@ -688,8 +768,35 @@ namespace CardGame.Core.Games.Bluff
             _log.Add(BluffLogEntry.GameOver(reason + " " + LoserText()));
         }
 
+        /// <summary>
+        /// Котёл не растворяется в воздухе. Если партия кончилась, не дождавшись проверки,
+        /// лежащие в нём карты забирает тот, кто бросал последним. Иначе вместе с котлом из
+        /// игры уходят тузы — а они и решают, кто проиграл, и без них партия заканчивалась
+        /// ничем: все скинули всё, победителя нет, проигравшего тоже.
+        /// </summary>
+        private void ReclaimPot()
+        {
+            if (_pot.Count == 0 || !LastThrowerIndex.HasValue)
+            {
+                return;
+            }
+
+            var taker = _players[LastThrowerIndex.Value];
+            taker.AddRange(_pot);
+            _finishOrder.Remove(taker.Index);
+
+            _pot.Clear();
+            _packets.Clear();
+            CurrentRank = null;
+        }
+
         private string LoserText()
         {
+            if (_conceded.HasValue)
+            {
+                return _players[_conceded.Value].Name + " сдался.";
+            }
+
             if (_losers.Count == 0)
             {
                 return "Проигравших нет.";
@@ -707,7 +814,7 @@ namespace CardGame.Core.Games.Bluff
                 names.Add(_players[index].Name);
             }
 
-            return "Поровну тузов (" + aces + ") у " + string.Join(", ", names) + " — проигрыш на всех.";
+            return "Ничья: по " + aces + " туза у " + string.Join(", ", names) + ", добивать нечем.";
         }
     }
 }

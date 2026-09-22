@@ -118,6 +118,15 @@ namespace CardGameClient
 
         private const float BotThinkDelay = 1.1f;
         private const float ThrowPause = 0.45f;
+
+        /// <summary>
+        /// В перестрелке темп другой. Круг там вдвое длиннее обычного, и если каждый бросок
+        /// обдумывать так же неторопливо, стол просто стоит. Да и по смыслу это очередь:
+        /// все валят карты, не раздумывая, — пауза тут работает против самой сцены.
+        /// </summary>
+        private const float ShootoutThinkDelay = 0.5f;
+
+        private const float ShootoutThrowPause = 0.2f;
         private const float RevealHold = 1.6f;
         private const float FourHold = 1.1f;
         private const float FourFade = 0.35f;
@@ -151,6 +160,7 @@ namespace CardGameClient
         private Button _challengeButton;
         private Button _shootoutButton;
         private Outline _shootoutGlow;
+        private Button _concedeButton;
         private Button _restartButton;
 
         private readonly List<Card> _selected = new List<Card>();
@@ -162,6 +172,9 @@ namespace CardGameClient
 
         /// <summary>Человек нажал «перестрелка» и теперь выбирает, чем её открыть.</summary>
         private bool _shootoutArmed;
+
+        /// <summary>Сдача спрошена один раз и ждёт подтверждения: партию так просто не бросают.</summary>
+        private bool _concedeAsked;
 
         private BluffMove _pendingMove;
 
@@ -196,6 +209,7 @@ namespace CardGameClient
             _selected.Clear();
             _declaredRank = null;
             _shootoutArmed = false;
+            _concedeAsked = false;
             _pendingMove = null;
             _waitingForHuman = false;
             _restartButton.gameObject.SetActive(false);
@@ -253,7 +267,7 @@ namespace CardGameClient
                 }
 
                 Refresh();
-                yield return new WaitForSeconds(BotThinkDelay);
+                yield return new WaitForSeconds(_game.IsShootout ? ShootoutThinkDelay : BotThinkDelay);
 
                 var botMove = _bot.ChooseMove(_game, actor);
                 if (botMove == null)
@@ -296,7 +310,7 @@ namespace CardGameClient
                 yield break;
             }
 
-            yield return new WaitForSeconds(ThrowPause);
+            yield return new WaitForSeconds(_game.IsShootout ? ShootoutThrowPause : ThrowPause);
         }
 
         /// <summary>
@@ -458,6 +472,7 @@ namespace CardGameClient
             _selected.Clear();
             _declaredRank = null;
             _shootoutArmed = false;
+            _concedeAsked = false;
         }
 
         // ---------- вскрытие ----------
@@ -614,6 +629,11 @@ namespace CardGameClient
         /// </summary>
         private string NextStepPrompt()
         {
+            if (_game.CanConcede(HumanIndex))
+            {
+                return "На руках одни тузы — честно ходить нечем. Врать или сдаться";
+            }
+
             if (_game.Phase == BluffPhase.RoundStart && !_declaredRank.HasValue)
             {
                 return "Твой круг: назови ранг";
@@ -995,6 +1015,47 @@ namespace CardGameClient
             _shootoutButton.gameObject.SetActive(offered);
             _shootoutGlow.enabled = offered && _shootoutArmed;
             _shootoutButton.GetComponentInChildren<Text>().text = _shootoutArmed ? "ПЕРЕСТРЕЛКА" : "Перестрелка";
+
+            // Сдача не привязана к своему ходу: она доступна ровно тогда, когда партия
+            // для тебя уже решена, а решается это не очередью.
+            var canConcede = !_game.IsFinished && _game.CanConcede(HumanIndex);
+            _concedeButton.gameObject.SetActive(canConcede);
+            _concedeButton.GetComponentInChildren<Text>().text = _concedeAsked ? "Точно сдаться?" : "Сдаться";
+
+            if (!canConcede)
+            {
+                _concedeAsked = false;
+            }
+        }
+
+        /// <summary>
+        /// Сдача заканчивает партию, поэтому спрашиваем дважды. Одного промаха по кнопке
+        /// хватило бы, чтобы выкинуть игрока из партии, которую он ещё не проиграл.
+        /// </summary>
+        private void Concede()
+        {
+            if (!_concedeAsked)
+            {
+                _concedeAsked = true;
+                Refresh();
+                return;
+            }
+
+            _concedeAsked = false;
+
+            // Сдаться можно и не в свой ход, так что цикл через _pendingMove тут не поможет:
+            // он ждёт хода только когда очередь наша. Применяем сразу.
+            if (!_game.TryApplyMove(HumanIndex, BluffMove.Concede(), out var error))
+            {
+                _lastAction.text = error;
+                return;
+            }
+
+            StopAllCoroutines();
+            _waitingForHuman = false;
+            Clear(_revealArea);
+            Refresh();
+            ShowResult();
         }
 
         /// <summary>
@@ -1090,9 +1151,16 @@ namespace CardGameClient
         {
             _status.color = AccentGlow;
 
-            if (_game.Losers.Count == 0)
+            if (_game.ConcededIndex.HasValue)
             {
-                _status.text = "Партия окончена.";
+                var quitter = _game.Players[_game.ConcededIndex.Value];
+                _status.text = quitter.Index == HumanIndex
+                    ? "Ты сдался: тузов " + quitter.AceCount
+                    : quitter.Name + " сдался: тузов " + quitter.AceCount;
+            }
+            else if (_game.IsDraw)
+            {
+                _status.text = "Ничья: тузов поровну, добивать нечем";
             }
             else if (_game.LoserIndex.HasValue)
             {
@@ -1103,8 +1171,10 @@ namespace CardGameClient
             }
             else
             {
-                _status.text = "Поровну тузов — проигрыш на всех.";
+                _status.text = "Партия окончена.";
             }
+
+            _concedeButton.gameObject.SetActive(false);
 
             _restartButton.gameObject.SetActive(true);
         }
@@ -1377,6 +1447,12 @@ namespace CardGameClient
             _shootoutGlow.effectColor = ShootoutColor;
             _shootoutGlow.effectDistance = new Vector2(5f, 5f);
             _shootoutGlow.enabled = false;
+
+            // Под «в меню», в углу: кнопка появляется редко и ни с чем не соседствует.
+            // В правую колонку её ставить нельзя — там кончилось место над дугой мест.
+            _concedeButton = CreateButton(root, "Сдаться", new Vector2(0f, 1f), new Vector2(120f, -136f),
+                new Vector2(180f, 60f), new Color(0.5f, 0.2f, 0.18f), Concede);
+            _concedeButton.gameObject.SetActive(false);
 
             _restartButton = CreateButton(root, "Ещё партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(300f, 80f),
                 new Color(0.21f, 0.45f, 0.29f), StartNewGame);

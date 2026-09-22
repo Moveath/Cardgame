@@ -16,7 +16,10 @@ namespace CardGame.Core.Games.Bluff
         Challenge,
 
         /// <summary>Каре вне очереди.</summary>
-        DiscardFour
+        DiscardFour,
+
+        /// <summary>Сдаться: признать проигрыш и не тянуть решённую партию.</summary>
+        Concede
     }
 
     /// <summary>
@@ -76,6 +79,9 @@ namespace CardGame.Core.Games.Bluff
         public static BluffMove DiscardFour(Rank rank) =>
             new BluffMove(BluffMoveType.DiscardFour, rank, NoCards);
 
+        public static BluffMove Concede() =>
+            new BluffMove(BluffMoveType.Concede, Rank.Two, NoCards);
+
         private static IReadOnlyList<Card> Copy(IReadOnlyList<Card> cards)
         {
             if (cards == null)
@@ -101,6 +107,7 @@ namespace CardGame.Core.Games.Bluff
             BluffMoveType.Declare => (OpensShootout ? "перестрелка! " : string.Empty) + Describe(Rank),
             BluffMoveType.Follow => Describe(null),
             BluffMoveType.Challenge => "не верю",
+            BluffMoveType.Concede => "сдаюсь",
             _ => "каре " + BluffRules.RankPlural(Rank)
         };
 

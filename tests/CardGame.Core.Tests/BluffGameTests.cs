@@ -420,8 +420,111 @@ public class BluffGameTests
         Apply(game, 1, BluffMove.Follow(C(Rank.Seven, Suit.Clubs)));
 
         Assert.True(game.IsFinished);
-        Assert.Empty(game.Losers);
+
+        // Вскрывать этот пакет уже некому, но и раствориться котёл не может: его забирает
+        // тот, кто бросал последним. Иначе вместе с ним из партии уходили бы тузы — а по
+        // ним и считается проигравший, и партия заканчивалась бы ничем.
+        Assert.Equal(0, game.PotCount);
+        Assert.Equal(3, game.Players[1].Hand.Count);
+        Assert.Equal(1, game.LoserIndex);
         Assert.Equal(new[] { 0, 1 }, game.Standings);
+    }
+
+    /// <summary>
+    /// Ничья, а не «проигрыш на всех»: тузы разделились поровну, а больше кидать нечем —
+    /// ни у кого нет карты, которой можно было бы что-то изменить.
+    /// </summary>
+    [Fact]
+    public void EqualAces_AreADraw()
+    {
+        var game = BluffGame.Create(Two, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Clubs), C(Rank.Ace, Suit.Hearts) },
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.Ace, Suit.Diamonds) }));
+
+        Assert.True(game.IsFinished);
+        Assert.True(game.IsDraw);
+        Assert.Null(game.LoserIndex);
+        Assert.Equal(2, game.Losers.Count);
+        Assert.Contains("Ничья", game.Log[^1].Text);
+    }
+
+    // ---------- сдача ----------
+
+    /// <summary>
+    /// Сдаться можно только тогда, когда партия и так решена: честно ходить нечем, на
+    /// руках одни тузы, и их не меньше, чем у соседа. Пока есть чем ходить — кнопки нет.
+    /// </summary>
+    [Fact]
+    public void Concede_IsOfferedOnlyToTheOneWhoIsAlreadyLosing()
+    {
+        var game = BluffGame.Create(Two, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.Ace, Suit.Hearts) },
+            new[] { C(Rank.Ace, Suit.Diamonds), C(Rank.Seven, Suit.Clubs) }));
+
+        Assert.False(game.IsFinished);
+        Assert.True(game.CanConcede(0));
+        Assert.Contains(BluffMoveType.Concede, game.AvailableMoveTypes(0));
+
+        // У соседа есть чем ходить честно — ему сдаваться незачем.
+        Assert.False(game.CanConcede(1));
+        Assert.DoesNotContain(BluffMoveType.Concede, game.AvailableMoveTypes(1));
+    }
+
+    [Fact]
+    public void Concede_IsNotOfferedToTheOneWithFewerAces()
+    {
+        var game = BluffGame.Create(Two, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Diamonds), C(Rank.Ace, Suit.Clubs), C(Rank.Ace, Suit.Spades), C(Rank.Seven, Suit.Clubs) },
+            new[] { C(Rank.Ace, Suit.Hearts), C(Rank.Eight, Suit.Clubs), C(Rank.Nine, Suit.Clubs), C(Rank.Ten, Suit.Clubs) }));
+
+        // Оба сбрасывают всё, кроме тузов: у первого их остаётся три, у второго один.
+        Apply(game, 0, BluffMove.Declare(Rank.Seven, C(Rank.Seven, Suit.Clubs)));
+        Apply(game, 1, BluffMove.Follow(
+            C(Rank.Eight, Suit.Clubs), C(Rank.Nine, Suit.Clubs), C(Rank.Ten, Suit.Clubs)));
+
+        Assert.False(game.IsFinished);
+        Assert.True(game.CanConcede(0));
+
+        // Один туз против трёх — этот игрок как раз выигрывает, сдаваться ему нечего.
+        Assert.False(game.CanConcede(1));
+        Assert.False(game.TryApplyMove(1, BluffMove.Concede(), out var error));
+        Assert.Equal("Сдаваться пока рано.", error);
+    }
+
+    /// <summary>Тузов поровну — сдаться может любой из двоих, решать им.</summary>
+    [Fact]
+    public void Concede_IsOfferedToBothWhenAcesAreEven()
+    {
+        var game = BluffGame.Create(Two, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Diamonds), C(Rank.Ace, Suit.Clubs), C(Rank.Seven, Suit.Clubs) },
+            new[] { C(Rank.Ace, Suit.Hearts), C(Rank.Ace, Suit.Spades), C(Rank.Eight, Suit.Clubs) }));
+
+        Apply(game, 0, BluffMove.Declare(Rank.Seven, C(Rank.Seven, Suit.Clubs)));
+        Apply(game, 1, BluffMove.Follow(C(Rank.Eight, Suit.Clubs)));
+
+        Assert.False(game.IsFinished);
+        Assert.True(game.CanConcede(0));
+        Assert.True(game.CanConcede(1));
+    }
+
+    [Fact]
+    public void Concede_EndsTheGameAndNamesTheLoser()
+    {
+        var game = BluffGame.Create(Two, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.Ace, Suit.Hearts) },
+            new[] { C(Rank.Ace, Suit.Diamonds), C(Rank.Seven, Suit.Clubs) }));
+
+        Apply(game, 0, BluffMove.Concede());
+
+        Assert.True(game.IsFinished);
+        Assert.Equal(0, game.ConcededIndex);
+        Assert.Equal(0, game.LoserIndex);
+        Assert.False(game.IsDraw);
+        Assert.Equal(2, game.Standings.Count);
+
+        var conceded = game.Log[^2];
+        Assert.Equal(BluffLogKind.Concede, conceded.Kind);
+        Assert.Contains("сдался", conceded.Text);
     }
 
     // ---------- скрытая информация ----------

@@ -50,6 +50,9 @@ namespace CardGame.Bots
         /// <summary>Шанс избавиться от туза враньём, когда честный ход тоже возможен.</summary>
         private const double DumpAceChance = 0.45;
 
+        /// <summary>Готовность сдаться за каждый туз сверх первого, когда кроме тузов ничего нет.</summary>
+        private const double ConcedePerSpareAce = 0.35;
+
         /// <summary>
         /// Шанс приберечь последнюю настоящую карту круга и соврать вместо неё. Смысл в
         /// том, что круг вернётся: тогда будет чем ответить честно, не рискуя котлом.
@@ -128,6 +131,14 @@ namespace CardGame.Bots
             if (hand.Count == 0)
             {
                 return null;
+            }
+
+            // Сдаваться бот не спешит: пока туз на руках один, его ещё можно подсунуть под
+            // чужой ранг и уйти чистым. А с тремя тузами проскочить трижды подряд почти
+            // невозможно, и тянуть решённую партию — только мучить стол.
+            if (game.CanConcede(playerIndex) && _random.NextDouble() < ConcedePerSpareAce * (hand.Count - 1))
+            {
+                return BluffMove.Concede();
             }
 
             if (game.Phase == BluffPhase.RoundStart)
