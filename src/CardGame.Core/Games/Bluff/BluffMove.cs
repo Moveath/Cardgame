@@ -27,11 +27,12 @@ namespace CardGame.Core.Games.Bluff
     {
         private static readonly Card[] NoCards = new Card[0];
 
-        private BluffMove(BluffMoveType type, Rank rank, IReadOnlyList<Card> cards)
+        private BluffMove(BluffMoveType type, Rank rank, IReadOnlyList<Card> cards, bool opensShootout = false)
         {
             Type = type;
             Rank = rank;
             Cards = cards;
+            OpensShootout = opensShootout;
         }
 
         public BluffMoveType Type { get; }
@@ -45,6 +46,12 @@ namespace CardGame.Core.Games.Bluff
         /// <summary>Что реально ушло в котёл. Скрытая информация: показывать её нельзя до вскрытия.</summary>
         public IReadOnlyList<Card> Cards { get; }
 
+        /// <summary>
+        /// Этот бросок открывает перестрелку. Отдельным типом хода делать нечего: правила
+        /// круга те же самые, меняется только то, чем обернётся проверка.
+        /// </summary>
+        public bool OpensShootout { get; }
+
         public static BluffMove Declare(Rank rank, IReadOnlyList<Card> cards) =>
             new BluffMove(BluffMoveType.Declare, rank, Copy(cards));
 
@@ -56,6 +63,12 @@ namespace CardGame.Core.Games.Bluff
 
         public static BluffMove Follow(params Card[] cards) =>
             new BluffMove(BluffMoveType.Follow, Rank.Two, Copy(cards));
+
+        public static BluffMove DeclareShootout(Rank rank, IReadOnlyList<Card> cards) =>
+            new BluffMove(BluffMoveType.Declare, rank, Copy(cards), opensShootout: true);
+
+        public static BluffMove DeclareShootout(Rank rank, params Card[] cards) =>
+            new BluffMove(BluffMoveType.Declare, rank, Copy(cards), opensShootout: true);
 
         public static BluffMove Challenge() =>
             new BluffMove(BluffMoveType.Challenge, Rank.Two, NoCards);
@@ -85,7 +98,7 @@ namespace CardGame.Core.Games.Bluff
         /// </summary>
         public override string ToString() => Type switch
         {
-            BluffMoveType.Declare => Describe(Rank),
+            BluffMoveType.Declare => (OpensShootout ? "перестрелка! " : string.Empty) + Describe(Rank),
             BluffMoveType.Follow => Describe(null),
             BluffMoveType.Challenge => "не верю",
             _ => "каре " + BluffRules.RankPlural(Rank)

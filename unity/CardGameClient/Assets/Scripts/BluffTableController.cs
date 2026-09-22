@@ -30,6 +30,11 @@ namespace CardGameClient
         private static readonly Color HumanColor = new Color(0.24f, 0.45f, 0.78f);
         private static readonly Color ChipColor = new Color(0.36f, 0.22f, 0.12f);
         private static readonly Color LieColor = new Color(0.78f, 0.28f, 0.22f);
+
+        /// <summary>Цвет перестрелки. Нарочно горячий: круг обязан выглядеть иначе обычного.</summary>
+        private static readonly Color ShootoutColor = new Color(1f, 0.44f, 0.22f);
+
+        private static readonly Color RoosterColor = new Color(0.84f, 0.20f, 0.17f);
         private static readonly Color TruthColor = new Color(0.25f, 0.55f, 0.32f);
 
         // Вертикаль строится сверху вниз фиксированными отступами: на широком окне Unity
@@ -101,6 +106,11 @@ namespace CardGameClient
         private const float RevealHold = 1.6f;
         private const float FourHold = 1.1f;
         private const float FourFade = 0.35f;
+
+        // Объявление перестрелки: короткий наплыв, пауза, чтобы успели прочитать все, и уход.
+        private const float ShootoutFlashIn = 0.2f;
+        private const float ShootoutHold = 1.9f;
+        private const float ShootoutFlashOut = 0.4f;
         private const float FlightDuration = 0.5f;
 
         private BluffMatchSettings _settings = BluffMatchSettings.Default;
@@ -124,6 +134,8 @@ namespace CardGameClient
 
         private Button _throwButton;
         private Button _challengeButton;
+        private Button _shootoutButton;
+        private Outline _shootoutGlow;
         private Button _restartButton;
 
         private readonly List<Card> _selected = new List<Card>();
@@ -132,6 +144,10 @@ namespace CardGameClient
 
         private Rank? _declaredRank;
         private bool _waitingForHuman;
+
+        /// <summary>Человек нажал «перестрелка» и теперь выбирает, чем её открыть.</summary>
+        private bool _shootoutArmed;
+
         private BluffMove _pendingMove;
 
         private Sprite[] _playerPortraits;
@@ -164,6 +180,7 @@ namespace CardGameClient
 
             _selected.Clear();
             _declaredRank = null;
+            _shootoutArmed = false;
             _pendingMove = null;
             _waitingForHuman = false;
             _restartButton.gameObject.SetActive(false);
@@ -254,11 +271,76 @@ namespace CardGameClient
             if (wasChallenge)
             {
                 yield return PlayReveal();
+                yield break;
             }
-            else
+
+            // Объявление идёт после броска: пока карты не легли, называть перестрелку не на что.
+            if (move.OpensShootout)
             {
-                yield return new WaitForSeconds(ThrowPause);
+                yield return ShowShootoutBanner(actor, _game.CurrentRank!.Value);
+                yield break;
             }
+
+            yield return new WaitForSeconds(ThrowPause);
+        }
+
+        /// <summary>
+        /// Объявление во весь стол. Механики в перестрелке нет никакой — кроме петуха, —
+        /// поэтому весь её вес держится на том, что все разом это увидели.
+        /// </summary>
+        private IEnumerator ShowShootoutBanner(int starter, Rank rank)
+        {
+            Clear(_revealArea);
+
+            var banner = new GameObject("Shootout", typeof(RectTransform), typeof(CanvasGroup));
+            banner.transform.SetParent(_revealArea, false);
+
+            var bannerRect = (RectTransform)banner.transform;
+            bannerRect.anchorMin = bannerRect.anchorMax = bannerRect.pivot = new Vector2(0.5f, 0.5f);
+            bannerRect.anchoredPosition = Vector2.zero;
+            bannerRect.sizeDelta = new Vector2(1200f, 260f);
+
+            var group = banner.GetComponent<CanvasGroup>();
+
+            var title = CreateText(bannerRect, "ПЕРЕСТРЕЛКА", 84, TextAnchor.MiddleCenter);
+            title.color = ShootoutColor;
+            title.fontStyle = FontStyle.Bold;
+            Place((RectTransform)title.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 54f), new Vector2(1160f, 104f));
+
+            var who = CreateText(bannerRect,
+                _game.Players[starter].Name + " — на " + BluffRules.RankPluralAccusative(rank),
+                36, TextAnchor.MiddleCenter);
+            who.color = TextColor;
+            Place((RectTransform)who.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -22f), new Vector2(1160f, 46f));
+
+            var hint = CreateText(bannerRect, "кидают все и до последнего · кто первым проверит, тот петух",
+                26, TextAnchor.MiddleCenter);
+            hint.color = DimColor;
+            Place((RectTransform)hint.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -78f), new Vector2(1160f, 36f));
+
+            yield return AnimateBanner(bannerRect, group, ShootoutFlashIn, 0.6f, 1f);
+            yield return new WaitForSeconds(ShootoutHold);
+            yield return AnimateBanner(bannerRect, group, ShootoutFlashOut, 1f, 1.18f, fadeOut: true);
+
+            Clear(_revealArea);
+        }
+
+        private static IEnumerator AnimateBanner(RectTransform rect, CanvasGroup group, float duration,
+            float fromScale, float toScale, bool fadeOut = false)
+        {
+            var elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                var k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+
+                rect.localScale = Vector3.one * Mathf.Lerp(fromScale, toScale, k);
+                group.alpha = fadeOut ? 1f - k : k;
+                yield return null;
+            }
+
+            rect.localScale = Vector3.one * toScale;
+            group.alpha = fadeOut ? 0f : 1f;
         }
 
         /// <summary>
@@ -360,6 +442,7 @@ namespace CardGameClient
         {
             _selected.Clear();
             _declaredRank = null;
+            _shootoutArmed = false;
         }
 
         // ---------- вскрытие ----------
@@ -401,6 +484,19 @@ namespace CardGameClient
                 26, TextAnchor.MiddleCenter);
             claim.color = DimColor;
             Place((RectTransform)claim.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 104f), new Vector2(700f, 40f));
+
+            // Кто оборвал перестрелку, узнаёт об этом там же, где вскрылись карты: клеймо
+            // важнее самого вскрытия, потому что останется до конца партии.
+            if (entry.BrokeShootout)
+            {
+                var brand = CreateText(_revealArea,
+                    _game.Players[entry.PlayerIndex].Name + " сорвал перестрелку — петух!",
+                    32, TextAnchor.MiddleCenter);
+                brand.color = RoosterColor;
+                brand.fontStyle = FontStyle.Bold;
+                Place((RectTransform)brand.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -134f),
+                    new Vector2(800f, 44f));
+            }
 
             const float revealScale = 1.15f;
             var step = CardView.Width * revealScale + 18f;
@@ -510,12 +606,19 @@ namespace CardGameClient
 
             if (_selected.Count == 0)
             {
-                return _game.Phase == BluffPhase.RoundStart
-                    ? "Выбери в руке от одной до трёх карт — любых"
+                if (_game.Phase == BluffPhase.RoundStart)
+                {
+                    return _shootoutArmed
+                        ? "Перестрелка: выбери карты, с которых она начнётся"
+                        : "Выбери в руке от одной до трёх карт — любых";
+                }
+
+                return _game.IsShootout
+                    ? "Перестрелка: кидай что угодно. Проверишь — станешь петухом"
                     : "Верить или нет? Положи свои карты или скажи «не верю»";
             }
 
-            return "Заявить можно и не то число, что кладёшь";
+            return "Кладёшь столько, сколько сказал: врут здесь только рангом";
         }
 
         private void RefreshOpponents()
@@ -579,6 +682,11 @@ namespace CardGameClient
             PlaceUnderAvatar((RectTransform)label.transform, (SeatFigure.Height + SeatFigure.NameGap) * scale,
                 new Vector2(220f * scale, SeatFigure.NameHeight * scale));
 
+            if (player.IsRooster)
+            {
+                BuildRoosterHat(containerRect, player.RoosterMarks, scale);
+            }
+
             if (player.IsOut)
             {
                 var outText = CreateText(container.transform, "вышел", Mathf.RoundToInt(20 * scale), TextAnchor.MiddleCenter);
@@ -604,6 +712,37 @@ namespace CardGameClient
         /// Веер рубашек сбоку от фигуры, на высоте рук. Ширина задана снаружи, поэтому
         /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
         /// </summary>
+        /// <summary>
+        /// Клеймо того, кто оборвал перестрелку. Сидит прямо на голове и не снимается до
+        /// конца партии: правилами проверка не запрещена, а стол всё равно не забудет.
+        /// </summary>
+        private void BuildRoosterHat(RectTransform container, int marks, float scale)
+        {
+            var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
+            go.transform.SetParent(container, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            // Сидит на самой макушке, чуть налезая на портрет. Выше нельзя: над местами
+            // идёт строка с последним действием, и клеймо полезло бы прямо в неё.
+            rect.anchoredPosition = new Vector2(0f, -12f * scale);
+            rect.sizeDelta = new Vector2(104f * scale, 32f * scale);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = UiTextures.RoundedRect(48, 48, 14f, RoosterColor);
+            image.type = Image.Type.Sliced;
+
+            var shadow = go.GetComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+            shadow.effectDistance = new Vector2(2f, -3f);
+
+            var label = CreateText(rect, marks > 1 ? "ПЕТУХ x" + marks : "ПЕТУХ",
+                Mathf.RoundToInt(19 * scale), TextAnchor.MiddleCenter);
+            label.fontStyle = FontStyle.Bold;
+            Stretch((RectTransform)label.transform);
+        }
+
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
         {
             // Рисуем не больше дюжины рубашек: дальше веер всё равно читается как «много»,
@@ -663,6 +802,16 @@ namespace CardGameClient
                     Mathf.Sin(i * 2.3f) * 4f);
             }
 
+            if (_game.IsShootout && _game.CurrentRank.HasValue)
+            {
+                _rankBadge.text = "ПЕРЕСТРЕЛКА · " + RankPluralNominative(_game.CurrentRank.Value);
+                _rankBadge.color = ShootoutColor;
+                _rankBadge.fontStyle = FontStyle.Bold;
+                return;
+            }
+
+            _rankBadge.color = AccentGlow;
+            _rankBadge.fontStyle = FontStyle.Normal;
             _rankBadge.text = _game.CurrentRank.HasValue
                 ? "сейчас ходят " + RankPluralNominative(_game.CurrentRank.Value)
                 : "ранг ещё не назван";
@@ -806,6 +955,21 @@ namespace CardGameClient
 
             _challengeButton.gameObject.SetActive(_waitingForHuman && _game.Phase == BluffPhase.Chain);
 
+            var offered = _waitingForHuman && _game.ShootoutOffered;
+            _shootoutButton.gameObject.SetActive(offered);
+            _shootoutGlow.enabled = offered && _shootoutArmed;
+            _shootoutButton.GetComponentInChildren<Text>().text = _shootoutArmed ? "ПЕРЕСТРЕЛКА" : "Перестрелка";
+        }
+
+        /// <summary>
+        /// Нажатие только взводит объявление: ранг и карты выбираются как обычно, а вслух
+        /// перестрелка называется в тот момент, когда пакет уже лёг на стол. Передумать
+        /// можно до броска — вторым нажатием.
+        /// </summary>
+        private void ToggleShootout()
+        {
+            _shootoutArmed = !_shootoutArmed;
+            Refresh();
         }
 
         /// <summary>
@@ -821,7 +985,8 @@ namespace CardGameClient
                 return "Кинуть";
             }
 
-            return "Кидаю " + ThrowPhrase(rank.Value, _selected.Count);
+            var phrase = "Кидаю " + ThrowPhrase(rank.Value, _selected.Count);
+            return _shootoutArmed ? "ПЕРЕСТРЕЛКА: " + phrase : phrase;
         }
 
         /// <summary>Мужские карты — валет, король, туз, — остальные женские. От этого и форма.</summary>
@@ -1163,9 +1328,19 @@ namespace CardGameClient
             _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 170f), new Vector2(260f, 76f),
                 new Color(0.21f, 0.45f, 0.29f), Throw);
 
-            // Выше нельзя: крайние места дуги спускаются до 360 от низа экрана.
+            // Выше нельзя: крайние места дуги спускаются до SeatFloor от низа экрана.
             _challengeButton = CreateButton(root, "Не верю", new Vector2(1f, 0f), new Vector2(-190f, 310f), new Vector2(260f, 76f),
                 new Color(0.62f, 0.26f, 0.22f), () => _pendingMove = BluffMove.Challenge());
+
+            // Та же клетка, что у «не верю»: перестрелку объявляют только в начале круга,
+            // а проверяют только в цепочке — вместе эти две кнопки не появляются никогда.
+            _shootoutButton = CreateButton(root, "Перестрелка", new Vector2(1f, 0f), new Vector2(-190f, 310f),
+                new Vector2(260f, 76f), new Color(0.58f, 0.3f, 0.14f), ToggleShootout);
+
+            _shootoutGlow = _shootoutButton.gameObject.AddComponent<Outline>();
+            _shootoutGlow.effectColor = ShootoutColor;
+            _shootoutGlow.effectDistance = new Vector2(5f, 5f);
+            _shootoutGlow.enabled = false;
 
             _restartButton = CreateButton(root, "Ещё партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(300f, 80f),
                 new Color(0.21f, 0.45f, 0.29f), StartNewGame);
@@ -1188,9 +1363,15 @@ namespace CardGameClient
 
             var cards = new List<Card>(_selected);
 
-            _pendingMove = _game.Phase == BluffPhase.RoundStart
-                ? BluffMove.Declare(_declaredRank!.Value, cards)
-                : BluffMove.Follow(cards);
+            if (_game.Phase != BluffPhase.RoundStart)
+            {
+                _pendingMove = BluffMove.Follow(cards);
+                return;
+            }
+
+            _pendingMove = _shootoutArmed && _game.ShootoutOffered
+                ? BluffMove.DeclareShootout(_declaredRank!.Value, cards)
+                : BluffMove.Declare(_declaredRank!.Value, cards);
         }
 
         private List<Rank> AvailableRanks()

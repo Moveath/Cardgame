@@ -7,10 +7,16 @@ namespace CardGame.Core.Games.Bluff
     public readonly struct BluffOptions
     {
         public BluffOptions(int maxCardsPerThrow, bool allowFourOfAKind, bool acesCanFormFour)
+            : this(maxCardsPerThrow, allowFourOfAKind, acesCanFormFour, false)
+        {
+        }
+
+        public BluffOptions(int maxCardsPerThrow, bool allowFourOfAKind, bool acesCanFormFour, bool allowShootout)
         {
             MaxCardsPerThrow = maxCardsPerThrow < 1 ? 1 : maxCardsPerThrow;
             AllowFourOfAKind = allowFourOfAKind;
             AcesCanFormFour = acesCanFormFour;
+            AllowShootout = allowShootout;
         }
 
         /// <summary>Сколько карт разрешено положить за один бросок. По умолчанию три.</summary>
@@ -25,6 +31,13 @@ namespace CardGame.Core.Games.Bluff
         /// </summary>
         public bool AcesCanFormFour { get; }
 
-        public static BluffOptions Classic => new BluffOptions(3, true, false);
+        /// <summary>
+        /// Бывают ли за столом перестрелки. Домашнее правило, а не классика: изредка
+        /// ведущему круга предлагают объявить перестрелку, и тогда круг превращается в
+        /// игру на нервах — все валят мусор, а проверить боится каждый.
+        /// </summary>
+        public bool AllowShootout { get; }
+
+        public static BluffOptions Classic => new BluffOptions(3, true, false, false);
     }
 }

@@ -15,8 +15,27 @@ namespace CardGame.Core.Games.Bluff
     /// </summary>
     public sealed class BluffGame
     {
+        /// <summary>Как часто ведущему круга вообще предлагают объявить перестрелку.</summary>
+        private const double ShootoutChance = 0.22;
+
+        /// <summary>
+        /// Сколько обычных кругов должно пройти после перестрелки, прежде чем предложат
+        /// следующую. Без паузы стол превращается в одну бесконечную перестрелку, и весь
+        /// эффект — редкое событие, от которого замирает стол, — пропадает.
+        /// </summary>
+        private const int ShootoutCooldownRounds = 2;
+
         private readonly List<BluffPlayer> _players = new List<BluffPlayer>();
         private readonly BluffOptions _options;
+
+        /// <summary>
+        /// Кубик, решающий, предложить ли перестрелку. Засеян самой раздачей: одна и та же
+        /// колода даёт одну и ту же партию целиком, так что любую жалобу можно повторить.
+        /// </summary>
+        private readonly Random _fate;
+
+        private bool _shootoutOffered;
+        private int _roundsSinceShootout = ShootoutCooldownRounds + 1;
 
         private readonly List<Card> _pot = new List<Card>();
         private readonly List<BluffPacket> _packets = new List<BluffPacket>();
@@ -57,6 +76,8 @@ namespace CardGame.Core.Games.Bluff
                 seat++;
             }
 
+            _fate = new Random(FateSeed());
+
             StartRound(0);
         }
 
@@ -83,6 +104,22 @@ namespace CardGame.Core.Games.Bluff
 
         /// <summary>Ранг круга. Пока круг не начался — null. Менять его по ходу цепочки нельзя.</summary>
         public Rank? CurrentRank { get; private set; }
+
+        /// <summary>
+        /// Круг идёт как перестрелка. Правила те же самые — разница в цене проверки:
+        /// кто оборвал перестрелку, тот петух до конца партии.
+        /// </summary>
+        public bool IsShootout { get; private set; }
+
+        /// <summary>Кто объявил текущую перестрелку.</summary>
+        public int? ShootoutStarterIndex { get; private set; }
+
+        /// <summary>
+        /// Ведущему прямо сейчас предлагают объявить перестрелку. Предложение живёт ровно
+        /// до его броска: не воспользовался — круг пошёл обычным, и просить второй раз
+        /// в этом круге уже нечего.
+        /// </summary>
+        public bool ShootoutOffered => _shootoutOffered && Phase == BluffPhase.RoundStart;
 
         /// <summary>Настоящее содержимое котла. Скрытая информация.</summary>
         public IReadOnlyList<Card> Pot => _pot;
@@ -251,6 +288,12 @@ namespace CardGame.Core.Games.Bluff
                 return false;
             }
 
+            if (move.OpensShootout && !ShootoutOffered)
+            {
+                error = "Перестрелку сейчас не объявляют.";
+                return false;
+            }
+
             if (playerIndex != CurrentPlayerIndex)
             {
                 error = "Сейчас не твой ход.";
@@ -294,6 +337,16 @@ namespace CardGame.Core.Games.Bluff
 
             CurrentRank = rank;
             Phase = BluffPhase.Chain;
+
+            // Объявление вслух идёт после броска, а не до него: пока карты не легли,
+            // называть перестрелку не на что — ранг выбирают вместе с картами.
+            if (move.OpensShootout)
+            {
+                IsShootout = true;
+                ShootoutStarterIndex = playerIndex;
+                _roundsSinceShootout = 0;
+                _log.Add(BluffLogEntry.Shootout(player, rank));
+            }
 
             if (player.IsOut)
             {
@@ -341,6 +394,14 @@ namespace CardGame.Core.Games.Bluff
             var challenger = _players[challengerIndex];
             var target = _players[packet.PlayerIndex];
 
+            // Проверять в перестрелке не запрещено — хоть на первом же броске. Но тот, кто
+            // на это решился, получает петуха, и снять его до конца партии нельзя.
+            var brokeShootout = IsShootout;
+            if (brokeShootout)
+            {
+                challenger.MarkRooster();
+            }
+
             // Врал — забирает сам, сказал правду — забирает тот, кто не поверил.
             var takerIndex = packet.IsLie ? target.Index : challenger.Index;
             var taker = _players[takerIndex];
@@ -351,11 +412,13 @@ namespace CardGame.Core.Games.Bluff
             // Забрав котёл, вышедший возвращается за стол: место освобождается обратно.
             _finishOrder.Remove(takerIndex);
 
-            _log.Add(BluffLogEntry.Challenge(challenger, target, packet, takerIndex, taken));
+            _log.Add(BluffLogEntry.Challenge(challenger, target, packet, takerIndex, taken, brokeShootout));
 
             _pot.Clear();
             _packets.Clear();
             CurrentRank = null;
+            IsShootout = false;
+            ShootoutStarterIndex = null;
 
             // Новый круг начинает следующий за тем, кто забрал: взял карты — ещё и ход пропустил.
             var leader = NextHolderAfter(takerIndex);
@@ -460,7 +523,14 @@ namespace CardGame.Core.Games.Bluff
             RoundLeaderIndex = leaderIndex;
             CurrentPlayerIndex = leaderIndex;
             CurrentRank = null;
+            IsShootout = false;
+            ShootoutStarterIndex = null;
             Phase = BluffPhase.RoundStart;
+
+            _roundsSinceShootout++;
+            _shootoutOffered = _options.AllowShootout
+                               && _roundsSinceShootout > ShootoutCooldownRounds
+                               && _fate.NextDouble() < ShootoutChance;
 
             CheckRoundStart();
         }
@@ -515,6 +585,29 @@ namespace CardGame.Core.Games.Bluff
 
         private bool IsSeated(int playerIndex) => playerIndex >= 0 && playerIndex < _players.Count;
 
+        /// <summary>
+        /// Зерно для кубика перестрелки, посчитанное по розданным рукам. Отдельного
+        /// параметра нет намеренно: партия должна полностью определяться колодой.
+        /// </summary>
+        private int FateSeed()
+        {
+            unchecked
+            {
+                var seed = 17;
+                foreach (var player in _players)
+                {
+                    foreach (var card in player.Hand)
+                    {
+                        seed = seed * 31 + (int)card.Rank * 8 + (int)card.Suit;
+                    }
+
+                    seed = seed * 31 + 7;
+                }
+
+                return seed == int.MinValue ? 0 : Math.Abs(seed);
+            }
+        }
+
         private static bool CanTakeFromHand(BluffPlayer player, IReadOnlyList<Card> cards)
         {
             var rest = new List<Card>(player.Hand);
@@ -534,6 +627,9 @@ namespace CardGame.Core.Games.Bluff
         private void Finish(string reason)
         {
             Phase = BluffPhase.Finished;
+            IsShootout = false;
+            ShootoutStarterIndex = null;
+            _shootoutOffered = false;
 
             var holders = new List<BluffPlayer>();
             foreach (var player in _players)

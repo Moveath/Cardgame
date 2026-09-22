@@ -84,6 +84,24 @@ namespace CardGame.Core.Games.Bluff
             _ => "джокеров"
         };
 
+        /// <summary>
+        /// «на королей», «на шестёрки» — винительный падеж для строки «перестрелка на ...».
+        /// У фигур он совпадает с родительным (одушевлённые), у числовых — с именительным.
+        /// </summary>
+        public static string RankPluralAccusative(Rank rank) => rank switch
+        {
+            Rank.Two => "двойки",
+            Rank.Three => "тройки",
+            Rank.Four => "четвёрки",
+            Rank.Five => "пятёрки",
+            Rank.Six => "шестёрки",
+            Rank.Seven => "семёрки",
+            Rank.Eight => "восьмёрки",
+            Rank.Nine => "девятки",
+            Rank.Ten => "десятки",
+            _ => RankPlural(rank)
+        };
+
         /// <summary>Согласование «1 карту», «2 карты», «5 карт» — бросок больше трёх карт не бывает, но пусть будет общим.</summary>
         public static string CardsWord(int count)
         {

@@ -54,6 +54,8 @@ namespace CardGameClient
         private readonly List<Image> _bluffPlayerButtonImages = new List<Image>();
         private readonly Button[] _bluffFourButtons = new Button[2];
         private readonly Image[] _bluffFourButtonImages = new Image[2];
+        private readonly Button[] _bluffShootoutButtons = new Button[2];
+        private readonly Image[] _bluffShootoutButtonImages = new Image[2];
 
         // Каждый переключатель — ровно два варианта, поэтому пара кнопок и пара картинок на опцию.
         private readonly Button[] _transferButtons = new Button[2];
@@ -618,9 +620,19 @@ namespace CardGameClient
                 _bluffPlayerButtonImages.Add(image);
             }
 
-            BuildBinaryToggle(_bluffLobbyScreen.transform, 484f, "Каре", "Без", "Сбрасывать",
+            BuildBinaryToggle(_bluffLobbyScreen.transform, 476f, "Каре", "Без", "Сбрасывать",
                 _bluffFourButtons, _bluffFourButtonImages,
                 () => SelectBluffFour(false), () => SelectBluffFour(true));
+
+            BuildBinaryToggle(_bluffLobbyScreen.transform, 536f, "Перестрелка", "Без", "С перестрелкой",
+                _bluffShootoutButtons, _bluffShootoutButtonImages,
+                () => SelectBluffShootout(false), () => SelectBluffShootout(true));
+
+            var shootoutHint = CreateText(_bluffLobbyScreen.transform,
+                "изредка круг идёт на нервах: кидают до последнего, а кто первым проверит — тот петух",
+                21, TextAnchor.UpperCenter);
+            shootoutHint.color = new Color(1f, 0.78f, 0.6f, 0.8f);
+            PlaceFromTop((RectTransform)shootoutHint.transform, 0f, 592f, new Vector2(920f, 28f));
 
             // Правила, которые не настраиваются: они держат всю игру и переключателями не бывают.
             var rules = CreateText(_bluffLobbyScreen.transform,
@@ -629,11 +641,11 @@ namespace CardGameClient
                 + "Проигрывает тот, у кого их больше всех.",
                 22, TextAnchor.UpperCenter);
             rules.color = new Color(0.85f, 0.92f, 0.85f, 0.75f);
-            PlaceFromTop((RectTransform)rules.transform, 0f, 556f, new Vector2(900f, 90f));
+            PlaceFromTop((RectTransform)rules.transform, 0f, 634f, new Vector2(900f, 90f));
 
             _bluffSeatsSummary = CreateText(_bluffLobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
             _bluffSeatsSummary.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
-            PlaceFromTop((RectTransform)_bluffSeatsSummary.transform, 0f, 672f, new Vector2(760f, 32f));
+            PlaceFromTop((RectTransform)_bluffSeatsSummary.transform, 0f, 734f, new Vector2(760f, 32f));
 
             CreateButton(_bluffLobbyScreen.transform, "Играть", new Vector2(0.5f, 0f), new Vector2(0f, 110f),
                 new Color(0.42f, 0.26f, 0.45f), StartBluffMatch);
@@ -683,6 +695,12 @@ namespace CardGameClient
             RefreshBluffLobbySelection();
         }
 
+        private void SelectBluffShootout(bool allow)
+        {
+            _bluffSettings.Shootout = allow;
+            RefreshBluffLobbySelection();
+        }
+
         private void RefreshBluffLobbySelection()
         {
             var deckOptions = BluffMatchSettings.DeckOptions;
@@ -704,6 +722,9 @@ namespace CardGameClient
 
             SetChoiceState(_bluffFourButtons[0], _bluffFourButtonImages[0], true, !_bluffSettings.AllowFourOfAKind);
             SetChoiceState(_bluffFourButtons[1], _bluffFourButtonImages[1], true, _bluffSettings.AllowFourOfAKind);
+
+            SetChoiceState(_bluffShootoutButtons[0], _bluffShootoutButtonImages[0], true, !_bluffSettings.Shootout);
+            SetChoiceState(_bluffShootoutButtons[1], _bluffShootoutButtonImages[1], true, _bluffSettings.Shootout);
 
             var botCount = _bluffSettings.PlayerCount - 1;
             _bluffSeatsSummary.text = "За столом: ты + " + botCount

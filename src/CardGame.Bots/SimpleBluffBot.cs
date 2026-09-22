@@ -60,6 +60,38 @@ namespace CardGame.Bots
         /// <summary>То же самое, когда настоящих карт несколько: одну оставляем в запасе.</summary>
         private const double KeepOneHonestChance = 0.5;
 
+        /// <summary>Котёл, при котором проверка уже кажется большим делом.</summary>
+        private const double HugePot = 30.0;
+
+        /// <summary>Базовое желание объявить перестрелку, когда её предлагают.</summary>
+        private const double ShootoutOpenBase = 0.25;
+
+        /// <summary>Добавка к этому желанию для того, кто тонет в картах: ему терять нечего.</summary>
+        private const double ShootoutOpenPerSpareCard = 0.5;
+
+        /// <summary>
+        /// Во сколько раз реже бот проверяет в перестрелке. Механически проверка выгодна
+        /// как обычно — вся цена в петухе, и одного этого хватает, чтобы стол молчал.
+        /// </summary>
+        private const double ShootoutShame = 0.10;
+
+        /// <summary>Но жадность пересиливает стыд: слагаемое за толстый котёл и близкого к выходу вруна.</summary>
+        private const double ShootoutNerve = 0.5;
+
+        /// <summary>
+        /// Какая часть этой жадности держится на одном размере котла, без оглядки на то,
+        /// кто врёт. Нужна, чтобы стол нервничал и без явного лидера: чем выше гора, тем
+        /// заманчивее вручить её кому угодно.
+        /// </summary>
+        private const double GreedFromPot = 0.4;
+
+        /// <summary>
+        /// Насколько упорно бот бережёт настоящую карту круга, пока перестрелка только
+        /// разгоняется. В этом весь приём: два круга валить мусор, а честную карту держать
+        /// про запас — чтобы, когда наконец проверят, оказаться чистым и не взять гору.
+        /// </summary>
+        private const double ShootoutReserveChance = 0.85;
+
         private readonly Random _random;
 
         public SimpleBluffBot() : this(new Random())
@@ -90,7 +122,7 @@ namespace CardGame.Bots
 
             if (game.Phase == BluffPhase.RoundStart)
             {
-                return ChooseDeclaration(game, hand);
+                return ChooseDeclaration(game, playerIndex, hand);
             }
 
             return ShouldChallenge(game, playerIndex) ? BluffMove.Challenge() : ChooseFollow(game, hand);
@@ -105,7 +137,30 @@ namespace CardGame.Bots
 
         // ---------- начало круга ----------
 
-        private BluffMove ChooseDeclaration(BluffGame game, IReadOnlyList<Card> hand)
+        private BluffMove ChooseDeclaration(BluffGame game, int playerIndex, IReadOnlyList<Card> hand)
+        {
+            var move = BuildDeclaration(game, hand);
+
+            if (!game.ShootoutOffered || !WantsShootout(game, playerIndex))
+            {
+                return move;
+            }
+
+            return BluffMove.DeclareShootout(move.Rank, move.Cards);
+        }
+
+        /// <summary>
+        /// Перестрелка — это огромный котёл и лотерея. Тому, кто вот-вот выйдет, она невыгодна:
+        /// терять больше, чем выигрывать. Тому, кто тонет в картах, наоборот — терять нечего,
+        /// зато под общий шум можно сбросить весь мусор разом.
+        /// </summary>
+        private bool WantsShootout(BluffGame game, int playerIndex)
+        {
+            var pressure = LeaderPressure(game, playerIndex);
+            return _random.NextDouble() < ShootoutOpenBase + ShootoutOpenPerSpareCard * (1.0 - pressure);
+        }
+
+        private BluffMove BuildDeclaration(BluffGame game, IReadOnlyList<Card> hand)
         {
             // Ранг выбираем тот, которого больше всего на руках: так за один заход уходит
             // больше карт и врать не приходится вовсе.
@@ -165,12 +220,12 @@ namespace CardGame.Bots
             // не тронет, у неё худший приоритет.
             if (matching.Count == 1)
             {
-                if (hand.Count > 1 && _random.NextDouble() < KeepLastHonestChance)
+                if (hand.Count > 1 && _random.NextDouble() < KeepHonestChance(game, lastOne: true))
                 {
                     return LieUnder(game, hand, rank);
                 }
             }
-            else if (_random.NextDouble() < KeepOneHonestChance)
+            else if (_random.NextDouble() < KeepHonestChance(game, lastOne: false))
             {
                 matching.RemoveAt(matching.Count - 1);
             }
@@ -182,6 +237,23 @@ namespace CardGame.Bots
             }
 
             return BluffMove.Follow(matching);
+        }
+
+        /// <summary>
+        /// В перестрелке настоящая карта круга — это страховка от проверки, и держат её
+        /// тем крепче, чем меньше котёл: проверять в самом начале никто не станет. Когда
+        /// котёл вырос и вскрытие вот-вот случится, страховку пускают в ход.
+        /// </summary>
+        private double KeepHonestChance(BluffGame game, bool lastOne)
+        {
+            var normal = lastOne ? KeepLastHonestChance : KeepOneHonestChance;
+            if (!game.IsShootout)
+            {
+                return normal;
+            }
+
+            var reserve = ShootoutReserveChance * (1.0 - PotWeight(game));
+            return reserve > normal ? reserve : normal;
         }
 
         /// <summary>
@@ -262,10 +334,22 @@ namespace CardGame.Bots
             // Столько карт этого ранга в колоде просто нет — соврал наверняка. Ловим тем
             // охотнее, чем ближе врун к выходу: вскрыть лидера выгодно, а отстающему
             // лишняя пачка карт почти ничего не меняет — на него проверку можно и не тратить.
+            // В перестрелке проверка стоит петуха, и это главный тормоз: даже пойманного
+            // за руку вруна бот чаще всего пропускает молча.
+            var restraint = ShootoutRestraint(game, pressure);
+
+            // Кроме одного случая: соперник только что выложил последние карты. Промолчать
+            // сейчас — значит отпустить его с первым местом, а вдвоём ещё и закончить партию,
+            // потому что отвечать станет некому. Тут уже не до петуха.
+            if (game.Players[packet.PlayerIndex].Hand.Count == 0)
+            {
+                restraint = 1.0;
+            }
+
             if (mine + packet.DeclaredCount > CardsPerRank)
             {
                 var notice = NoticeCertainLieMin + (NoticeCertainLieMax - NoticeCertainLieMin) * pressure;
-                return _random.NextDouble() < notice;
+                return _random.NextDouble() < notice * restraint;
             }
 
             var suspicion = BaseSuspicion;
@@ -285,7 +369,29 @@ namespace CardGame.Bots
             // Чем меньше своих карт, тем обиднее забирать котёл.
             suspicion -= CalmPerMissingCard * Math.Max(0, 6 - hand.Count);
 
-            return _random.NextDouble() < Math.Min(0.95, Math.Max(0.04, suspicion));
+            return _random.NextDouble() < Math.Min(0.95, Math.Max(0.04, suspicion) * restraint);
+        }
+
+        /// <summary>
+        /// Во сколько раз слабее желание проверить, пока идёт перестрелка. Единица — вне
+        /// перестрелки. Внутри неё стыд давит почти до нуля, и пересиливает его только
+        /// жадность: гора карт, которую можно вручить тому, кто уже почти вышел.
+        /// </summary>
+        private static double ShootoutRestraint(BluffGame game, double pressure)
+        {
+            if (!game.IsShootout)
+            {
+                return 1.0;
+            }
+
+            var greed = PotWeight(game) * (GreedFromPot + (1.0 - GreedFromPot) * pressure);
+            return ShootoutShame + ShootoutNerve * greed;
+        }
+
+        private static double PotWeight(BluffGame game)
+        {
+            var weight = game.DeclaredPotCount / HugePot;
+            return weight > 1.0 ? 1.0 : weight;
         }
 
         /// <summary>

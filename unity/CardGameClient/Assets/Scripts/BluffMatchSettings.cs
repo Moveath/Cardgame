@@ -12,11 +12,19 @@ namespace CardGameClient
         /// <summary>Разрешено ли сбрасывать каре вне очереди.</summary>
         public bool AllowFourOfAKind;
 
+        /// <summary>
+        /// Бывают ли за столом перестрелки. Домашнее правило: изредка ведущему круга
+        /// предлагают её объявить, и тогда круг идёт на нервах — все валят мусор, котёл
+        /// растёт, а тот, кто не выдержит и проверит, получает петуха до конца партии.
+        /// </summary>
+        public bool Shootout;
+
         public static BluffMatchSettings Default => new BluffMatchSettings
         {
             PlayerCount = 4,
             DeckSize = DeckKind.ThirtySix,
-            AllowFourOfAKind = true
+            AllowFourOfAKind = true,
+            Shootout = true
         };
 
         /// <summary>
@@ -60,6 +68,6 @@ namespace CardGameClient
             }
         }
 
-        public BluffOptions BuildOptions() => new BluffOptions(3, AllowFourOfAKind, false);
+        public BluffOptions BuildOptions() => new BluffOptions(3, AllowFourOfAKind, false, Shootout);
     }
 }

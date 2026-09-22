@@ -6,6 +6,10 @@ namespace CardGame.Core.Games.Bluff
     public enum BluffLogKind
     {
         Throw,
+
+        /// <summary>Объявлена перестрелка. Видно всем — в этом весь смысл объявления.</summary>
+        Shootout,
+
         Challenge,
         FourOfAKind,
         PlayerOut,
@@ -48,6 +52,9 @@ namespace CardGame.Core.Games.Bluff
         /// <summary>Соврал ли проверенный игрок. Заполнено только у проверки.</summary>
         public bool? WasLie { get; private set; }
 
+        /// <summary>Проверка оборвала перестрелку — проверяющему за это достался петух.</summary>
+        public bool BrokeShootout { get; private set; }
+
         /// <summary>Кто забрал котёл.</summary>
         public int? TakenBy { get; private set; }
 
@@ -68,13 +75,26 @@ namespace CardGame.Core.Games.Bluff
             };
         }
 
+        internal static BluffLogEntry Shootout(BluffPlayer player, Rank rank) =>
+            new BluffLogEntry(BluffLogKind.Shootout, player.Index,
+                player.Name + " объявил перестрелку на " + BluffRules.RankPluralAccusative(rank) + "!")
+            {
+                DeclaredRank = rank
+            };
+
         internal static BluffLogEntry Challenge(
-            BluffPlayer challenger, BluffPlayer target, BluffPacket packet, int takenBy, int takenCards)
+            BluffPlayer challenger, BluffPlayer target, BluffPacket packet, int takenBy, int takenCards,
+            bool brokeShootout)
         {
             var lie = packet.IsLie;
             var text = challenger.Name + ": не верю! " + target.Name
                        + (lie ? " соврал — забирает котёл (" : " сказал правду — котёл забирает проверяющий (")
                        + takenCards + " " + BluffRules.CardsWord(takenCards) + ")";
+
+            if (brokeShootout)
+            {
+                text += ". Перестрелку сорвал " + challenger.Name + " — петух!";
+            }
 
             return new BluffLogEntry(BluffLogKind.Challenge, challenger.Index, text)
             {
@@ -84,6 +104,7 @@ namespace CardGame.Core.Games.Bluff
                 WasLie = lie,
                 TakenBy = takenBy,
                 TakenCards = takenCards,
+                BrokeShootout = brokeShootout,
                 RevealedCards = packet.Cards
             };
         }

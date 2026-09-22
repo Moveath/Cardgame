@@ -60,6 +60,15 @@ namespace CardGame.Core.Games.Bluff
             }
         }
 
+        /// <summary>
+        /// Сколько раз игрок сорвал перестрелку проверкой. Правилами это не запрещено и
+        /// ничего не стоит по очкам — но за столом за это дают петуха, и клеймо остаётся
+        /// до конца партии. Вся цена перестрелки в этом: механики никакой, стыд настоящий.
+        /// </summary>
+        public int RoosterMarks { get; private set; }
+
+        public bool IsRooster => RoosterMarks > 0;
+
         public int CountOf(Rank rank)
         {
             var count = 0;
@@ -79,5 +88,7 @@ namespace CardGame.Core.Games.Bluff
         internal bool Remove(Card card) => _hand.Remove(card);
 
         internal void Deal(Card card) => _hand.Add(card);
+
+        internal void MarkRooster() => RoosterMarks++;
     }
 }
