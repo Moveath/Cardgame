@@ -35,6 +35,21 @@ namespace CardGameClient
         private static readonly Color ShootoutColor = new Color(1f, 0.44f, 0.22f);
 
         private static readonly Color RoosterColor = new Color(0.84f, 0.20f, 0.17f);
+
+        /// <summary>Готовый арт клейма. Нет файла — рисуем гребешок процедурно.</summary>
+        private const string RoosterArtPath = "Badges/rooster";
+
+        /// <summary>
+        /// Высота клейма и то, насколько глубоко оно садится на портрет. Разница между
+        /// ними — всё, на что клеймо поднимается над макушкой: выше идёт строка с
+        /// последним действием, и залезать в неё нельзя.
+        /// </summary>
+        private const float RoosterHeight = 38f;
+
+        private const float RoosterSink = 26f;
+
+        private static Sprite _roosterArt;
+        private static bool _roosterArtChecked;
         private static readonly Color TruthColor = new Color(0.25f, 0.55f, 0.32f);
 
         // Вертикаль строится сверху вниз фиксированными отступами: на широком окне Unity
@@ -724,18 +739,44 @@ namespace CardGameClient
             var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             go.transform.SetParent(container, false);
 
+            var sprite = RoosterSprite();
+
+            // Размер задаём высотой, ширину берём из пропорций картинки: нарисованный
+            // гребешок широкий, а готовый арт может оказаться каким угодно, и подгонять
+            // его под чужой прямоугольник — верный способ получить растянутую кашу.
+            var aspect = sprite.rect.height <= 0f ? 2.6f : sprite.rect.width / sprite.rect.height;
+            var height = RoosterHeight * scale;
+            var width = Mathf.Min(height * aspect, SeatFigure.Width * 1.15f * scale);
+
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 1f);
-            rect.anchoredPosition = new Vector2(0f, 10f * scale);
-            rect.sizeDelta = new Vector2(86f * scale, 33f * scale);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = new Vector2(0f, -RoosterSink * scale);
+            rect.sizeDelta = new Vector2(width, height);
 
             var image = go.GetComponent<Image>();
-            image.sprite = UiTextures.RoosterComb(RoosterColor);
+            image.sprite = sprite;
+            image.preserveAspect = true;
 
             var shadow = go.GetComponent<Shadow>();
             shadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
             shadow.effectDistance = new Vector2(2f, -3f);
+        }
+
+        /// <summary>
+        /// Клеймо берём картинкой из Resources, если она там лежит, и рисуем процедурно,
+        /// если нет. Так нарисованный кодом гребешок заменяется готовым артом без единой
+        /// правки: достаточно положить файл на место.
+        /// </summary>
+        private static Sprite RoosterSprite()
+        {
+            if (!_roosterArtChecked)
+            {
+                _roosterArtChecked = true;
+                _roosterArt = Resources.Load<Sprite>(RoosterArtPath);
+            }
+
+            return _roosterArt != null ? _roosterArt : UiTextures.RoosterComb(RoosterColor);
         }
 
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)

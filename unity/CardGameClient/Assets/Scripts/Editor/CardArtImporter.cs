@@ -14,7 +14,8 @@ namespace CardGameClient.EditorTools
             var normalizedPath = assetPath.Replace('\\', '/');
             if (!normalizedPath.Contains("/Resources/Cards/")
                 && !normalizedPath.Contains("/Resources/Avatars/")
-                && !normalizedPath.Contains("/Resources/PlayerAvatars/"))
+                && !normalizedPath.Contains("/Resources/PlayerAvatars/")
+                && !normalizedPath.Contains("/Resources/Badges/"))
             {
                 return;
             }
