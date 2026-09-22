@@ -30,6 +30,9 @@ namespace CardGameClient
         private static readonly Color BlackInk = new Color(0.13f, 0.13f, 0.16f);
         private static readonly Color TrumpGlow = new Color(1f, 0.82f, 0.25f);
 
+        /// <summary>Холодный яркий цвет: золотую обводку кликабельной карты им не спутать.</summary>
+        private static readonly Color SelectedGlow = new Color(0.35f, 0.95f, 1f);
+
         private static readonly Dictionary<string, Sprite> ArtCache = new Dictionary<string, Sprite>();
 
         private Image _background;
@@ -190,6 +193,19 @@ namespace CardGameClient
             _group.alpha = 1f;
             _outline.enabled = true;
             _button.onClick.AddListener(() => onClick());
+        }
+
+        /// <summary>
+        /// Выбранная в руке карта. Обводка есть у всех кликабельных карт, поэтому выбранную
+        /// мало обвести — она светится ярче и толще, а невыбранные заодно приглушаются.
+        /// В руке на полтора десятка карт иначе не разобрать, что ты набрал.
+        /// </summary>
+        public void SetSelected(bool selected)
+        {
+            _outline.enabled = true;
+            _outline.effectColor = selected ? SelectedGlow : TrumpGlow;
+            _outline.effectDistance = selected ? new Vector2(6f, 6f) : new Vector2(2f, 2f);
+            _group.alpha = selected ? 1f : 0.78f;
         }
 
         public void SetPlain()

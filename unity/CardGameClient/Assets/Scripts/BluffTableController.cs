@@ -43,7 +43,12 @@ namespace CardGameClient
 
         private const float SeatToPotGap = 40f;
         private const float FeltEdgeMargin = 56f;
-        private const float SeatFanMaxWidth = 150f;
+        // Руки в блефе большие, поэтому вееру нужно заметно больше места, чем в дураке:
+        // иначе рубашки слипаются в одно пятно.
+        private const float SeatFanMaxWidth = 230f;
+
+        /// <summary>Больше этого числа рубашек в веере не рисуем — дальше он только слипается.</summary>
+        private const int MaxSeatFanCards = 12;
         private const float SeatFanGap = 12f;
         private const float SeatArcBiasSmall = 1.3f;
         private const float SeatArcBiasBig = 1.55f;
@@ -69,6 +74,8 @@ namespace CardGameClient
         private const float BotThinkDelay = 1.1f;
         private const float ThrowPause = 0.45f;
         private const float RevealHold = 1.6f;
+        private const float FourHold = 1.1f;
+        private const float FourFade = 0.35f;
         private const float FlightDuration = 0.5f;
 
         private BluffMatchSettings _settings = BluffMatchSettings.Default;
@@ -92,7 +99,6 @@ namespace CardGameClient
 
         private Button _throwButton;
         private Button _challengeButton;
-        private Button _fourButton;
         private Button _restartButton;
 
         private readonly List<Card> _selected = new List<Card>();
@@ -149,6 +155,13 @@ namespace CardGameClient
         {
             while (!_game.IsFinished)
             {
+                // Каре разбираем до хода: оно очереди не занимает, но руку меняет.
+                yield return CollectFours();
+                if (_game.IsFinished)
+                {
+                    break;
+                }
+
                 var actor = _game.CurrentPlayerIndex;
 
                 if (actor == HumanIndex)
@@ -184,15 +197,6 @@ namespace CardGameClient
 
                 Refresh();
                 yield return new WaitForSeconds(BotThinkDelay);
-
-                // Каре бот выкладывает отдельно: оно не занимает ход, поэтому после него
-                // он тут же ходит по-настоящему.
-                var four = _bot.ChooseFourOfAKind(_game, actor);
-                if (four != null)
-                {
-                    yield return ApplyMove(actor, four);
-                    continue;
-                }
 
                 var botMove = _bot.ChooseMove(_game, actor);
                 if (botMove == null)
@@ -232,20 +236,99 @@ namespace CardGameClient
             }
         }
 
-        /// <summary>Каре ход не передаёт, поэтому применяется мимо очереди и мимо цикла.</summary>
-        private void PlayFourOfAKind()
+        /// <summary>
+        /// Каре ход не передаёт и решения не требует — собралось, значит уходит. Кнопку
+        /// поэтому убрали: она только спрашивала очевидное. Но не молча: четыре карты
+        /// сначала ложатся на стол лицом вверх, как это и делают за настоящим столом.
+        /// </summary>
+        private IEnumerator CollectFours()
         {
-            var fours = _game.AvailableFours(HumanIndex);
-            if (fours.Count == 0)
+            if (!_game.Options.AllowFourOfAKind)
             {
-                return;
+                yield break;
             }
 
-            if (_game.TryApplyMove(HumanIndex, BluffMove.DiscardFour(fours[0]), out _))
+            for (var guard = 0; guard < 16 && !_game.IsFinished; guard++)
             {
+                var owner = -1;
+                var rank = Rank.Two;
+
+                for (var i = 0; i < _game.Players.Count; i++)
+                {
+                    var fours = _game.AvailableFours(i);
+                    if (fours.Count > 0)
+                    {
+                        owner = i;
+                        rank = fours[0];
+                        break;
+                    }
+                }
+
+                if (owner < 0)
+                {
+                    yield break;
+                }
+
+                yield return ShowFourLeaving(owner, rank);
+
+                _game.TryApplyMove(owner, BluffMove.DiscardFour(rank), out _);
                 ResetChoice();
                 Refresh();
             }
+        }
+
+        private IEnumerator ShowFourLeaving(int owner, Rank rank)
+        {
+            Clear(_revealArea);
+
+            var caption = CreateText(_revealArea,
+                _game.Players[owner].Name + ": каре " + RankPluralGenitive(rank) + " — из игры",
+                30, TextAnchor.MiddleCenter);
+            caption.color = AccentGlow;
+            Place((RectTransform)caption.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 150f), new Vector2(800f, 44f));
+
+            const float scale = 1.05f;
+            var step = CardView.Width * scale + 16f;
+            var start = -3f * step / 2f;
+
+            var views = new List<CardView>();
+            var shown = 0;
+            foreach (var card in _game.Players[owner].Hand)
+            {
+                if (card.Rank != rank || shown >= 4)
+                {
+                    continue;
+                }
+
+                var view = CardView.Create(_revealArea, _font, scale);
+                view.ShowFace(card);
+                view.SetPlain();
+                view.SetRestTransform(new Vector2(start + shown * step, 0f), 0f);
+                view.PlayAppearAnimation();
+                views.Add(view);
+                shown++;
+            }
+
+            yield return new WaitForSeconds(FourHold);
+
+            // Не исчезают разом: поднимаются и растворяются, чтобы было видно, что ушло.
+            var elapsed = 0f;
+            while (elapsed < FourFade)
+            {
+                elapsed += Time.deltaTime;
+                var k = Mathf.Clamp01(elapsed / FourFade);
+
+                for (var i = 0; i < views.Count; i++)
+                {
+                    var rect = views[i].Rect;
+                    rect.anchoredPosition = new Vector2(start + i * step, k * 90f);
+                    rect.localScale = Vector3.one * (1f - k * 0.25f);
+                }
+
+                yield return null;
+            }
+
+            Clear(_revealArea);
         }
 
         private void ResetChoice()
@@ -498,10 +581,20 @@ namespace CardGameClient
         /// </summary>
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
         {
+            // Рисуем не больше дюжины рубашек: дальше веер всё равно читается как «много»,
+            // а карты начинают сливаться в сплошное пятно.
+            var visible = Mathf.Min(handCount, MaxSeatFanCards);
+
             var backScale = 0.55f * scale;
             var backWidth = CardView.Width * backScale;
-            var angleStep = Mathf.Min(6f, 24f / Mathf.Max(handCount - 1, 1));
-            var spacing = Mathf.Min(backWidth * 0.55f, Mathf.Max(fanWidth - backWidth, 0f) / Mathf.Max(handCount - 1, 1));
+            var angleStep = Mathf.Min(5f, 20f / Mathf.Max(visible - 1, 1));
+
+            // Нижняя граница промежутка важнее верхней: пусть веер вылезет чуть шире,
+            // чем превратится в стопку без единой видимой карты.
+            var spacing = Mathf.Clamp(
+                Mathf.Max(fanWidth - backWidth, 0f) / Mathf.Max(visible - 1, 1),
+                backWidth * 0.24f,
+                backWidth * 0.55f);
 
             var row = new GameObject("Cards", typeof(RectTransform));
             row.transform.SetParent(container, false);
@@ -513,10 +606,10 @@ namespace CardGameClient
             rowRect.anchoredPosition = new Vector2(
                 fanSide * (SeatFigure.Width * 0.5f + SeatFanGap) * scale,
                 -SeatFigure.Height * 0.58f * scale);
-            rowRect.sizeDelta = new Vector2(spacing * (handCount - 1) + backWidth, CardView.Height * backScale + 16f * scale);
+            rowRect.sizeDelta = new Vector2(spacing * (visible - 1) + backWidth, CardView.Height * backScale + 16f * scale);
 
-            var mid = (handCount - 1) / 2f;
-            for (var h = 0; h < handCount; h++)
+            var mid = (visible - 1) / 2f;
+            for (var h = 0; h < visible; h++)
             {
                 var back = CardView.Create(row.transform, _font, backScale);
                 back.ShowBack();
@@ -546,7 +639,7 @@ namespace CardGameClient
             }
 
             _rankBadge.text = _game.CurrentRank.HasValue
-                ? "круг идёт под " + BluffRules.RankPlural(_game.CurrentRank.Value)
+                ? "сейчас ходят " + RankPluralNominative(_game.CurrentRank.Value)
                 : "ранг ещё не назван";
         }
 
@@ -602,6 +695,7 @@ namespace CardGameClient
 
                 var captured = card;
                 view.SetClickable(() => ToggleCard(captured));
+                view.SetSelected(isSelected);
             }
         }
 
@@ -684,18 +778,12 @@ namespace CardGameClient
 
             _challengeButton.gameObject.SetActive(_waitingForHuman && _game.Phase == BluffPhase.Chain);
 
-            var fours = _game.IsFinished ? new Rank[0] : _game.AvailableFours(HumanIndex);
-            _fourButton.gameObject.SetActive(fours.Count > 0);
-            if (fours.Count > 0)
-            {
-                _fourButton.GetComponentInChildren<Text>().text = "Каре " + BluffRules.RankPlural(fours[0]);
-            }
-
         }
 
         /// <summary>
-        /// Кнопка проговаривает заявку целиком: «Кидаю 2 валета». Число берётся из
-        /// выбранных карт — соврать им нельзя, врут в этой игре только рангом.
+        /// Кнопка проговаривает заявку так, как её сказали бы вслух: «Кидаю одну семёрку»,
+        /// «Кидаю двух королей». Ради этого числительное склоняется вместе с картой —
+        /// «1 семёрка» звучит как строка из таблицы, а не как игрок за столом.
         /// </summary>
         private string ThrowLabel()
         {
@@ -705,31 +793,69 @@ namespace CardGameClient
                 return "Кинуть";
             }
 
-            return "Кидаю " + _selected.Count + " " + RankCounted(rank.Value, _selected.Count);
+            return "Кидаю " + ThrowPhrase(rank.Value, _selected.Count);
         }
 
-        /// <summary>«1 валет», «2 валета», «3 дамы» — форма зависит от числа.</summary>
-        private static string RankCounted(Rank rank, int count)
+        /// <summary>Мужские карты — валет, король, туз, — остальные женские. От этого и форма.</summary>
+        private static bool IsMasculine(Rank rank) =>
+            rank == Rank.Jack || rank == Rank.King || rank == Rank.Ace;
+
+        /// <summary>«одну семёрку», «двух королей», «три девятки» — винительный падеж.</summary>
+        private static string ThrowPhrase(Rank rank, int count)
         {
-            var single = count % 10 == 1 && count % 100 != 11;
-
-            switch (rank)
+            if (IsMasculine(rank))
             {
-                case Rank.Jack: return single ? "валет" : "валета";
-                case Rank.Queen: return single ? "дама" : "дамы";
-                case Rank.King: return single ? "король" : "короля";
-                case Rank.Ace: return single ? "туз" : "туза";
-                case Rank.Two: return single ? "двойка" : "двойки";
-                case Rank.Three: return single ? "тройка" : "тройки";
-                case Rank.Four: return single ? "четвёрка" : "четвёрки";
-                case Rank.Five: return single ? "пятёрка" : "пятёрки";
-                case Rank.Six: return single ? "шестёрка" : "шестёрки";
-                case Rank.Seven: return single ? "семёрка" : "семёрки";
-                case Rank.Eight: return single ? "восьмёрка" : "восьмёрки";
-                case Rank.Nine: return single ? "девятка" : "девятки";
-                default: return single ? "десятка" : "десятки";
+                // Одушевлённые: винительный совпадает с родительным.
+                var numeral = count == 1 ? "одного" : count == 2 ? "двух" : "трёх";
+                var noun = count == 1 ? MasculineSingular(rank) : RankPluralGenitive(rank);
+                return numeral + " " + noun;
             }
+
+            var femaleNumeral = count == 1 ? "одну" : count == 2 ? "две" : "три";
+            var femaleNoun = count == 1 ? FeminineAccusative(rank) : RankPluralNominative(rank);
+            return femaleNumeral + " " + femaleNoun;
         }
+
+        private static string MasculineSingular(Rank rank) => rank switch
+        {
+            Rank.Jack => "валета",
+            Rank.King => "короля",
+            _ => "туза"
+        };
+
+        private static string FeminineAccusative(Rank rank) => rank switch
+        {
+            Rank.Two => "двойку",
+            Rank.Three => "тройку",
+            Rank.Four => "четвёрку",
+            Rank.Five => "пятёрку",
+            Rank.Six => "шестёрку",
+            Rank.Seven => "семёрку",
+            Rank.Eight => "восьмёрку",
+            Rank.Nine => "девятку",
+            Rank.Ten => "десятку",
+            _ => "даму"
+        };
+
+        /// <summary>«семёрки», «короли» — для строки «сейчас ходят короли».</summary>
+        private static string RankPluralNominative(Rank rank) => rank switch
+        {
+            Rank.Two => "двойки",
+            Rank.Three => "тройки",
+            Rank.Four => "четвёрки",
+            Rank.Five => "пятёрки",
+            Rank.Six => "шестёрки",
+            Rank.Seven => "семёрки",
+            Rank.Eight => "восьмёрки",
+            Rank.Nine => "девятки",
+            Rank.Ten => "десятки",
+            Rank.Jack => "валеты",
+            Rank.Queen => "дамы",
+            Rank.King => "короли",
+            _ => "тузы"
+        };
+
+        private static string RankPluralGenitive(Rank rank) => BluffRules.RankPlural(rank);
 
         private void ShowResult()
         {
@@ -1005,10 +1131,7 @@ namespace CardGameClient
 
             // Всё управление одной колонкой справа. Внизу слева стоит своё место, и каре
             // там налезало прямо на фигуру.
-            _fourButton = CreateButton(root, "Каре", new Vector2(1f, 0f), new Vector2(-190f, 120f), new Vector2(260f, 68f),
-                new Color(0.42f, 0.26f, 0.45f), PlayFourOfAKind);
-
-            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 215f), new Vector2(260f, 76f),
+            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 170f), new Vector2(260f, 76f),
                 new Color(0.21f, 0.45f, 0.29f), Throw);
 
             // Выше нельзя: крайние места дуги спускаются до 360 от низа экрана.
