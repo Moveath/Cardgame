@@ -90,7 +90,10 @@ namespace CardGame.Core.Games.Bluff
         /// <summary>Сколько карт в котле на самом деле. Скрытая информация: пакеты кладут рубашкой вверх.</summary>
         public int PotCount => _pot.Count;
 
-        /// <summary>Сколько карт в котле по заявлениям. Вот это и есть публичная цифра.</summary>
+        /// <summary>
+        /// Сколько карт в котле по заявлениям. Совпадает с настоящим числом, потому что
+        /// количеством не врут, — но считается по пакетам, а не по содержимому.
+        /// </summary>
         public int DeclaredPotCount
         {
             get
@@ -267,12 +270,6 @@ namespace CardGame.Core.Games.Bluff
                 return false;
             }
 
-            if (move.DeclaredCount < 1 || move.DeclaredCount > _options.MaxCardsPerThrow)
-            {
-                error = "Заявить можно от 1 до " + _options.MaxCardsPerThrow + " карт.";
-                return false;
-            }
-
             var rank = declaring ? move.Rank : CurrentRank!.Value;
             if (declaring && !BluffRules.CanBeDeclared(rank))
             {
@@ -292,7 +289,7 @@ namespace CardGame.Core.Games.Bluff
             }
 
             _pot.AddRange(move.Cards);
-            _packets.Add(new BluffPacket(playerIndex, rank, move.DeclaredCount, move.Cards));
+            _packets.Add(new BluffPacket(playerIndex, rank, move.Cards));
             _log.Add(BluffLogEntry.Throw(player, rank, move.DeclaredCount));
 
             CurrentRank = rank;

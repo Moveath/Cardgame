@@ -191,22 +191,28 @@ public class BluffGameTests
         Assert.Equal(BluffPhase.RoundStart, game.Phase);
     }
 
+    /// <summary>
+    /// Количеством в этой игре не врут: пакет кладут на виду, и сколько карт легло —
+    /// столько и объявлено. Врать можно только рангом.
+    /// </summary>
     [Fact]
-    public void Challenge_CatchesAWrongCount_EvenWhenEveryCardMatches()
+    public void DeclaredCount_AlwaysMatchesWhatWasThrown()
     {
         var game = BluffGame.Create(Three, BuildDeck(
             new[] { C(Rank.Jack, Suit.Spades), C(Rank.Jack, Suit.Hearts), C(Rank.Jack, Suit.Diamonds) },
             new[] { C(Rank.King, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.King, Suit.Diamonds) },
             new[] { C(Rank.Nine, Suit.Spades), C(Rank.Nine, Suit.Hearts), C(Rank.Nine, Suit.Diamonds) }));
 
-        // Говорит «три валета», кладёт двух: по рангу всё честно, по количеству — нет.
-        Apply(game, 0, BluffMove.Declare(Rank.Jack, 3,
-            new[] { C(Rank.Jack, Suit.Spades), C(Rank.Jack, Suit.Hearts) }));
+        Apply(game, 0, BluffMove.Declare(Rank.Jack,
+            C(Rank.Jack, Suit.Spades), C(Rank.Jack, Suit.Hearts)));
 
+        Assert.Equal(2, game.LastPacket!.DeclaredCount);
+        Assert.Equal(2, game.DeclaredPotCount);
+        Assert.False(game.LastPacket.IsLie);
+
+        // И проверка такой бросок не наказывает: он честный.
         Apply(game, 1, BluffMove.Challenge());
-
-        Assert.Equal(3, game.Players[0].Hand.Count);
-        Assert.Equal(3, game.Players[1].Hand.Count);
+        Assert.Equal(5, game.Players[1].Hand.Count);
     }
 
     [Fact]
@@ -505,8 +511,6 @@ public class BluffGameTests
             pool.RemoveAt(pick);
         }
 
-        var declared = random.Next(1, 4);
-
         if (game.Phase == BluffPhase.RoundStart)
         {
             // Заявлять тузами нельзя, поэтому берём ранг первой не-тузовой карты, а если
@@ -521,12 +525,12 @@ public class BluffGameTests
                 }
             }
 
-            Assert.True(game.TryApplyMove(actor, BluffMove.Declare(rank, declared, cards), out var declareError),
+            Assert.True(game.TryApplyMove(actor, BluffMove.Declare(rank, cards), out var declareError),
                 declareError);
             return;
         }
 
-        Assert.True(game.TryApplyMove(actor, BluffMove.Follow(declared, cards), out var followError), followError);
+        Assert.True(game.TryApplyMove(actor, BluffMove.Follow(cards), out var followError), followError);
     }
 
     /// <summary>

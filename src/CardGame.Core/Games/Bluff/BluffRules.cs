@@ -18,16 +18,12 @@ namespace CardGame.Core.Games.Bluff
         public static bool CanBeDeclared(Rank rank) => rank != Rank.Ace && rank != Rank.Joker;
 
         /// <summary>
-        /// Проверка строгая и по двум признакам сразу: сходится ли количество и все ли карты
-        /// того самого ранга. Соврал хотя бы в одном — соврал целиком.
+        /// Ложь — это несовпадение по рангу, и только по нему. Количеством не врут:
+        /// пакет кладут на виду, сколько карт легло — столько и объявлено. Достаточно
+        /// одной чужой карты в пачке, чтобы весь бросок считался обманом.
         /// </summary>
-        public static bool IsLie(Rank declaredRank, int declaredCount, IReadOnlyList<Card> cards)
+        public static bool IsLie(Rank declaredRank, IReadOnlyList<Card> cards)
         {
-            if (cards.Count != declaredCount)
-            {
-                return true;
-            }
-
             foreach (var card in cards)
             {
                 if (card.Rank != declaredRank)

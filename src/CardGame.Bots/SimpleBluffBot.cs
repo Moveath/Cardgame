@@ -19,11 +19,18 @@ namespace CardGame.Bots
         private const int CardsPerRank = 4;
 
         /// <summary>
-        /// Даже доказанную ложь бот замечает не всегда. Идеальный арифметик за столом
-        /// убивает игру: соврать нельзя вообще, а туз с руки не уходит никогда. Живой
-        /// игрок тоже не пересчитывает чужие заявки каждый ход.
+        /// Доказанную ложь бот ловит не всегда, и дело не только в невнимательности.
+        /// Проверка — это подарок котла тому, кого вскрыли, а дарить его игроку, который
+        /// и так тонет в картах, незачем. Живые игроки ровно так и делают: пропускают
+        /// очевидный обман, если сейчас выгоднее прижать кого-то другого.
+        /// Нижняя граница — когда врёт отстающий, верхняя — когда врёт лидер.
         /// </summary>
-        private const double NoticeCertainLieChance = 0.8;
+        private const double NoticeCertainLieMin = 0.55;
+
+        private const double NoticeCertainLieMax = 0.95;
+
+        /// <summary>Насколько сильнее хочется вскрыть того, кто вот-вот выйдет из игры.</summary>
+        private const double SuspicionPerPressure = 0.5;
 
         /// <summary>Базовая подозрительность, когда арифметика ничего не доказывает.</summary>
         private const double BaseSuspicion = 0.08;
@@ -42,6 +49,16 @@ namespace CardGame.Bots
 
         /// <summary>Шанс избавиться от туза враньём, когда честный ход тоже возможен.</summary>
         private const double DumpAceChance = 0.45;
+
+        /// <summary>
+        /// Шанс приберечь последнюю настоящую карту круга и соврать вместо неё. Смысл в
+        /// том, что круг вернётся: тогда будет чем ответить честно, не рискуя котлом.
+        /// Кто вывалил все свои шестёрки сразу, на втором заходе врёт вслепую.
+        /// </summary>
+        private const double KeepLastHonestChance = 0.4;
+
+        /// <summary>То же самое, когда настоящих карт несколько: одну оставляем в запасе.</summary>
+        private const double KeepOneHonestChance = 0.5;
 
         private readonly Random _random;
 
@@ -126,7 +143,7 @@ namespace CardGame.Bots
                 honest.Add(ace.Value);
             }
 
-            return BluffMove.Declare(best, honest.Count, honest);
+            return BluffMove.Declare(best, honest);
         }
 
         // ---------- поддержать цепочку ----------
@@ -136,18 +153,35 @@ namespace CardGame.Bots
             var rank = game.CurrentRank!.Value;
             var matching = Take(hand, rank, game.Options.MaxCardsPerThrow);
 
-            if (matching.Count > 0)
+            if (matching.Count == 0)
             {
-                var ace = FindAce(hand);
-                if (ace.HasValue && matching.Count < game.Options.MaxCardsPerThrow && _random.NextDouble() < DumpAceChance)
-                {
-                    matching.Add(ace.Value);
-                }
-
-                return BluffMove.Follow(matching.Count, matching);
+                // Своих карт этого ранга нет. Это не повод вскрывать соседа — можно просто
+                // подложить мусор и надеяться, что дальше по кругу не проверят.
+                return LieUnder(game, hand, rank);
             }
 
-            return LieUnder(game, hand, rank);
+            // Настоящая карта круга — это право ответить честно, когда очередь вернётся.
+            // Поэтому иногда бот врёт сейчас, а её придерживает: LieUnder честную карту
+            // не тронет, у неё худший приоритет.
+            if (matching.Count == 1)
+            {
+                if (hand.Count > 1 && _random.NextDouble() < KeepLastHonestChance)
+                {
+                    return LieUnder(game, hand, rank);
+                }
+            }
+            else if (_random.NextDouble() < KeepOneHonestChance)
+            {
+                matching.RemoveAt(matching.Count - 1);
+            }
+
+            var ace = FindAce(hand);
+            if (ace.HasValue && matching.Count < game.Options.MaxCardsPerThrow && _random.NextDouble() < DumpAceChance)
+            {
+                matching.Add(ace.Value);
+            }
+
+            return BluffMove.Follow(matching);
         }
 
         /// <summary>
@@ -170,8 +204,8 @@ namespace CardGame.Bots
             var cards = junk.GetRange(0, take);
 
             return game.Phase == BluffPhase.RoundStart
-                ? BluffMove.Declare(declaredRank, cards.Count, cards)
-                : BluffMove.Follow(cards.Count, cards);
+                ? BluffMove.Declare(declaredRank, cards)
+                : BluffMove.Follow(cards);
         }
 
         private static int JunkScore(IReadOnlyList<Card> hand, Card card, Rank declaredRank)
@@ -223,11 +257,15 @@ namespace CardGame.Bots
             var hand = game.Players[playerIndex].Hand;
             var mine = CountOf(hand, packet.DeclaredRank);
 
-            // Столько карт этого ранга в колоде просто нет — соврал наверняка. Но замечаем
-            // не каждый раз, иначе блефовать против ботов было бы невозможно в принципе.
+            var pressure = LeaderPressure(game, packet.PlayerIndex);
+
+            // Столько карт этого ранга в колоде просто нет — соврал наверняка. Ловим тем
+            // охотнее, чем ближе врун к выходу: вскрыть лидера выгодно, а отстающему
+            // лишняя пачка карт почти ничего не меняет — на него проверку можно и не тратить.
             if (mine + packet.DeclaredCount > CardsPerRank)
             {
-                return _random.NextDouble() < NoticeCertainLieChance;
+                var notice = NoticeCertainLieMin + (NoticeCertainLieMax - NoticeCertainLieMin) * pressure;
+                return _random.NextDouble() < notice;
             }
 
             var suspicion = BaseSuspicion;
@@ -237,11 +275,8 @@ namespace CardGame.Bots
             suspicion += SuspicionPerKnownCard * mine;
             suspicion += SuspicionPerExtraCard * (packet.DeclaredCount - 1);
 
-            // Когда у соперника вот-вот кончатся карты, проверка — последний шанс его вернуть.
-            if (game.Players[packet.PlayerIndex].Hand.Count == 0)
-            {
-                suspicion += 0.5;
-            }
+            // Та же мысль, но плавно: чем меньше карт у бросавшего, тем нужнее его вскрыть.
+            suspicion += SuspicionPerPressure * pressure;
 
             // Чем больше котёл, тем дороже ошибиться — и тем спокойнее бот смотрит на чужие
             // заявки. Из этого сама собой получается нарастающая по кругу тишина.
@@ -251,6 +286,39 @@ namespace CardGame.Bots
             suspicion -= CalmPerMissingCard * Math.Max(0, 6 - hand.Count);
 
             return _random.NextDouble() < Math.Min(0.95, Math.Max(0.04, suspicion));
+        }
+
+        /// <summary>
+        /// Насколько игрок опережает стол: 1 — у него карт почти не осталось, 0 — их у него
+        /// больше среднего. По этой величине бот и решает, кого стоит прижать, а кого можно
+        /// спокойно пропустить, даже поймав на очевидном вранье.
+        /// </summary>
+        private static double LeaderPressure(BluffGame game, int playerIndex)
+        {
+            var total = 0;
+            var holders = 0;
+
+            foreach (var player in game.Players)
+            {
+                if (player.IsOut)
+                {
+                    continue;
+                }
+
+                total += player.Hand.Count;
+                holders++;
+            }
+
+            if (holders == 0 || total == 0)
+            {
+                return 1.0;
+            }
+
+            var average = total / (double)holders;
+            var mine = game.Players[playerIndex].Hand.Count;
+            var pressure = (average - mine) / average;
+
+            return pressure < 0.0 ? 0.0 : (pressure > 1.0 ? 1.0 : pressure);
         }
 
         // ---------- мелочи ----------

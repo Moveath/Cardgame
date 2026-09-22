@@ -9,11 +9,10 @@ namespace CardGame.Core.Games.Bluff
     /// </summary>
     public sealed class BluffPacket
     {
-        public BluffPacket(int playerIndex, Rank declaredRank, int declaredCount, IReadOnlyList<Card> cards)
+        public BluffPacket(int playerIndex, Rank declaredRank, IReadOnlyList<Card> cards)
         {
             PlayerIndex = playerIndex;
             DeclaredRank = declaredRank;
-            DeclaredCount = declaredCount;
             Cards = cards;
         }
 
@@ -22,12 +21,12 @@ namespace CardGame.Core.Games.Bluff
         /// <summary>Публичная информация: ранг круга.</summary>
         public Rank DeclaredRank { get; }
 
-        /// <summary>Публичная информация: сколько карт игрок назвал.</summary>
-        public int DeclaredCount { get; }
+        /// <summary>Публичная информация: сколько карт легло. Врать этим числом нельзя.</summary>
+        public int DeclaredCount => Cards.Count;
 
         /// <summary>Скрытая информация до вскрытия. Клиент не показывает, боты не подсматривают.</summary>
         public IReadOnlyList<Card> Cards { get; }
 
-        public bool IsLie => BluffRules.IsLie(DeclaredRank, DeclaredCount, Cards);
+        public bool IsLie => BluffRules.IsLie(DeclaredRank, Cards);
     }
 }

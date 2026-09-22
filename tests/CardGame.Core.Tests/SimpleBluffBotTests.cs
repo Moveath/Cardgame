@@ -48,8 +48,8 @@ public class SimpleBluffBotTests
             new[] { C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs) },
             new[] { C(Rank.Six, Suit.Hearts), C(Rank.Six, Suit.Diamonds), C(Rank.Six, Suit.Clubs) }));
 
-        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six, 3,
-            new[] { C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs) }), out var error), error);
+        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six,
+            C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Clubs)), out var error), error);
 
         var caught = 0;
         for (var seed = 0; seed < 200; seed++)
@@ -61,7 +61,7 @@ public class SimpleBluffBotTests
             }
         }
 
-        Assert.InRange(caught, 140, 190);
+        Assert.InRange(caught, 150, 200);
     }
 
     /// <summary>
@@ -76,8 +76,8 @@ public class SimpleBluffBotTests
             new[] { C(Rank.Nine, Suit.Hearts), C(Rank.Eight, Suit.Diamonds), C(Rank.Seven, Suit.Clubs) }));
 
         // Кладём туза под видом шестёрок: у бота шестёрок нет, опровергнуть нечем.
-        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six, 1,
-            new[] { C(Rank.Ace, Suit.Spades) }), out var error), error);
+        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six,
+            C(Rank.Ace, Suit.Spades)), out var error), error);
 
         var challenged = 0;
         for (var seed = 0; seed < 200; seed++)
@@ -90,6 +90,99 @@ public class SimpleBluffBotTests
         }
 
         Assert.InRange(challenged, 1, 50);
+    }
+
+    /// <summary>
+    /// Кого прижимать, бот выбирает по положению за столом. Вскрыть того, кто вот-вот
+    /// выйдет, — это отбросить его назад. Отстающему лишняя пачка карт почти ничего не
+    /// меняет, и тратить на него проверку незачем, даже поймав на вранье.
+    /// </summary>
+    [Fact]
+    public void Bot_ChallengesTheLeaderMuchMoreOftenThanTheLaggard()
+    {
+        var leaderGame = BluffGame.Create(new[] { "Лидер", "Бот" }, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.Ace, Suit.Hearts) },
+            new[] { C(Rank.Nine, Suit.Hearts), C(Rank.Eight, Suit.Diamonds) }));
+
+        // Скидывает последние две карты под видом шестёрок и выходит.
+        Assert.True(leaderGame.TryApplyMove(0, BluffMove.Declare(Rank.Six,
+            C(Rank.Ace, Suit.Spades), C(Rank.Ace, Suit.Hearts)), out var leaderError), leaderError);
+
+        var laggardGame = BluffGame.Create(new[] { "Отстающий", "Бот" }, BuildDeck(
+            new[] { C(Rank.Ace, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Diamonds), C(Rank.Jack, Suit.Clubs) },
+            new[] { C(Rank.Nine, Suit.Hearts), C(Rank.Eight, Suit.Diamonds), C(Rank.Seven, Suit.Clubs), C(Rank.Six, Suit.Spades) }));
+
+        // Такая же ложь, но карт у него полная рука.
+        Assert.True(laggardGame.TryApplyMove(0, BluffMove.Declare(Rank.Ten,
+            C(Rank.Ace, Suit.Spades)), out var laggardError), laggardError);
+
+        var againstLeader = 0;
+        var againstLaggard = 0;
+
+        for (var seed = 0; seed < 300; seed++)
+        {
+            if (new SimpleBluffBot(new Random(seed)).ShouldChallenge(leaderGame, 1))
+            {
+                againstLeader++;
+            }
+
+            if (new SimpleBluffBot(new Random(seed)).ShouldChallenge(laggardGame, 1))
+            {
+                againstLaggard++;
+            }
+        }
+
+        Assert.True(againstLeader > againstLaggard * 3,
+            "лидера вскрывают " + againstLeader + ", отстающего " + againstLaggard);
+    }
+
+    /// <summary>
+    /// Настоящая карта круга — это право ответить честно, когда очередь вернётся. Поэтому
+    /// бот не обязан выкладывать её сразу: иногда врёт сейчас, а её придерживает.
+    /// Проверяем, что встречается и то и другое.
+    /// </summary>
+    [Fact]
+    public void Bot_SometimesKeepsItsOnlyHonestCardAndLiesInstead()
+    {
+        var game = BluffGame.Create(new[] { "Сосед", "Бот" }, BuildDeck(
+            new[] { C(Rank.Seven, Suit.Clubs), C(Rank.Seven, Suit.Diamonds), C(Rank.Seven, Suit.Hearts) },
+            new[] { C(Rank.Six, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.Queen, Suit.Diamonds) }));
+
+        Assert.True(game.TryApplyMove(0, BluffMove.Declare(Rank.Six,
+            C(Rank.Seven, Suit.Clubs)), out var error), error);
+
+        var playedHonest = 0;
+        var keptItBack = 0;
+
+        for (var seed = 0; seed < 300; seed++)
+        {
+            var move = new SimpleBluffBot(new Random(seed)).ChooseMove(game, 1);
+            if (move == null || move.Type != BluffMoveType.Follow)
+            {
+                continue;
+            }
+
+            var hasSix = false;
+            foreach (var card in move.Cards)
+            {
+                if (card.Rank == Rank.Six)
+                {
+                    hasSix = true;
+                }
+            }
+
+            if (hasSix)
+            {
+                playedHonest++;
+            }
+            else
+            {
+                keptItBack++;
+            }
+        }
+
+        Assert.True(playedHonest > 30, "честно кладёт всего " + playedHonest);
+        Assert.True(keptItBack > 30, "придерживает всего " + keptItBack);
     }
 
     [Fact]

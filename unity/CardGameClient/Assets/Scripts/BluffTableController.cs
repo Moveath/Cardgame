@@ -98,10 +98,8 @@ namespace CardGameClient
         private readonly List<Card> _selected = new List<Card>();
         private readonly List<Button> _rankButtons = new List<Button>();
         private readonly List<Rank> _rankButtonRanks = new List<Rank>();
-        private readonly List<Button> _countButtons = new List<Button>();
 
         private Rank? _declaredRank;
-        private int _declaredCount;
         private bool _waitingForHuman;
         private BluffMove _pendingMove;
 
@@ -135,7 +133,6 @@ namespace CardGameClient
 
             _selected.Clear();
             _declaredRank = null;
-            _declaredCount = 0;
             _pendingMove = null;
             _waitingForHuman = false;
             _restartButton.gameObject.SetActive(false);
@@ -255,7 +252,6 @@ namespace CardGameClient
         {
             _selected.Clear();
             _declaredRank = null;
-            _declaredCount = 0;
         }
 
         // ---------- вскрытие ----------
@@ -642,8 +638,6 @@ namespace CardGameClient
                 _selected.Add(card);
             }
 
-            // Заявленное число по умолчанию честное — врать им нужно осознанно, отдельным тапом.
-            _declaredCount = _selected.Count;
             Refresh();
         }
 
@@ -654,22 +648,34 @@ namespace CardGameClient
 
             for (var i = 0; i < _rankButtons.Count; i++)
             {
-                var selected = _declaredRank.HasValue && _declaredRank.Value == _rankButtonRanks[i];
-                _rankButtons[i].GetComponent<Outline>().enabled = selected;
+                SetChipSelected(_rankButtons[i], _declaredRank.HasValue && _declaredRank.Value == _rankButtonRanks[i]);
             }
 
-            for (var i = 0; i < _countButtons.Count; i++)
+        }
+
+        /// <summary>
+        /// Выбранный ранг перекрашивается целиком, а не обводится: одна обводка на тёмной
+        /// фишке почти не видна, и было непонятно, что вообще выбрано.
+        /// </summary>
+        private static void SetChipSelected(Button chip, bool selected)
+        {
+            chip.GetComponent<Outline>().enabled = selected;
+            chip.GetComponent<Image>().sprite =
+                UiTextures.RoundedRect(48, 48, 12f, selected ? AccentGlow : ChipColor);
+
+            var label = chip.GetComponentInChildren<Text>();
+            if (label != null)
             {
-                _countButtons[i].GetComponent<Outline>().enabled = _declaredCount == i + 1;
-                _countButtons[i].gameObject.SetActive(_waitingForHuman);
+                label.color = selected ? new Color(0.16f, 0.12f, 0.06f) : TextColor;
             }
+
+            chip.transform.localScale = selected ? new Vector3(1.12f, 1.12f, 1f) : Vector3.one;
         }
 
         private void RefreshControls()
         {
             var canThrow = _waitingForHuman
                            && _selected.Count > 0
-                           && _declaredCount > 0
                            && (_game.Phase != BluffPhase.RoundStart || _declaredRank.HasValue);
 
             _throwButton.gameObject.SetActive(_waitingForHuman);
@@ -688,18 +694,18 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Кнопка проговаривает заявку целиком: «Кидаю 2 валета». Так сразу видно, что
-        /// именно услышат соседи — и что число берётся из чипов, а не из выбранных карт.
+        /// Кнопка проговаривает заявку целиком: «Кидаю 2 валета». Число берётся из
+        /// выбранных карт — соврать им нельзя, врут в этой игре только рангом.
         /// </summary>
         private string ThrowLabel()
         {
             var rank = _game.Phase == BluffPhase.RoundStart ? _declaredRank : _game.CurrentRank;
-            if (!rank.HasValue || _declaredCount <= 0)
+            if (!rank.HasValue || _selected.Count == 0)
             {
                 return "Кинуть";
             }
 
-            return "Кидаю " + _declaredCount + " " + RankCounted(rank.Value, _declaredCount);
+            return "Кидаю " + _selected.Count + " " + RankCounted(rank.Value, _selected.Count);
         }
 
         /// <summary>«1 валет», «2 валета», «3 дамы» — форма зависит от числа.</summary>
@@ -999,34 +1005,19 @@ namespace CardGameClient
 
             // Всё управление одной колонкой справа. Внизу слева стоит своё место, и каре
             // там налезало прямо на фигуру.
-            _fourButton = CreateButton(root, "Каре", new Vector2(1f, 0f), new Vector2(-190f, 130f), new Vector2(260f, 68f),
+            _fourButton = CreateButton(root, "Каре", new Vector2(1f, 0f), new Vector2(-190f, 120f), new Vector2(260f, 68f),
                 new Color(0.42f, 0.26f, 0.45f), PlayFourOfAKind);
 
-            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 230f), new Vector2(260f, 76f),
+            _throwButton = CreateButton(root, "Кинуть", new Vector2(1f, 0f), new Vector2(-190f, 215f), new Vector2(260f, 76f),
                 new Color(0.21f, 0.45f, 0.29f), Throw);
 
-            _challengeButton = CreateButton(root, "Не верю", new Vector2(1f, 0f), new Vector2(-190f, 340f), new Vector2(260f, 76f),
+            // Выше нельзя: крайние места дуги спускаются до 360 от низа экрана.
+            _challengeButton = CreateButton(root, "Не верю", new Vector2(1f, 0f), new Vector2(-190f, 310f), new Vector2(260f, 76f),
                 new Color(0.62f, 0.26f, 0.22f), () => _pendingMove = BluffMove.Challenge());
 
             _restartButton = CreateButton(root, "Ещё партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(300f, 80f),
                 new Color(0.21f, 0.45f, 0.29f), StartNewGame);
             _restartButton.gameObject.SetActive(false);
-
-            // Заявленное количество отдельно от выбранных карт: в этом вся вторая ось блефа.
-            // Подпись объясняет, что это именно слова, а не сколько карт реально уйдёт.
-            var countLabel = CreateText(root, "говорю, что карт:", 22, TextAnchor.MiddleCenter);
-            countLabel.color = DimColor;
-            Place((RectTransform)countLabel.transform, new Vector2(1f, 0f), new Vector2(-190f, 490f), new Vector2(260f, 28f));
-
-            for (var count = 1; count <= 3; count++)
-            {
-                var captured = count;
-                var button = CreateChip(root, count.ToString(), new Vector2(-270f + (count - 1) * 80f, 440f),
-                    new Vector2(70f, 56f), () => SelectCount(captured));
-                var rect = (RectTransform)button.transform;
-                rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
-                _countButtons.Add(button);
-            }
 
         }
 
@@ -1036,15 +1027,9 @@ namespace CardGameClient
             Refresh();
         }
 
-        private void SelectCount(int count)
-        {
-            _declaredCount = count;
-            Refresh();
-        }
-
         private void Throw()
         {
-            if (_selected.Count == 0 || _declaredCount <= 0)
+            if (_selected.Count == 0)
             {
                 return;
             }
@@ -1052,8 +1037,8 @@ namespace CardGameClient
             var cards = new List<Card>(_selected);
 
             _pendingMove = _game.Phase == BluffPhase.RoundStart
-                ? BluffMove.Declare(_declaredRank!.Value, _declaredCount, cards)
-                : BluffMove.Follow(_declaredCount, cards);
+                ? BluffMove.Declare(_declaredRank!.Value, cards)
+                : BluffMove.Follow(cards);
         }
 
         private List<Rank> AvailableRanks()
