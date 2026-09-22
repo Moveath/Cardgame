@@ -36,17 +36,29 @@ namespace CardGameClient
 
         private static readonly Color RoosterColor = new Color(0.84f, 0.20f, 0.17f);
 
-        /// <summary>Готовый арт клейма. Нет файла — рисуем гребешок процедурно.</summary>
+        /// <summary>Готовый арт клейма. Нет файла — рисуем шапку процедурно.</summary>
         private const string RoosterArtPath = "Badges/rooster";
 
         /// <summary>
-        /// Высота клейма и то, насколько глубоко оно садится на портрет. Разница между
-        /// ними — всё, на что клеймо поднимается над макушкой: выше идёт строка с
-        /// последним действием, и залезать в неё нельзя.
+        /// Ширина шапки. Шире головы: шапка надевается поверх любого костюма, а не
+        /// прилегает к волосам. Голова на портретах занимает около сорока пяти пикселей
+        /// на этом масштабе, шапке нужно заметно больше.
         /// </summary>
-        private const float RoosterHeight = 38f;
+        private const float RoosterWidth = 71f;
 
-        private const float RoosterSink = 26f;
+        /// <summary>
+        /// Какой долей своей высоты шапка надвигается на голову. Почти половина — она
+        /// сидит по уши, а не лежит на макушке: сверху у персонажей бывают и шлемы, и
+        /// шляпы волшебника, и всё это шапка должна накрывать.
+        /// </summary>
+        private const float RoosterOverlap = 0.42f;
+
+        /// <summary>
+        /// Насколько клейму разрешено подняться над рамкой места. Выше идёт строка с
+        /// последним действием. У самых высоких костюмов — шляпа волшебника, шлем с
+        /// гребнем — макушка сама подходит к этой черте, и шапка надвигается глубже.
+        /// </summary>
+        private const float RoosterHeadRoom = 10f;
 
         private static Sprite _roosterArt;
         private static bool _roosterArtChecked;
@@ -721,7 +733,7 @@ namespace CardGameClient
 
             if (player.IsRooster)
             {
-                BuildRoosterHat(containerRect, scale);
+                BuildRoosterHat(containerRect, PortraitFor(player.Index), scale);
             }
 
             if (player.IsOut)
@@ -754,24 +766,30 @@ namespace CardGameClient
         /// конца партии: правилами проверка не запрещена, а стол всё равно не забудет.
         /// Выше макушки не поднять — над местами идёт строка с последним действием.
         /// </summary>
-        private void BuildRoosterHat(RectTransform container, float scale)
+        private void BuildRoosterHat(RectTransform container, Sprite portrait, float scale)
         {
             var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             go.transform.SetParent(container, false);
 
             var sprite = RoosterSprite();
 
-            // Размер задаём высотой, ширину берём из пропорций картинки: нарисованный
-            // гребешок широкий, а готовый арт может оказаться каким угодно, и подгонять
-            // его под чужой прямоугольник — верный способ получить растянутую кашу.
-            var aspect = sprite.rect.height <= 0f ? 2.6f : sprite.rect.width / sprite.rect.height;
-            var height = RoosterHeight * scale;
-            var width = Mathf.Min(height * aspect, SeatFigure.Width * 1.15f * scale);
+            // Размер задаём шириной, высоту берём из пропорций картинки: готовый арт
+            // может оказаться каким угодно, и подгонять его под чужой прямоугольник —
+            // верный способ получить растянутую кашу.
+            var aspect = sprite.rect.height <= 0f ? 1.1f : sprite.rect.width / sprite.rect.height;
+            var width = RoosterWidth * scale;
+            var height = width / Mathf.Max(aspect, 0.2f);
+
+            // Считаем от макушки самого персонажа, а не от края рамки: портреты обрезаны
+            // по контуру и кончаются на разной высоте, от 259 до 345 пикселей в исходнике.
+            // Чужая шляпа при этом не мешает — шапка просто надевается поверх неё.
+            var artTop = SeatFigure.Height * scale - SeatFigure.PortraitHeight(portrait, scale);
+            var top = Mathf.Max(artTop + height * RoosterOverlap - height, -RoosterHeadRoom * scale);
 
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 0f);
-            rect.anchoredPosition = new Vector2(0f, -RoosterSink * scale);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -top);
             rect.sizeDelta = new Vector2(width, height);
 
             var image = go.GetComponent<Image>();
@@ -796,7 +814,7 @@ namespace CardGameClient
                 _roosterArt = Resources.Load<Sprite>(RoosterArtPath);
             }
 
-            return _roosterArt != null ? _roosterArt : UiTextures.RoosterComb(RoosterColor);
+            return _roosterArt != null ? _roosterArt : UiTextures.RoosterHat(RoosterColor);
         }
 
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)

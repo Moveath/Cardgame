@@ -123,52 +123,78 @@ namespace CardGameClient
             return sprite;
         }
 
-        /// <summary>Доли гребешка слева направо. Передняя выше задних — как у петуха.</summary>
-        private static readonly float[] CombPeaks = { 0.66f, 0.92f, 1f, 0.74f };
+        /// <summary>Доли гребешка слева направо. Средняя выше — как у петуха.</summary>
+        private static readonly float[] CombPeaks = { 0.72f, 1f, 0.78f };
 
-        private const int CombWidth = 240;
-        private const int CombHeight = 92;
-        private const float CombLeft = 18f;
-        private const float CombRight = 222f;
-        private const float CombBase = 26f;
-        private const float CombRise = 58f;
+        private const int HatWidth = 220;
+        private const int HatHeight = 200;
+
+        /// <summary>Отворот шапки: между этими долями высоты идёт светлая полоса.</summary>
+        private const float HatBandBottom = 0.20f;
+
+        private const float HatBandTop = 0.36f;
+
+        /// <summary>Докуда поднимается тулья, дальше только гребешок.</summary>
+        private const float HatCrownTop = 0.76f;
 
         /// <summary>
-        /// Гребешок петуха — клеймо для того, кто оборвал перестрелку. Рисуем процедурно,
-        /// как и весь остальной интерфейс. Доли заданы не кругами, а профилем высоты:
-        /// круги при любом расположении читаются как три шарика на плашке, а нужно, чтобы
-        /// вырезы между зубцами доходили до самого основания. Снизу фигура срезана ровно —
-        /// гребешок растёт из головы, а не висит над ней. По краю тёмный кант, иначе на
-        /// светлом портрете силуэт пропадает.
+        /// Шапка петуха — клеймо для того, кто оборвал перестрелку. Именно шапка, а не
+        /// гребешок сам по себе: гребешок ложится на волосы и теряется на любом костюме
+        /// со шляпой, а шапка надевается поверх всего, по уши, и читается на всех.
+        /// Рисуем процедурно, как и весь остальной интерфейс: тулья, светлый отворот,
+        /// уши по бокам и гребешок сверху, всё через расстояния до фигур.
         /// </summary>
-        public static Sprite RoosterComb(Color color)
+        public static Sprite RoosterHat(Color color)
         {
-            var key = "comb_" + color;
+            var key = "hat_" + color;
             if (Cache.TryGetValue(key, out var cached))
             {
                 return cached;
             }
 
-            const float rim = 6f;
-            var edge = new Color(color.r * 0.5f, color.g * 0.42f, color.b * 0.42f, color.a);
+            const float rim = HatWidth * 0.03f;
+            var bandBottom = HatHeight * HatBandBottom;
+            var bandTop = HatHeight * HatBandTop;
+            var crownTop = HatHeight * HatCrownTop;
 
-            var texture = new Texture2D(CombWidth, CombHeight, TextureFormat.RGBA32, false)
+            var dark = new Color(color.r * 0.58f, color.g * 0.45f, color.b * 0.45f, color.a);
+            var band = new Color(0.93f, 0.87f, 0.80f, color.a);
+            var bandDark = new Color(0.69f, 0.62f, 0.55f, color.a);
+
+            var texture = new Texture2D(HatWidth, HatHeight, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
 
-            var pixels = new Color[CombWidth * CombHeight];
-            for (var y = 0; y < CombHeight; y++)
+            var pixels = new Color[HatWidth * HatHeight];
+            for (var y = 0; y < HatHeight; y++)
             {
-                for (var x = 0; x < CombWidth; x++)
+                for (var x = 0; x < HatWidth; x++)
                 {
                     var px = x + 0.5f;
                     var py = y + 0.5f;
 
-                    var shape = Mathf.Min(
-                        RoundedBoxSdf(px, py, CombLeft, -30f, CombRight, CombBase, 13f),
-                        CombCrestSdf(px, py));
+                    var crown = RoundedBoxSdf(px, py, HatWidth * 0.17f, bandBottom,
+                        HatWidth * 0.83f, crownTop, HatWidth * 0.24f);
+
+                    // Уши свисают по бокам от отворота вниз.
+                    var earLeft = RoundedBoxSdf(px, py, HatWidth * 0.02f, HatHeight * 0.03f,
+                        HatWidth * 0.25f, bandTop, HatWidth * 0.10f);
+                    var earRight = RoundedBoxSdf(px, py, HatWidth * 0.75f, HatHeight * 0.03f,
+                        HatWidth * 0.98f, bandTop, HatWidth * 0.10f);
+
+                    // Гребешок живёт только над тульей. Без нижней отсечки профиль высоты
+                    // считает своим всё, что под ним, и заливает шапку красным столбом.
+                    var crest = Mathf.Max(
+                        CombCrestSdf(px, py, crownTop - HatHeight * 0.06f, HatHeight * 0.28f),
+                        crownTop - HatHeight * 0.12f - py);
+
+                    var bandShape = RoundedBoxSdf(px, py, HatWidth * 0.04f, bandBottom,
+                        HatWidth * 0.96f, bandTop, HatWidth * 0.07f);
+
+                    var redShape = Mathf.Min(Mathf.Min(crown, crest), Mathf.Min(earLeft, earRight));
+                    var shape = Mathf.Min(redShape, bandShape);
 
                     var coverage = Mathf.Clamp01(0.5f - shape);
                     if (coverage <= 0f)
@@ -176,44 +202,52 @@ namespace CardGameClient
                         continue;
                     }
 
-                    var tone = shape > -rim ? edge : color;
-                    pixels[y * CombWidth + x] = new Color(tone.r, tone.g, tone.b, tone.a * coverage);
+                    var onBand = bandShape < redShape;
+                    var body = onBand ? band : color;
+                    var edge = onBand ? bandDark : dark;
+                    var tone = shape > -rim ? edge : body;
+
+                    pixels[y * HatWidth + x] = new Color(tone.r, tone.g, tone.b, tone.a * coverage);
                 }
             }
 
             texture.SetPixels(pixels);
             texture.Apply();
 
-            var sprite = Sprite.Create(texture, new Rect(0, 0, CombWidth, CombHeight), new Vector2(0.5f, 0.5f), 100f);
+            var sprite = Sprite.Create(texture, new Rect(0, 0, HatWidth, HatHeight), new Vector2(0.5f, 0.5f), 100f);
             Cache[key] = sprite;
             return sprite;
         }
 
-        /// <summary>Верхняя граница гребешка в точке x: основание плюс купол текущей доли.</summary>
-        private static float CombTopAt(float px)
+        /// <summary>Верхняя граница гребешка в точке x: подножие плюс купол текущей доли.</summary>
+        private static float CombTopAt(float px, float baseTop, float rise)
         {
-            var t = (px - CombLeft) / (CombRight - CombLeft) * CombPeaks.Length;
+            var left = HatWidth * 0.26f;
+            var right = HatWidth * 0.74f;
+
+            var t = (px - left) / (right - left) * CombPeaks.Length;
             var index = Mathf.Clamp(Mathf.FloorToInt(t), 0, CombPeaks.Length - 1);
             var u = Mathf.Clamp01(t - index);
 
-            return CombBase + CombRise * CombPeaks[index] * Mathf.Pow(Mathf.Sin(Mathf.PI * u), 0.8f);
+            return baseTop + rise * CombPeaks[index] * Mathf.Pow(Mathf.Sin(Mathf.PI * u), 0.5f);
         }
 
         /// <summary>
-        /// Расстояние до профиля высоты. Делим на длину наклона, иначе на крутых боках
-        /// зубцов сглаживание размазывается и край выглядит рваным.
+        /// Расстояние до профиля высоты гребешка. Делим на длину наклона, иначе на крутых
+        /// боках зубцов сглаживание размазывается и край выглядит рваным.
         /// </summary>
-        private static float CombCrestSdf(float px, float py)
+        private static float CombCrestSdf(float px, float py, float baseTop, float rise)
         {
-            if (px < CombLeft || px > CombRight)
+            if (px < HatWidth * 0.26f || px > HatWidth * 0.74f)
             {
                 return 1000f;
             }
 
-            var slope = (CombTopAt(px + 1f) - CombTopAt(px - 1f)) * 0.5f;
-            return (py - CombTopAt(px)) / Mathf.Sqrt(1f + slope * slope);
+            var slope = (CombTopAt(px + 1f, baseTop, rise) - CombTopAt(px - 1f, baseTop, rise)) * 0.5f;
+            return (py - CombTopAt(px, baseTop, rise)) / Mathf.Sqrt(1f + slope * slope);
         }
 
+        /// <summary>Расстояние до скруглённого прямоугольника: внутри отрицательное.</summary>
         private static float RoundedBoxSdf(float px, float py, float minX, float minY, float maxX, float maxY, float radius)
         {
             var halfX = (maxX - minX) * 0.5f - radius;

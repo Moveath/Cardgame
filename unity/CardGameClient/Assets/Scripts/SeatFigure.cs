@@ -34,6 +34,29 @@ namespace CardGameClient
 
         private static readonly Color Glow = new Color(1f, 0.85f, 0.3f);
 
+        /// <summary>
+        /// Высота портрета на экране — она же расстояние от низа фигуры до макушки.
+        /// Портреты обрезаны по контуру, и высота у них разная: от 259 до 345 пикселей
+        /// в исходнике. У короткого персонажа макушка оказывается на полтора десятка
+        /// пикселей ниже верха рамки, у высокого — чуть выше него. Поэтому всё, что
+        /// кладётся на голову, обязано считаться отсюда, а не от края рамки: иначе у
+        /// одних предмет висит в воздухе, а у других тонет в шляпе.
+        /// </summary>
+        public static float PortraitHeight(Sprite portrait, float scale)
+        {
+            if (portrait == null)
+            {
+                // Запасной кружок с буквой стоит по центру рамки.
+                return (Height + Width * 0.75f) * 0.5f * scale;
+            }
+
+            return portrait.rect.height * PortraitScale(portrait, scale);
+        }
+
+        private static float PortraitScale(Sprite portrait, float scale) => Mathf.Min(
+            Height * scale / ReferencePortraitHeight,
+            Height * scale * MaxPortraitStretch / portrait.rect.height);
+
         public static RectTransform Create(Transform parent, Font font, string initial, Color color,
             bool isActing, Sprite portrait, float scale)
         {
@@ -90,9 +113,7 @@ namespace CardGameClient
             // Размер от масштаба, общего для всех мест, а не подгонкой под рамку. Сажаем на
             // нижний край: тогда у всех совпадает линия плеч, а шляпа уходит вверх, а не
             // выталкивает фигуру вниз на подпись с именем.
-            var portraitScale = Mathf.Min(
-                height / ReferencePortraitHeight,
-                height * MaxPortraitStretch / portrait.rect.height);
+            var portraitScale = PortraitScale(portrait, scale);
 
             var portraitRect = (RectTransform)portraitGo.transform;
             portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(0.5f, 0f);
