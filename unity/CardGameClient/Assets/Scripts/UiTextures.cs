@@ -123,6 +123,109 @@ namespace CardGameClient
             return sprite;
         }
 
+        /// <summary>Доли гребешка слева направо. Передняя выше задних — как у петуха.</summary>
+        private static readonly float[] CombPeaks = { 0.66f, 0.92f, 1f, 0.74f };
+
+        private const int CombWidth = 240;
+        private const int CombHeight = 92;
+        private const float CombLeft = 18f;
+        private const float CombRight = 222f;
+        private const float CombBase = 26f;
+        private const float CombRise = 58f;
+
+        /// <summary>
+        /// Гребешок петуха — клеймо для того, кто оборвал перестрелку. Рисуем процедурно,
+        /// как и весь остальной интерфейс. Доли заданы не кругами, а профилем высоты:
+        /// круги при любом расположении читаются как три шарика на плашке, а нужно, чтобы
+        /// вырезы между зубцами доходили до самого основания. Снизу фигура срезана ровно —
+        /// гребешок растёт из головы, а не висит над ней. По краю тёмный кант, иначе на
+        /// светлом портрете силуэт пропадает.
+        /// </summary>
+        public static Sprite RoosterComb(Color color)
+        {
+            var key = "comb_" + color;
+            if (Cache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            const float rim = 6f;
+            var edge = new Color(color.r * 0.5f, color.g * 0.42f, color.b * 0.42f, color.a);
+
+            var texture = new Texture2D(CombWidth, CombHeight, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            var pixels = new Color[CombWidth * CombHeight];
+            for (var y = 0; y < CombHeight; y++)
+            {
+                for (var x = 0; x < CombWidth; x++)
+                {
+                    var px = x + 0.5f;
+                    var py = y + 0.5f;
+
+                    var shape = Mathf.Min(
+                        RoundedBoxSdf(px, py, CombLeft, -30f, CombRight, CombBase, 13f),
+                        CombCrestSdf(px, py));
+
+                    var coverage = Mathf.Clamp01(0.5f - shape);
+                    if (coverage <= 0f)
+                    {
+                        continue;
+                    }
+
+                    var tone = shape > -rim ? edge : color;
+                    pixels[y * CombWidth + x] = new Color(tone.r, tone.g, tone.b, tone.a * coverage);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+
+            var sprite = Sprite.Create(texture, new Rect(0, 0, CombWidth, CombHeight), new Vector2(0.5f, 0.5f), 100f);
+            Cache[key] = sprite;
+            return sprite;
+        }
+
+        /// <summary>Верхняя граница гребешка в точке x: основание плюс купол текущей доли.</summary>
+        private static float CombTopAt(float px)
+        {
+            var t = (px - CombLeft) / (CombRight - CombLeft) * CombPeaks.Length;
+            var index = Mathf.Clamp(Mathf.FloorToInt(t), 0, CombPeaks.Length - 1);
+            var u = Mathf.Clamp01(t - index);
+
+            return CombBase + CombRise * CombPeaks[index] * Mathf.Pow(Mathf.Sin(Mathf.PI * u), 0.8f);
+        }
+
+        /// <summary>
+        /// Расстояние до профиля высоты. Делим на длину наклона, иначе на крутых боках
+        /// зубцов сглаживание размазывается и край выглядит рваным.
+        /// </summary>
+        private static float CombCrestSdf(float px, float py)
+        {
+            if (px < CombLeft || px > CombRight)
+            {
+                return 1000f;
+            }
+
+            var slope = (CombTopAt(px + 1f) - CombTopAt(px - 1f)) * 0.5f;
+            return (py - CombTopAt(px)) / Mathf.Sqrt(1f + slope * slope);
+        }
+
+        private static float RoundedBoxSdf(float px, float py, float minX, float minY, float maxX, float maxY, float radius)
+        {
+            var halfX = (maxX - minX) * 0.5f - radius;
+            var halfY = (maxY - minY) * 0.5f - radius;
+
+            var dx = Mathf.Abs(px - (minX + maxX) * 0.5f) - halfX;
+            var dy = Mathf.Abs(py - (minY + maxY) * 0.5f) - halfY;
+
+            var outside = Mathf.Sqrt(Mathf.Max(dx, 0f) * Mathf.Max(dx, 0f) + Mathf.Max(dy, 0f) * Mathf.Max(dy, 0f));
+            return outside + Mathf.Min(Mathf.Max(dx, dy), 0f) - radius;
+        }
+
         private static float DistanceOutside(float px, float py, float inset, float maxX, float maxY, float radius)
         {
             var cx = Mathf.Clamp(px, inset + radius, maxX - radius);

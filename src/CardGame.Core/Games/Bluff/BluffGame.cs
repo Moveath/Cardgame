@@ -15,15 +15,18 @@ namespace CardGame.Core.Games.Bluff
     /// </summary>
     public sealed class BluffGame
     {
-        /// <summary>Как часто ведущему круга вообще предлагают объявить перестрелку.</summary>
-        private const double ShootoutChance = 0.22;
+        /// <summary>
+        /// Как часто ведущему круга предлагают объявить перестрелку. Вместе с паузой ниже
+        /// даёт предложение примерно раз в два круга.
+        /// </summary>
+        private const double ShootoutChance = 0.8;
 
         /// <summary>
-        /// Сколько обычных кругов должно пройти после перестрелки, прежде чем предложат
-        /// следующую. Без паузы стол превращается в одну бесконечную перестрелку, и весь
-        /// эффект — редкое событие, от которого замирает стол, — пропадает.
+        /// Сколько кругов после состоявшейся перестрелки её точно не предложат. Пауза нужна
+        /// затем, чтобы две перестрелки не шли подряд: круг в перестрелке и так вдвое
+        /// длиннее обычного.
         /// </summary>
-        private const int ShootoutCooldownRounds = 2;
+        private const int ShootoutCooldownRounds = 1;
 
         private readonly List<BluffPlayer> _players = new List<BluffPlayer>();
         private readonly BluffOptions _options;

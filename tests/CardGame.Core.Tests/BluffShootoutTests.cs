@@ -39,20 +39,25 @@ public class BluffShootoutTests
     /// <summary>Любая законная заявка текущего игрока — содержимое здесь не важно.</summary>
     private static BluffMove SomeDeclaration(BluffGame game, bool openShootout)
     {
-        foreach (var card in game.Players[game.CurrentPlayerIndex].Hand)
-        {
-            if (!BluffRules.CanBeDeclared(card.Rank))
-            {
-                continue;
-            }
+        var hand = game.Players[game.CurrentPlayerIndex].Hand;
+        var card = hand[0];
+        var rank = Rank.King;
 
-            return openShootout
-                ? BluffMove.DeclareShootout(card.Rank, card)
-                : BluffMove.Declare(card.Rank, card);
+        foreach (var candidate in hand)
+        {
+            if (BluffRules.CanBeDeclared(candidate.Rank))
+            {
+                card = candidate;
+                rank = candidate.Rank;
+                break;
+            }
         }
 
-        Assert.Fail("На руках одни тузы — заявиться нечем.");
-        return null!;
+        // Если на руках одни тузы, заявиться ими нельзя — но подложить их под чужим
+        // рангом можно, в этом вся их роль. Тогда ходим тузом под видом королей.
+        return openShootout
+            ? BluffMove.DeclareShootout(rank, card)
+            : BluffMove.Declare(rank, card);
     }
 
     private static void Apply(BluffGame game, int player, BluffMove move)
@@ -86,11 +91,12 @@ public class BluffShootoutTests
     }
 
     /// <summary>
-    /// Изредка — это изредка. Проверяем именно диапазон: если предложение станет частым,
-    /// стол превратится в одну бесконечную перестрелку и весь эффект пропадёт.
+    /// Примерно раз в два круга — но именно примерно. Пауза после состоявшейся
+    /// перестрелки даёт один круг гарантированной тишины, кубик добавляет второй; если
+    /// сделать предложение постоянным, перестрелка перестанет быть событием.
     /// </summary>
     [Fact]
-    public void Shootout_IsOfferedOnSomeDealsButFarFromAll()
+    public void Shootout_IsOfferedOnMostDealsButNotAll()
     {
         var offered = 0;
         for (var seed = 0; seed < 300; seed++)
@@ -101,7 +107,7 @@ public class BluffShootoutTests
             }
         }
 
-        Assert.InRange(offered, 30, 110);
+        Assert.InRange(offered, 195, 285);
     }
 
     /// <summary>Одна и та же колода — одна и та же партия, включая момент перестрелки.</summary>
@@ -268,24 +274,48 @@ public class BluffShootoutTests
     }
 
     /// <summary>
-    /// Пауза после перестрелки. Без неё стол превращается в одну бесконечную перестрелку,
-    /// и редкое событие, от которого замирает стол, перестаёт быть редким.
+    /// Пауза после перестрелки ровно в один круг: подряд они не идут — круг в перестрелке
+    /// и так вдвое длиннее обычного, — но и ждать её долго не приходится.
     /// </summary>
     [Fact]
-    public void Shootout_IsNotOfferedAgainForTwoRounds()
+    public void Shootout_IsNotOfferedTwoRoundsInARow()
     {
-        var game = BluffGame.Create(Two, Deck.Standard36(SeedWithOfferOnTheFirstRound(Two)), Shootouts);
+        var cameBack = 0;
+        var checked_ = 0;
 
-        Apply(game, 0, SomeDeclaration(game, openShootout: true));
-        Apply(game, 1, BluffMove.Challenge());
+        for (var seed = 0; seed < 150; seed++)
+        {
+            var game = BluffGame.Create(Two, Deck.Standard36(seed), Shootouts);
+            if (!game.ShootoutOffered)
+            {
+                continue;
+            }
 
-        Assert.False(game.IsFinished);
-        Assert.False(game.ShootoutOffered);
+            Apply(game, 0, SomeDeclaration(game, openShootout: true));
+            Apply(game, 1, BluffMove.Challenge());
+            if (game.IsFinished)
+            {
+                continue;
+            }
 
-        PlayWholeRound(game, openShootout: false);
+            checked_++;
+            Assert.False(game.ShootoutOffered, "перестрелку предложили сразу следом");
 
-        Assert.False(game.IsFinished);
-        Assert.False(game.ShootoutOffered);
+            PlayWholeRound(game, openShootout: false);
+            if (game.IsFinished)
+            {
+                continue;
+            }
+
+            if (game.ShootoutOffered)
+            {
+                cameBack++;
+            }
+        }
+
+        Assert.True(checked_ > 20, "подходящих партий всего " + checked_);
+        Assert.True(cameBack > checked_ / 2,
+            "через круг перестрелку предложили лишь " + cameBack + " раз из " + checked_);
     }
 
     // ---------- грамматика объявления ----------
@@ -328,7 +358,7 @@ public class BluffShootoutTests
             var guard = 0;
             while (!game.IsFinished)
             {
-                Assert.True(guard++ < 400, "Партия не сходится: seed " + seed);
+                Assert.True(guard++ < 600, "Партия не сходится: seed " + seed);
 
                 if (game.ShootoutOffered)
                 {

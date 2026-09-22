@@ -677,14 +677,16 @@ namespace CardGameClient
             avatar.pivot = new Vector2(0.5f, 1f);
             avatar.anchoredPosition = Vector2.zero;
 
-            var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
-            label.color = isActing ? AccentGlow : TextColor;
+            var label = CreateText(container.transform,
+                player.IsRooster ? player.Name + " · петух" + (player.RoosterMarks > 1 ? " x" + player.RoosterMarks : string.Empty) : player.Name,
+                Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
+            label.color = player.IsRooster ? RoosterColor : (isActing ? AccentGlow : TextColor);
             PlaceUnderAvatar((RectTransform)label.transform, (SeatFigure.Height + SeatFigure.NameGap) * scale,
                 new Vector2(220f * scale, SeatFigure.NameHeight * scale));
 
             if (player.IsRooster)
             {
-                BuildRoosterHat(containerRect, player.RoosterMarks, scale);
+                BuildRoosterHat(containerRect, scale);
             }
 
             if (player.IsOut)
@@ -713,34 +715,27 @@ namespace CardGameClient
         /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
         /// </summary>
         /// <summary>
-        /// Клеймо того, кто оборвал перестрелку. Сидит прямо на голове и не снимается до
+        /// Гребешок тому, кто оборвал перестрелку. Сидит на макушке и не снимается до
         /// конца партии: правилами проверка не запрещена, а стол всё равно не забудет.
+        /// Выше макушки не поднять — над местами идёт строка с последним действием.
         /// </summary>
-        private void BuildRoosterHat(RectTransform container, int marks, float scale)
+        private void BuildRoosterHat(RectTransform container, float scale)
         {
             var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             go.transform.SetParent(container, false);
 
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            // Сидит на самой макушке, чуть налезая на портрет. Выше нельзя: над местами
-            // идёт строка с последним действием, и клеймо полезло бы прямо в неё.
-            rect.anchoredPosition = new Vector2(0f, -12f * scale);
-            rect.sizeDelta = new Vector2(104f * scale, 32f * scale);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, 10f * scale);
+            rect.sizeDelta = new Vector2(86f * scale, 33f * scale);
 
             var image = go.GetComponent<Image>();
-            image.sprite = UiTextures.RoundedRect(48, 48, 14f, RoosterColor);
-            image.type = Image.Type.Sliced;
+            image.sprite = UiTextures.RoosterComb(RoosterColor);
 
             var shadow = go.GetComponent<Shadow>();
             shadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
             shadow.effectDistance = new Vector2(2f, -3f);
-
-            var label = CreateText(rect, marks > 1 ? "ПЕТУХ x" + marks : "ПЕТУХ",
-                Mathf.RoundToInt(19 * scale), TextAnchor.MiddleCenter);
-            label.fontStyle = FontStyle.Bold;
-            Stretch((RectTransform)label.transform);
         }
 
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
