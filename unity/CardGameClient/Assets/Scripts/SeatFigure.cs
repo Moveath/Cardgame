@@ -35,23 +35,12 @@ namespace CardGameClient
         private static readonly Color Glow = new Color(1f, 0.85f, 0.3f);
 
         /// <summary>
-        /// Высота портрета на экране — она же расстояние от низа фигуры до макушки.
-        /// Портреты обрезаны по контуру, и высота у них разная: от 259 до 345 пикселей
-        /// в исходнике. У короткого персонажа макушка оказывается на полтора десятка
-        /// пикселей ниже верха рамки, у высокого — чуть выше него. Поэтому всё, что
-        /// кладётся на голову, обязано считаться отсюда, а не от края рамки: иначе у
-        /// одних предмет висит в воздухе, а у других тонет в шляпе.
+        /// Высота бровей от низа фигуры. Портреты выровнены по линии плеч, поэтому лица у
+        /// всех образов на одной высоте: глаза в полосе 104–120, подбородок около 90. Всё,
+        /// что надевается на голову, считается отсюда. Верх арта для этого не годится —
+        /// у костюмов со шляпой это верх шляпы, и предмет уезжал бы на её макушку.
         /// </summary>
-        public static float PortraitHeight(Sprite portrait, float scale)
-        {
-            if (portrait == null)
-            {
-                // Запасной кружок с буквой стоит по центру рамки.
-                return (Height + Width * 0.75f) * 0.5f * scale;
-            }
-
-            return portrait.rect.height * PortraitScale(portrait, scale);
-        }
+        public const float BrowLine = 122f;
 
         private static float PortraitScale(Sprite portrait, float scale) => Mathf.Min(
             Height * scale / ReferencePortraitHeight,

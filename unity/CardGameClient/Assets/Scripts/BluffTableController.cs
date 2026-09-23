@@ -40,25 +40,28 @@ namespace CardGameClient
         private const string RoosterArtPath = "Badges/rooster";
 
         /// <summary>
-        /// Ширина шапки. Шире головы: шапка надевается поверх любого костюма, а не
-        /// прилегает к волосам. Голова на портретах занимает около сорока пяти пикселей
-        /// на этом масштабе, шапке нужно заметно больше.
+        /// Ширина шапки. Голова на портретах около сорока пяти пикселей, шапке нужно чуть
+        /// больше: она надевается поверх, а не прилегает к волосам.
         /// </summary>
-        private const float RoosterWidth = 71f;
+        private const float RoosterWidth = 56f;
 
         /// <summary>
-        /// Какой долей своей высоты шапка надвигается на голову. Почти половина — она
-        /// сидит по уши, а не лежит на макушке: сверху у персонажей бывают и шлемы, и
-        /// шляпы волшебника, и всё это шапка должна накрывать.
+        /// Где у картинки передний край шапки, в долях её высоты сверху. Он садится на
+        /// брови. У готового арта это самый низ: картинка обрезана по краю, а провал
+        /// внутри шапки прозрачный — сквозь него видна голова. У рисованной ушанки край —
+        /// низ отворота, а уши свисают ниже, как им и положено.
         /// </summary>
-        private const float RoosterOverlap = 0.42f;
+        private const float RoosterArtBrim = 1f;
+
+        private const float RoosterDrawnBrim = 0.8f;
 
         /// <summary>
-        /// Насколько клейму разрешено подняться над рамкой места. Выше идёт строка с
-        /// последним действием. У самых высоких костюмов — шляпа волшебника, шлем с
-        /// гребнем — макушка сама подходит к этой черте, и шапка надвигается глубже.
+        /// Сколько шапке можно подняться над рамкой места. Строку статуса ради неё поджали
+        /// к верху экрана; нынешняя картинка встаёт на 45 и в запас не упирается. Упор —
+        /// страховка на случай, если арт заменят более высоким: шапка тогда надвинется
+        /// ниже, но в текст не полезет.
         /// </summary>
-        private const float RoosterHeadRoom = 10f;
+        private const float RoosterHeadRoom = 46f;
 
         private static Sprite _roosterArt;
         private static bool _roosterArtChecked;
@@ -733,7 +736,7 @@ namespace CardGameClient
 
             if (player.IsRooster)
             {
-                BuildRoosterHat(containerRect, PortraitFor(player.Index), scale);
+                BuildRoosterHat(containerRect, scale);
             }
 
             if (player.IsOut)
@@ -762,11 +765,11 @@ namespace CardGameClient
         /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
         /// </summary>
         /// <summary>
-        /// Гребешок тому, кто оборвал перестрелку. Сидит на макушке и не снимается до
-        /// конца партии: правилами проверка не запрещена, а стол всё равно не забудет.
-        /// Выше макушки не поднять — над местами идёт строка с последним действием.
+        /// Шапка петуха тому, кто оборвал перестрелку. Надевается поверх любого костюма
+        /// и не снимается до конца партии: правилами проверка не запрещена, а стол всё
+        /// равно не забудет.
         /// </summary>
-        private void BuildRoosterHat(RectTransform container, Sprite portrait, float scale)
+        private void BuildRoosterHat(RectTransform container, float scale)
         {
             var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             go.transform.SetParent(container, false);
@@ -780,11 +783,13 @@ namespace CardGameClient
             var width = RoosterWidth * scale;
             var height = width / Mathf.Max(aspect, 0.2f);
 
-            // Считаем от макушки самого персонажа, а не от края рамки: портреты обрезаны
-            // по контуру и кончаются на разной высоте, от 259 до 345 пикселей в исходнике.
-            // Чужая шляпа при этом не мешает — шапка просто надевается поверх неё.
-            var artTop = SeatFigure.Height * scale - SeatFigure.PortraitHeight(portrait, scale);
-            var top = Mathf.Max(artTop + height * RoosterOverlap - height, -RoosterHeadRoom * scale);
+            // Передний край — на брови. Считаем от линии плеч, а не от верха картинки:
+            // верх у костюмов со шляпой — это шляпа, а лица у всех на одной высоте.
+            // Чужие шляпы шапке не мешают: она рисуется поверх и накрывает их, а широкие
+            // поля ковбойской или колпака волшебника выглядывают по бокам, как из-под неё.
+            var brim = _roosterArt != null ? RoosterArtBrim : RoosterDrawnBrim;
+            var brow = (SeatFigure.Height - SeatFigure.BrowLine) * scale;
+            var top = Mathf.Max(brow - height * brim, -RoosterHeadRoom * scale);
 
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
@@ -1392,12 +1397,15 @@ namespace CardGameClient
             feltImage.sprite = UiTextures.RoundedRect(64, 64, 20f, new Color(0.10f, 0.26f, 0.34f));
             feltImage.type = Image.Type.Sliced;
 
-            _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
-            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -50f), new Vector2(1200f, 56f));
+            // Обе строки поджаты к самому верху: между ними и местами соперников должна
+            // встать шапка петуха. Раньше последнее действие стояло на 100 от верха, и
+            // шапка в него упиралась.
+            _status = CreateText(root, string.Empty, 34, TextAnchor.MiddleCenter);
+            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(1200f, 44f));
 
-            _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
+            _lastAction = CreateText(root, string.Empty, 25, TextAnchor.MiddleCenter);
             _lastAction.color = DimColor;
-            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -100f), new Vector2(1100f, 36f));
+            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -66f), new Vector2(1100f, 30f));
 
             _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
             _opponentsArea.SetParent(root, false);
