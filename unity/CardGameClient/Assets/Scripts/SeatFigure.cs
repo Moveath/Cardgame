@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -35,16 +36,149 @@ namespace CardGameClient
         private static readonly Color Glow = new Color(1f, 0.85f, 0.3f);
 
         /// <summary>
-        /// Высота бровей от низа фигуры. Портреты выровнены по линии плеч, поэтому лица у
-        /// всех образов на одной высоте: глаза в полосе 104–120, подбородок около 90. Всё,
-        /// что надевается на голову, считается отсюда. Верх арта для этого не годится —
-        /// у костюмов со шляпой это верх шляпы, и предмет уезжал бы на её макушку.
+        /// Высота глаз, если на портрете их не нашли (маска Зорро закрывает кожу вокруг
+        /// глаз) или портрета нет вовсе. Середина того, что находится на остальных.
         /// </summary>
-        public const float BrowLine = 122f;
+        public const float FallbackEyeLine = 104f;
 
         private static float PortraitScale(Sprite portrait, float scale) => Mathf.Min(
             Height * scale / ReferencePortraitHeight,
             Height * scale * MaxPortraitStretch / portrait.rect.height);
+
+        /// <summary>
+        /// Как надевается головной убор, в пикселях стола при масштабе 1 и обычном размере
+        /// портрета: где край над глазами, насколько срез костюма выше края над лицом,
+        /// полуширина убора и насколько ниже края срез по бокам.
+        /// </summary>
+        public sealed class HeadwearFit
+        {
+            public HeadwearFit(float rimAboveEyes, float crownAboveRim, float halfWidth, float sideBelowRim)
+            {
+                RimAboveEyes = rimAboveEyes;
+                CrownAboveRim = crownAboveRim;
+                HalfWidth = halfWidth;
+                SideBelowRim = sideBelowRim;
+            }
+
+            public float RimAboveEyes { get; }
+            public float CrownAboveRim { get; }
+            public float HalfWidth { get; }
+            public float SideBelowRim { get; }
+        }
+
+        /// <summary>Портрет, на который надели убор, и где этот убор сидит.</summary>
+        public sealed class Headwear
+        {
+            /// <summary>Портрет без своей шляпы: всё, что под убором и вокруг него, стёрто.</summary>
+            public Sprite Portrait { get; set; }
+
+            /// <summary>Высота переднего края над низом фигуры, при масштабе 1.</summary>
+            public float Rim { get; set; }
+
+            /// <summary>Середина лица от центра фигуры: головы стоят не строго посередине.</summary>
+            public float CenterX { get; set; }
+
+            /// <summary>
+            /// Во сколько раз этот портрет мельче обычного. Слишком высокие картинки
+            /// ужимаются, чтобы влезть в рамку, и убор ужимается вместе с головой.
+            /// </summary>
+            public float Size { get; set; } = 1f;
+        }
+
+        private static readonly Dictionary<(Sprite, HeadwearFit), Headwear> HeadwearCache =
+            new Dictionary<(Sprite, HeadwearFit), Headwear>();
+
+        /// <summary>
+        /// Надевает убор по-настоящему, а не кладёт сверху. Садится он по глазам самого
+        /// портрета: нейросеть кадрирует каждый лист по-своему, и лица за столом стоят на
+        /// разной высоте, от 82 до 124. А собственная шляпа костюма стирается: над лицом —
+        /// сразу над краем убора, по бокам — ниже, до низа ушей, иначе из-под него торчали
+        /// бы поля ковбойской шляпы и колпака. Считается один раз на портрет.
+        /// </summary>
+        public static Headwear PutOnHead(Sprite portrait, HeadwearFit fit)
+        {
+            if (portrait == null)
+            {
+                // Кружок с буквой: убор просто садится на него сверху.
+                return new Headwear { Rim = FallbackEyeLine + fit.RimAboveEyes };
+            }
+
+            if (HeadwearCache.TryGetValue((portrait, fit), out var cached))
+            {
+                return cached;
+            }
+
+            var pixels = ReadPixels(portrait, out var width, out var height);
+            var scale = PortraitScale(portrait, 1f);
+            var size = scale / (Height / ReferencePortraitHeight);
+
+            if (!PortraitFace.TryFindEyes(pixels, width, height, scale, out var eyes, out var centerX, out var bothEyes))
+            {
+                eyes = FallbackEyeLine;
+                centerX = 0f;
+            }
+            else if (!bothEyes)
+            {
+                // Один глаз под повязкой: высота верная, а середина лица — нет.
+                centerX = 0f;
+            }
+
+            var rim = eyes + fit.RimAboveEyes * size;
+            PortraitFace.CutAbove(pixels, width, height, scale, centerX,
+                rim + fit.CrownAboveRim * size, fit.HalfWidth * size, rim - fit.SideBelowRim * size,
+                3f * size, 3f);
+
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            texture.SetPixelData(pixels, 0);
+            texture.Apply(true, true);
+
+            var result = new Headwear
+            {
+                Portrait = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0f),
+                    portrait.pixelsPerUnit, 0, SpriteMeshType.FullRect),
+                Rim = rim,
+                CenterX = centerX,
+                Size = size,
+            };
+
+            HeadwearCache[(portrait, fit)] = result;
+            return result;
+        }
+
+        /// <summary>
+        /// Пиксели портрета, строками снизу вверх. Текстуры аватаров импортируются без
+        /// чтения с процессора — так они вдвое легче в памяти, — поэтому копию снимаем
+        /// через видеокарту: рисуем в свою текстуру и читаем уже её.
+        /// </summary>
+        private static byte[] ReadPixels(Sprite sprite, out int width, out int height)
+        {
+            var rect = sprite.textureRect;
+            width = Mathf.RoundToInt(rect.width);
+            height = Mathf.RoundToInt(rect.height);
+
+            var source = sprite.texture;
+            var target = RenderTexture.GetTemporary(source.width, source.height, 0,
+                RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
+            var previous = RenderTexture.active;
+
+            Graphics.Blit(source, target);
+            RenderTexture.active = target;
+
+            var copy = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            copy.ReadPixels(new Rect(rect.x, rect.y, width, height), 0, 0, false);
+            copy.Apply(false);
+
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(target);
+
+            var pixels = copy.GetRawTextureData();
+            Object.Destroy(copy);
+            return pixels;
+        }
 
         public static RectTransform Create(Transform parent, Font font, string initial, Color color,
             bool isActing, Sprite portrait, float scale)

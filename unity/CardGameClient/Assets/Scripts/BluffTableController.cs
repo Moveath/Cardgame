@@ -40,26 +40,31 @@ namespace CardGameClient
         private const string RoosterArtPath = "Badges/rooster";
 
         /// <summary>
-        /// Ширина шапки. Голова на портретах около сорока пяти пикселей, шапке нужно чуть
-        /// больше: она надевается поверх, а не прилегает к волосам.
+        /// Ширина шапки при портрете обычного размера. Голова на портретах около сорока
+        /// пяти пикселей; уши шапки закрывают свои и выходят чуть шире головы.
         /// </summary>
-        private const float RoosterWidth = 56f;
+        private const float RoosterWidth = 62f;
 
         /// <summary>
-        /// Где у картинки передний край шапки, в долях её высоты сверху. Он садится на
-        /// брови. У готового арта это самый низ: картинка обрезана по краю, а провал
-        /// внутри шапки прозрачный — сквозь него видна голова. У рисованной ушанки край —
-        /// низ отворота, а уши свисают ниже, как им и положено.
+        /// Где у картинки передний край шапки, в долях её высоты сверху. Он ложится на
+        /// брови, уши свисают ниже. У рисованной ушанки край — низ отворота.
         /// </summary>
-        private const float RoosterArtBrim = 1f;
+        private const float RoosterArtBrim = 0.772f;
 
         private const float RoosterDrawnBrim = 0.8f;
 
         /// <summary>
-        /// Сколько шапке можно подняться над рамкой места. Строку статуса ради неё поджали
-        /// к верху экрана; нынешняя картинка встаёт на 45 и в запас не упирается. Упор —
-        /// страховка на случай, если арт заменят более высоким: шапка тогда надвинется
-        /// ниже, но в текст не полезет.
+        /// Как шапка сидит на голове. Передний край на 11 пикселей выше глаз — на бровях,
+        /// шапка надвинута. Свою шляпу костюма срезаем на 6 выше края над лицом, а по
+        /// бокам, дальше 31 от середины лица, — на 21 ниже края, там, где кончаются уши
+        /// шапки: иначе из-под неё торчали бы поля ковбойской шляпы и колпака.
+        /// </summary>
+        private static readonly SeatFigure.HeadwearFit RoosterFit = new SeatFigure.HeadwearFit(11f, 6f, 31f, 21f);
+
+        /// <summary>
+        /// Сколько шапке можно подняться над рамкой места: выше идёт строка с последним
+        /// действием. Обычно шапка встаёт на 33, в упор упираются только самые высокие лица
+        /// (глаза на 124) — там шапка надвигается на пару пикселей ниже, но в текст не лезет.
         /// </summary>
         private const float RoosterHeadRoom = 46f;
 
@@ -145,6 +150,9 @@ namespace CardGameClient
         private const float RevealHold = 1.6f;
         private const float FourHold = 1.1f;
         private const float FourFade = 0.35f;
+
+        /// <summary>Пауза перед каре, пришедшим прямо на раздаче: стол успевают увидеть.</summary>
+        private const float DealSettle = 0.7f;
 
         // Объявление перестрелки: короткий наплыв, пауза, чтобы успели прочитать все, и уход.
         private const float ShootoutFlashIn = 0.2f;
@@ -239,6 +247,15 @@ namespace CardGameClient
 
         private IEnumerator GameLoop()
         {
+            // Сначала стол, потом каре. Каре, пришедшее прямо на раздаче, иначе уходило
+            // раньше, чем построены места: четыре карты растворялись над пустым сукном, а
+            // после «Ещё раз» — над игроками прошлой партии.
+            Refresh();
+            if (FindFour(out _, out _))
+            {
+                yield return new WaitForSeconds(DealSettle);
+            }
+
             while (!_game.IsFinished)
             {
                 // Каре разбираем до хода: оно очереди не занимает, но руку меняет.
@@ -394,28 +411,9 @@ namespace CardGameClient
         /// </summary>
         private IEnumerator CollectFours()
         {
-            if (!_game.Options.AllowFourOfAKind)
-            {
-                yield break;
-            }
-
             for (var guard = 0; guard < 16 && !_game.IsFinished; guard++)
             {
-                var owner = -1;
-                var rank = Rank.Two;
-
-                for (var i = 0; i < _game.Players.Count; i++)
-                {
-                    var fours = _game.AvailableFours(i);
-                    if (fours.Count > 0)
-                    {
-                        owner = i;
-                        rank = fours[0];
-                        break;
-                    }
-                }
-
-                if (owner < 0)
+                if (!FindFour(out var owner, out var rank))
                 {
                     yield break;
                 }
@@ -426,6 +424,31 @@ namespace CardGameClient
                 ResetChoice();
                 Refresh();
             }
+        }
+
+        /// <summary>Первое каре, которое можно сбросить. Нет правила — нет и каре.</summary>
+        private bool FindFour(out int owner, out Rank rank)
+        {
+            owner = -1;
+            rank = Rank.Two;
+
+            if (!_game.Options.AllowFourOfAKind)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < _game.Players.Count; i++)
+            {
+                var fours = _game.AvailableFours(i);
+                if (fours.Count > 0)
+                {
+                    owner = i;
+                    rank = fours[0];
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private IEnumerator ShowFourLeaving(int owner, Rank rank)
@@ -721,8 +744,13 @@ namespace CardGameClient
             var isActing = !_game.IsFinished && player.Index == _game.CurrentPlayerIndex;
             var color = player.Index == HumanIndex ? HumanColor : ChipColor;
 
+            // Петуху шапку надевают по-настоящему: своя шляпа костюма стирается, а шапка
+            // садится по глазам именно этого портрета.
+            var portrait = PortraitFor(player.Index);
+            var headwear = player.IsRooster ? SeatFigure.PutOnHead(portrait, RoosterFit) : null;
+
             var avatar = SeatFigure.Create(container.transform, _font, player.Name.Substring(0, 1),
-                color, isActing, PortraitFor(player.Index), scale);
+                color, isActing, headwear?.Portrait ?? portrait, scale);
             avatar.anchorMin = avatar.anchorMax = new Vector2(0.5f, 1f);
             avatar.pivot = new Vector2(0.5f, 1f);
             avatar.anchoredPosition = Vector2.zero;
@@ -734,9 +762,9 @@ namespace CardGameClient
             PlaceUnderAvatar((RectTransform)label.transform, (SeatFigure.Height + SeatFigure.NameGap) * scale,
                 new Vector2(220f * scale, SeatFigure.NameHeight * scale));
 
-            if (player.IsRooster)
+            if (headwear != null)
             {
-                BuildRoosterHat(containerRect, scale);
+                BuildRoosterHat(containerRect, scale, headwear);
             }
 
             if (player.IsOut)
@@ -761,15 +789,10 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Веер рубашек сбоку от фигуры, на высоте рук. Ширина задана снаружи, поэтому
-        /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
+        /// Шапка петуха тому, кто оборвал перестрелку. Не снимается до конца партии:
+        /// правилами проверка не запрещена, а стол всё равно не забудет.
         /// </summary>
-        /// <summary>
-        /// Шапка петуха тому, кто оборвал перестрелку. Надевается поверх любого костюма
-        /// и не снимается до конца партии: правилами проверка не запрещена, а стол всё
-        /// равно не забудет.
-        /// </summary>
-        private void BuildRoosterHat(RectTransform container, float scale)
+        private void BuildRoosterHat(RectTransform container, float scale, SeatFigure.Headwear headwear)
         {
             var go = new GameObject("Rooster", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow));
             go.transform.SetParent(container, false);
@@ -780,21 +803,19 @@ namespace CardGameClient
             // может оказаться каким угодно, и подгонять его под чужой прямоугольник —
             // верный способ получить растянутую кашу.
             var aspect = sprite.rect.height <= 0f ? 1.1f : sprite.rect.width / sprite.rect.height;
-            var width = RoosterWidth * scale;
+            var width = RoosterWidth * headwear.Size * scale;
             var height = width / Mathf.Max(aspect, 0.2f);
 
-            // Передний край — на брови. Считаем от линии плеч, а не от верха картинки:
-            // верх у костюмов со шляпой — это шляпа, а лица у всех на одной высоте.
-            // Чужие шляпы шапке не мешают: она рисуется поверх и накрывает их, а широкие
-            // поля ковбойской или колпака волшебника выглядывают по бокам, как из-под неё.
+            // Передний край — туда, где его ждёт портрет: по глазам, а не по верху картинки.
+            // Верх у костюмов со шляпой — это шляпа, а лица за столом стоят на разной высоте.
             var brim = _roosterArt != null ? RoosterArtBrim : RoosterDrawnBrim;
-            var brow = (SeatFigure.Height - SeatFigure.BrowLine) * scale;
-            var top = Mathf.Max(brow - height * brim, -RoosterHeadRoom * scale);
+            var rim = (SeatFigure.Height - headwear.Rim) * scale;
+            var top = Mathf.Max(rim - height * brim, -RoosterHeadRoom * scale);
 
             var rect = (RectTransform)go.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.anchoredPosition = new Vector2(0f, -top);
+            rect.anchoredPosition = new Vector2(headwear.CenterX * scale, -top);
             rect.sizeDelta = new Vector2(width, height);
 
             var image = go.GetComponent<Image>();
@@ -822,6 +843,10 @@ namespace CardGameClient
             return _roosterArt != null ? _roosterArt : UiTextures.RoosterHat(RoosterColor);
         }
 
+        /// <summary>
+        /// Веер рубашек сбоку от фигуры, на высоте рук. Ширина задана снаружи, поэтому
+        /// с ростом руки карты не разъезжаются вширь, а плотнее ложатся друг на друга.
+        /// </summary>
         private void BuildSeatFan(RectTransform container, int handCount, float scale, float fanWidth, float fanSide)
         {
             // Рисуем не больше дюжины рубашек: дальше веер всё равно читается как «много»,
