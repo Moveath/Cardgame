@@ -161,7 +161,9 @@ namespace CardGameClient
             Stretch(_avatarItemsPanel);
             _avatarItemsPanel.gameObject.SetActive(false);
 
-            BuildAvatarGroups();
+            // Сетку наборов здесь не строим: в Start холст ещё не знает своей настоящей
+            // ширины, и ячейки выходили мелкими до первого возврата из набора. Её собирает
+            // ShowScreen при каждом входе в галерею.
         }
 
         private void BuildAvatarGroups()
@@ -901,8 +903,9 @@ namespace CardGameClient
                 RefreshLobbySelection();
             }
 
-            // В галерею всегда заходим с первого уровня — со списка, кто это будет.
-            if (screen == _avatarScreen && _avatarItemsPanel.gameObject.activeSelf)
+            // В галерею всегда заходим с первого уровня — со списка, кто это будет, — и
+            // собираем его заново под нынешнюю ширину экрана.
+            if (screen == _avatarScreen)
             {
                 ShowAvatarGroups();
             }

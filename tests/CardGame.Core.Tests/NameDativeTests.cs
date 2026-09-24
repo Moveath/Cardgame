@@ -12,7 +12,6 @@ public class NameDativeTests
     [Theory]
     [InlineData("Егор", "Егору")]
     [InlineData("Аслан", "Аслану")]
-    [InlineData("Алишер", "Алишеру")]
     [InlineData("Ельнур", "Ельнуру")]
     [InlineData("Марат", "Марату")]
     [InlineData("Данил", "Данилу")]

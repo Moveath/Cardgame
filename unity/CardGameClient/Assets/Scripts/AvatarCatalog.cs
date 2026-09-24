@@ -18,7 +18,6 @@ namespace CardGameClient
         {
             { CommonGroupId, "Персонажи" },
             { "yegor", "Егор" },
-            { "alisher", "Алишер" },
             { "yelnur", "Ельнур" },
             { "marat", "Марат" },
             { "ali", "Али" },

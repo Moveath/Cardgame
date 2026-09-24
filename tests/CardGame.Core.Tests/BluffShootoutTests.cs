@@ -13,8 +13,8 @@ namespace CardGame.Core.Tests;
 /// </summary>
 public class BluffShootoutTests
 {
-    private static readonly string[] Three = { "Егор", "Алишер", "Данил" };
-    private static readonly string[] Two = { "Егор", "Алишер" };
+    private static readonly string[] Three = { "Егор", "Марат", "Данил" };
+    private static readonly string[] Two = { "Егор", "Марат" };
 
     private static BluffOptions Shootouts => new(3, true, false, true);
 

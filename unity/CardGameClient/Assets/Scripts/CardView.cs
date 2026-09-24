@@ -53,6 +53,14 @@ namespace CardGameClient
         private bool _hoverEnabled;
         private Coroutine _hoverRoutine;
 
+        /// <summary>
+        /// Место карты среди соседей до наплыва, -1 — карта не поднята. Под курсором карта
+        /// встаёт поверх всех, а уходя, возвращается на своё. Иначе, если провести мышью
+        /// по руке справа налево, веер переворачивается: каждая карта ложится на правую
+        /// соседку и закрывает ей угол с рангом и мастью.
+        /// </summary>
+        private int _restSiblingIndex = -1;
+
         public RectTransform Rect { get; private set; }
 
         public static CardView Create(Transform parent, Font font, float scale = 1f)
@@ -345,11 +353,23 @@ namespace CardGameClient
             }
 
             RestartHover(AnimateTo(_restPosition + new Vector2(0f, HoverLift), _restRotation, HoverScale));
+            if (_restSiblingIndex < 0)
+            {
+                _restSiblingIndex = transform.GetSiblingIndex();
+            }
+
             transform.SetAsLastSibling();
         }
 
         public void OnPointerExit(PointerEventData eventData)
         {
+            // Возвращаем на место, даже если наплыв уже выключили, пока карта была поднята.
+            if (_restSiblingIndex >= 0)
+            {
+                transform.SetSiblingIndex(Mathf.Min(_restSiblingIndex, transform.parent.childCount - 1));
+                _restSiblingIndex = -1;
+            }
+
             if (!_hoverEnabled)
             {
                 return;

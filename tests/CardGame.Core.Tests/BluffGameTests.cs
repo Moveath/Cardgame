@@ -6,8 +6,8 @@ namespace CardGame.Core.Tests;
 
 public class BluffGameTests
 {
-    private static readonly string[] Three = { "Егор", "Алишер", "Данил" };
-    private static readonly string[] Two = { "Егор", "Алишер" };
+    private static readonly string[] Three = { "Егор", "Марат", "Данил" };
+    private static readonly string[] Two = { "Егор", "Марат" };
 
     /// <summary>
     /// Раздача идёт по кругу, поэтому карты в колоде должны лежать вперемешку по местам.
@@ -241,7 +241,7 @@ public class BluffGameTests
             new[] { C(Rank.King, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.King, Suit.Diamonds) },
             new[] { C(Rank.Nine, Suit.Spades), C(Rank.Nine, Suit.Hearts), C(Rank.Nine, Suit.Diamonds) }));
 
-        // Егор честен, Алишер врёт поверх — вскрывают только Алишера, но котёл уходит целиком.
+        // Егор честен, Марат врёт поверх — вскрывают только Марата, но котёл уходит целиком.
         Apply(game, 0, BluffMove.Declare(Rank.Jack,
             C(Rank.Jack, Suit.Spades), C(Rank.Jack, Suit.Hearts)));
         Apply(game, 1, BluffMove.Follow(C(Rank.King, Suit.Spades), C(Rank.King, Suit.Hearts)));
@@ -279,7 +279,7 @@ public class BluffGameTests
             new[] { C(Rank.King, Suit.Spades), C(Rank.King, Suit.Hearts), C(Rank.King, Suit.Diamonds) },
             new[] { C(Rank.Nine, Suit.Spades), C(Rank.Nine, Suit.Hearts), C(Rank.Nine, Suit.Diamonds) }));
 
-        // Егор честен -> котёл забирает проверяющий Алишер -> круг начинает Данил.
+        // Егор честен -> котёл забирает проверяющий Марат -> круг начинает Данил.
         Apply(game, 0, BluffMove.Declare(Rank.Jack, C(Rank.Jack, Suit.Spades)));
         Apply(game, 1, BluffMove.Challenge());
 
@@ -354,7 +354,7 @@ public class BluffGameTests
         Apply(game, 0, BluffMove.Declare(Rank.Seven, C(Rank.Seven, Suit.Spades)));
         Assert.Equal(1, game.CurrentPlayerIndex);
 
-        // Ходит Алишер, но каре выкладывает Егор — очередь от этого не двигается.
+        // Ходит Марат, но каре выкладывает Егор — очередь от этого не двигается.
         Assert.Contains(BluffMoveType.DiscardFour, game.AvailableMoveTypes(1));
         Apply(game, 1, BluffMove.DiscardFour(Rank.King));
 
@@ -399,7 +399,7 @@ public class BluffGameTests
         Apply(game, 0, BluffMove.Declare(Rank.Eight,
             C(Rank.Eight, Suit.Clubs), C(Rank.Eight, Suit.Hearts)));
 
-        // Егор честен, значит котёл забирает Алишер — и остаётся единственным с картами.
+        // Егор честен, значит котёл забирает Марат — и остаётся единственным с картами.
         Apply(game, 1, BluffMove.Challenge());
 
         Assert.True(game.IsFinished);
