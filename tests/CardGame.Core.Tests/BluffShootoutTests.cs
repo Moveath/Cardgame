@@ -373,6 +373,39 @@ public class BluffShootoutTests
     // ---------- грамматика объявления ----------
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Shootout_OffersAreSpacedTwoOrThreeRoundsApart(bool accept)
+    {
+        var intervals = new HashSet<int>();
+        for (var seed = 0; seed < 100; seed++)
+        {
+            var game = BluffGame.Create(Two, Deck.Standard36(seed), Shootouts);
+            int? lastOffer = null;
+            for (var round = 0; round < 30 && !game.IsFinished; round++)
+            {
+                if (game.ShootoutOffered)
+                {
+                    if (lastOffer.HasValue)
+                    {
+                        var gap = round - lastOffer.Value;
+                        Assert.InRange(gap, 2, 3);
+                        intervals.Add(gap);
+                    }
+                    lastOffer = round;
+                }
+                else if (lastOffer.HasValue)
+                {
+                    Assert.True(round - lastOffer.Value < 3);
+                }
+                PlayWholeRound(game, accept && game.ShootoutOffered);
+            }
+        }
+        Assert.Contains(2, intervals);
+        Assert.Contains(3, intervals);
+    }
+
+    [Theory]
     [InlineData(Rank.Six, "перестрелку на шестёрки")]
     [InlineData(Rank.Ten, "перестрелку на десятки")]
     [InlineData(Rank.Jack, "перестрелку на валетов")]

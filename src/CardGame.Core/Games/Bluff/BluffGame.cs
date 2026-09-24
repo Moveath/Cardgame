@@ -16,13 +16,12 @@ namespace CardGame.Core.Games.Bluff
     public sealed class BluffGame
     {
         /// <summary>
-        /// Как часто ведущему круга предлагают объявить перестрелку. Вместе с паузой ниже
-        /// даёт предложение примерно раз в два круга.
+        /// Вероятность предложения через два круга. Через три оно гарантировано.
         /// </summary>
         private const double ShootoutChance = 0.8;
 
         /// <summary>
-        /// Сколько кругов после состоявшейся перестрелки её точно не предложат. Пауза нужна
+        /// Сколько кругов после предложения перестрелки её точно не предложат. Пауза нужна
         /// затем, чтобы две перестрелки не шли подряд: круг в перестрелке и так вдвое
         /// длиннее обычного.
         /// </summary>
@@ -44,7 +43,7 @@ namespace CardGame.Core.Games.Bluff
         private readonly Random _fate;
 
         private bool _shootoutOffered;
-        private int _roundsSinceShootout = ShootoutCooldownRounds + 1;
+        private int _roundsSinceShootoutOffer = ShootoutCooldownRounds;
 
         /// <summary>Кто сдался. Сдавшийся и есть проигравший, тузы уже ничего не решают.</summary>
         private int? _conceded;
@@ -407,7 +406,6 @@ namespace CardGame.Core.Games.Bluff
             {
                 IsShootout = true;
                 ShootoutStarterIndex = playerIndex;
-                _roundsSinceShootout = 0;
                 _log.Add(BluffLogEntry.Shootout(player, rank));
             }
 
@@ -614,10 +612,15 @@ namespace CardGame.Core.Games.Bluff
             ShootoutStarterIndex = null;
             Phase = BluffPhase.RoundStart;
 
-            _roundsSinceShootout++;
+            _roundsSinceShootoutOffer++;
             _shootoutOffered = _options.AllowShootout
-                               && _roundsSinceShootout > ShootoutCooldownRounds
-                               && _fate.NextDouble() < ShootoutChance;
+                               && _roundsSinceShootoutOffer > ShootoutCooldownRounds
+                               && (_roundsSinceShootoutOffer >= 3 || _fate.NextDouble() < ShootoutChance);
+            // Даже отклонённое предложение запускает паузу: следующее через 2–3 круга.
+            if (_shootoutOffered)
+            {
+                _roundsSinceShootoutOffer = 0;
+            }
 
             CheckRoundStart();
         }

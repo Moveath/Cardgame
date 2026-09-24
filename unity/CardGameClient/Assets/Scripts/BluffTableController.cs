@@ -74,7 +74,13 @@ namespace CardGameClient
 
         // Вертикаль строится сверху вниз фиксированными отступами: на широком окне Unity
         // ужимает высоту холста, и доли экрана начинают наезжать друг на друга.
-        private const float SeatTopMargin = 130f;
+        private const float SeatTopMargin = 146f;
+
+        /// <summary>
+        /// Зазор между местом соперника и вскрытием. Под подписью места бывает ещё строка
+        /// «вышел», и вердикт не должен в неё упираться.
+        /// </summary>
+        private const float RevealTopGap = 40f;
         private const float PotTop = 460f;
         private const float PotHalfHeight = 110f;
 
@@ -140,16 +146,14 @@ namespace CardGameClient
         private const float ThrowPause = 0.45f;
 
         /// <summary>
-        /// В перестрелке темп другой. Круг там вдвое длиннее обычного, и если каждый бросок
-        /// обдумывать так же неторопливо, стол просто стоит. Да и по смыслу это очередь:
-        /// все валят карты, не раздумывая, — пауза тут работает против самой сцены.
+        /// Даже в перестрелке оставляем время заметить, кто сейчас ходит.
         /// </summary>
-        private const float ShootoutThinkDelay = 0.5f;
+        private const float ShootoutThinkDelay = 0.95f;
 
-        private const float ShootoutThrowPause = 0.2f;
-        private const float RevealHold = 1.6f;
-        private const float FourHold = 1.1f;
-        private const float FourFade = 0.35f;
+        private const float ShootoutThrowPause = 0.55f;
+        private const float RevealHold = 2.2f;
+        private const float FourHold = 1.7f;
+        private const float FourFade = 0.55f;
 
         /// <summary>Пауза перед каре, пришедшим прямо на раздаче: стол успевают увидеть.</summary>
         private const float DealSettle = 0.7f;
@@ -177,7 +181,7 @@ namespace CardGameClient
         private const float ShootoutFlashIn = 0.2f;
         private const float ShootoutHold = 1.9f;
         private const float ShootoutFlashOut = 0.4f;
-        private const float FlightDuration = 0.5f;
+        private const float FlightDuration = 0.7f;
 
         private BluffMatchSettings _settings = BluffMatchSettings.Default;
         private Action _onExit;
@@ -274,6 +278,7 @@ namespace CardGameClient
             }
 
             StopAllCoroutines();
+            SetPotVisible(true);
             StartCoroutine(GameLoop());
         }
 
@@ -368,13 +373,22 @@ namespace CardGameClient
             }
 
             ResetChoice();
-            Refresh();
+            RefreshControls();
+            _rankRow.gameObject.SetActive(false);
 
             if (wasChallenge)
             {
+                _status.text = _game.Players[actor].Name + " проверяет";
                 yield return PlayReveal();
                 yield break;
             }
+
+            if (move.Type == BluffMoveType.Declare || move.Type == BluffMoveType.Follow)
+            {
+                _status.text = _game.Players[actor].Name + " кладёт карты";
+                yield return FlyThrowFrom(actor, move.Cards.Count);
+            }
+            Refresh();
 
             // Объявление идёт после броска: пока карты не легли, называть перестрелку не на что.
             if (move.OpensShootout)
@@ -393,6 +407,9 @@ namespace CardGameClient
         private IEnumerator ShowShootoutBanner(int starter, Rank rank)
         {
             Clear(_revealArea);
+            LayoutReveal(1000f, 250f);
+            _potArea.gameObject.SetActive(false);
+            _rankBadge.gameObject.SetActive(false);
 
             var banner = new GameObject("Shootout", typeof(RectTransform), typeof(CanvasGroup));
             banner.transform.SetParent(_revealArea, false);
@@ -422,9 +439,11 @@ namespace CardGameClient
 
             yield return AnimateBanner(bannerRect, group, ShootoutFlashIn, 0.6f, 1f);
             yield return new WaitForSeconds(ShootoutHold);
-            yield return AnimateBanner(bannerRect, group, ShootoutFlashOut, 1f, 1.18f, fadeOut: true);
+            yield return AnimateBanner(bannerRect, group, ShootoutFlashOut, 1f, 1f, fadeOut: true);
 
             Clear(_revealArea);
+            _potArea.gameObject.SetActive(true);
+            _rankBadge.gameObject.SetActive(true);
         }
 
         private static IEnumerator AnimateBanner(RectTransform rect, CanvasGroup group, float duration,
@@ -495,14 +514,17 @@ namespace CardGameClient
         private IEnumerator ShowFourLeaving(int owner, Rank rank)
         {
             Clear(_revealArea);
+            SetPotVisible(false);
+            var revealHeight = LayoutReveal();
+            _status.text = _game.Players[owner].Name + " сбрасывает каре";
 
             var caption = CreateText(_revealArea,
                 _game.Players[owner].Name + ": каре " + RankPluralGenitive(rank) + " — из игры",
                 30, TextAnchor.MiddleCenter);
             caption.color = AccentGlow;
-            Place((RectTransform)caption.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 150f), new Vector2(800f, 44f));
+            Place((RectTransform)caption.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, revealHeight * 0.5f - 22f), new Vector2(800f, 44f));
 
-            const float scale = 1.05f;
+            var scale = Mathf.Min(1.05f, (revealHeight - 100f) / CardView.Height);
             var step = CardView.Width * scale + 16f;
             var start = -3f * step / 2f;
 
@@ -518,7 +540,7 @@ namespace CardGameClient
                 var view = CardView.Create(_revealArea, _font, scale);
                 view.ShowFace(card);
                 view.SetPlain();
-                view.SetRestTransform(new Vector2(start + shown * step, 0f), 0f);
+                view.SetRestTransform(new Vector2(start + shown * step, -12f), 0f);
                 view.PlayAppearAnimation();
                 views.Add(view);
                 shown++;
@@ -536,14 +558,16 @@ namespace CardGameClient
                 for (var i = 0; i < views.Count; i++)
                 {
                     var rect = views[i].Rect;
-                    rect.anchoredPosition = new Vector2(start + i * step, k * 90f);
+                    rect.anchoredPosition = new Vector2(start + i * step, -12f - k * 18f);
                     rect.localScale = Vector3.one * (1f - k * 0.25f);
+                    views[i].GetComponent<CanvasGroup>().alpha = 1f - k;
                 }
 
                 yield return null;
             }
 
             Clear(_revealArea);
+            SetPotVisible(true);
         }
 
         private void ResetChoice()
@@ -580,22 +604,45 @@ namespace CardGameClient
 
             Clear(_revealArea);
 
+            SetPotVisible(false);
+            var revealHeight = LayoutReveal();
+
+            // Столбик по центру свободной полосы: вердикт над картами, заявка под ними, петух
+            // ещё ниже. Раньше обе надписи стояли над картами и съедали сто семьдесят
+            // пикселей: на широком экране, где полоса узкая, карта ужималась вдвое, а
+            // вердикт упирался в подпись соседа сверху.
+            const float verdictHeight = 58f;
+            const float claimHeight = 36f;
+            const float brandHeight = 42f;
+            const float gap = 8f;
+            var overhead = verdictHeight + claimHeight + 2f * gap + (entry.BrokeShootout ? brandHeight + gap : 0f);
+            var revealScale = Mathf.Clamp((revealHeight - overhead) / CardView.Height, 0.6f, 1.35f);
+            var cardHeight = CardView.Height * revealScale;
+            var y = (overhead + cardHeight) * 0.5f;
+
             var lied = entry.WasLie == true;
-            var verdict = CreateText(_revealArea, lied ? "Соврал!" : "Правда!", 44, TextAnchor.MiddleCenter);
+            var verdict = CreateText(_revealArea, lied ? "Соврал!" : "Правда!", 50, TextAnchor.MiddleCenter);
             verdict.color = lied ? LieColor : TruthColor;
             verdict.fontStyle = FontStyle.Bold;
-            Place((RectTransform)verdict.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 150f), new Vector2(600f, 60f));
+            Place((RectTransform)verdict.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, y - verdictHeight * 0.5f),
+                new Vector2(600f, verdictHeight));
+            y -= verdictHeight + gap;
+
+            var cardsY = y - cardHeight * 0.5f;
+            y -= cardHeight + gap;
 
             var claimed = entry.DeclaredCount ?? 0;
             var claim = CreateText(_revealArea,
                 "заявлено: " + claimed + " " + BluffRules.CardsWord(claimed)
                 + " · " + BluffRules.RankPlural(entry.DeclaredRank!.Value),
-                26, TextAnchor.MiddleCenter);
+                28, TextAnchor.MiddleCenter);
             claim.color = DimColor;
-            Place((RectTransform)claim.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 104f), new Vector2(700f, 40f));
+            Place((RectTransform)claim.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, y - claimHeight * 0.5f),
+                new Vector2(800f, claimHeight));
+            y -= claimHeight + gap;
 
-            // Кто оборвал перестрелку, узнаёт об этом там же, где вскрылись карты: клеймо
-            // важнее самого вскрытия, потому что останется до конца партии.
+            // Кто оборвал перестрелку, узнаёт об этом там же, где вскрылись карты: следующие
+            // два круга он ходит в шапке петуха.
             if (entry.BrokeShootout)
             {
                 var brand = CreateText(_revealArea,
@@ -603,11 +650,10 @@ namespace CardGameClient
                     32, TextAnchor.MiddleCenter);
                 brand.color = RoosterColor;
                 brand.fontStyle = FontStyle.Bold;
-                Place((RectTransform)brand.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -134f),
-                    new Vector2(800f, 44f));
+                Place((RectTransform)brand.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, y - brandHeight * 0.5f),
+                    new Vector2(900f, brandHeight));
             }
 
-            const float revealScale = 1.15f;
             var step = CardView.Width * revealScale + 18f;
             var start = -(entry.RevealedCards.Count - 1) * step / 2f;
 
@@ -616,7 +662,7 @@ namespace CardGameClient
                 var view = CardView.Create(_revealArea, _font, revealScale);
                 view.ShowFace(entry.RevealedCards[i]);
                 view.SetPlain();
-                view.SetRestTransform(new Vector2(start + i * step, 0f), 0f);
+                view.SetRestTransform(new Vector2(start + i * step, cardsY), 0f);
                 view.PlayAppearAnimation();
             }
 
@@ -630,12 +676,64 @@ namespace CardGameClient
             }
 
             Refresh();
+            SetPotVisible(true);
+        }
+
+        private void SetPotVisible(bool visible)
+        {
+            _potArea.gameObject.SetActive(visible);
+            _rankBadge.gameObject.SetActive(visible);
+        }
+
+        // Временные карты и подписи помещаются между местами соперников и рукой.
+        // Учитываем только места, пересекающие центральную область по горизонтали.
+        private float LayoutReveal(float width = 900f, float height = 380f)
+        {
+            var root = (RectTransform)transform;
+            var layout = BuildSeatLayout(_game.Players.Count - 1);
+            // Выбор ранга во время показа скрыт: свободное место идёт до самой руки.
+            var bottom = root.rect.height - HandRowBottom - HandTopReach - 16f;
+            var top = SeatTopMargin + layout.BlockHeight + RevealTopGap;
+            for (var i = 0; i < _game.Players.Count - 1; i++)
+            {
+                var seat = SeatPosition(i, _game.Players.Count - 1, layout);
+                if (Mathf.Abs(seat.x) < width * 0.5f + 110f * layout.Scale)
+                {
+                    top = Mathf.Max(top, -seat.y + layout.BlockHeight + RevealTopGap);
+                }
+            }
+            var availableHeight = Mathf.Min(height, bottom - top);
+            _revealArea.anchorMin = _revealArea.anchorMax = new Vector2(0.5f, 1f);
+            _revealArea.anchoredPosition = new Vector2(0f, -(top + bottom) * 0.5f);
+            // Размер шрифта больше не зависит от свободной высоты: ужимаются только карты.
+            _revealArea.localScale = Vector3.one;
+            return availableHeight;
+        }
+
+        private IEnumerator FlyThrowFrom(int actor, int count)
+        {
+            var from = SeatAnchor(actor);
+            var to = PotCenter();
+            for (var i = 0; i < count; i++)
+            {
+                var view = CardView.Create(_flyLayer, _font, 1.1f);
+                view.ShowBack();
+                view.SetPlain();
+                var landing = to + new Vector2(i * 5f, -i * 3f);
+                view.SetRestTransform(landing, 0f);
+                // Та же анимация, которой пользуется стол дурака.
+                view.PlayFlyIn(from - landing);
+                yield return new WaitForSeconds(0.1f);
+            }
+            yield return new WaitForSeconds(CardView.FlightDuration);
+            Clear(_flyLayer);
         }
 
         private IEnumerator FlyPotTo(int playerIndex, int count)
         {
-            var from = PotCenter();
+            Vector2 from = _flyLayer.InverseTransformPoint(_revealArea.position);
             var to = SeatAnchor(playerIndex);
+            _status.text = _game.Players[playerIndex].Name + " забирает стопку";
 
             var views = new List<CardView>();
             var flying = Mathf.Min(count, 5);
@@ -1173,7 +1271,7 @@ namespace CardGameClient
             }
 
             var phrase = "Кидаю " + ThrowPhrase(rank.Value, _selected.Count);
-            return _shootoutArmed ? "ПЕРЕСТРЕЛКА: " + phrase : phrase;
+            return _shootoutArmed ? "Перестрелка\n" + phrase : phrase;
         }
 
         /// <summary>Мужские карты — валет, король, туз, — остальные женские. От этого и форма.</summary>
@@ -1618,15 +1716,13 @@ namespace CardGameClient
             feltImage.sprite = UiTextures.RoundedRect(64, 64, 20f, new Color(0.10f, 0.26f, 0.34f));
             feltImage.type = Image.Type.Sliced;
 
-            // Обе строки поджаты к самому верху: между ними и местами соперников должна
-            // встать шапка петуха. Раньше последнее действие стояло на 100 от верха, и
-            // шапка в него упиралась.
+            // Обе строки внутри сукна; ниже оставлено место для шапок соперников.
             _status = CreateText(root, string.Empty, 34, TextAnchor.MiddleCenter);
-            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(1200f, 44f));
+            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -56f), new Vector2(1200f, 44f));
 
             _lastAction = CreateText(root, string.Empty, 25, TextAnchor.MiddleCenter);
             _lastAction.color = DimColor;
-            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -66f), new Vector2(1100f, 30f));
+            Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -88f), new Vector2(1100f, 30f));
 
             _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
             _opponentsArea.SetParent(root, false);
@@ -1821,6 +1917,13 @@ namespace CardGameClient
 
             var text = CreateText(rect, label, 28, TextAnchor.MiddleCenter);
             Stretch((RectTransform)text.transform);
+            ((RectTransform)text.transform).offsetMin = new Vector2(12f, 6f);
+            ((RectTransform)text.transform).offsetMax = new Vector2(-12f, -6f);
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = 18;
+            text.resizeTextMaxSize = 28;
 
             return button;
         }

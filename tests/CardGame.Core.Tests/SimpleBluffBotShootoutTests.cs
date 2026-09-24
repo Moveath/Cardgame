@@ -7,8 +7,8 @@ namespace CardGame.Core.Tests;
 
 /// <summary>
 /// Как бот ведёт себя в перестрелке. Механически проверка в ней ничем не отличается от
-/// обычной — вся цена в петухе, — поэтому поведение здесь целиком про нервы: молчать,
-/// пока котёл мал, и беречь настоящую карту круга на тот случай, когда всё-таки вскроют.
+/// обычной — вся цена в петухе. Бот учитывает подозрительность заявки, размер котла
+/// и близкий выход соперника; клеймо не даёт вруну иммунитета от проверки.
 /// </summary>
 public class SimpleBluffBotShootoutTests
 {
@@ -125,14 +125,14 @@ public class SimpleBluffBotShootoutTests
     private static Card[] ThreeJunk(List<Card> pool, int from) =>
         new[] { pool[from], pool[from + 1], pool[from + 2] };
 
-    // ---------- молчание ----------
+    // ---------- проверки ----------
 
     /// <summary>
     /// Та же позиция, та же доказанная ложь, та же рука — разница только в том, что идёт
-    /// перестрелка. Вне её бот вскрывает такое почти всегда, внутри — почти никогда.
+    /// перестрелка. Доказанную ложь можно вскрыть уже на первом броске в обоих режимах.
     /// </summary>
     [Fact]
-    public void Bot_SwallowsAProvenLieWhileTheShootoutIsYoung()
+    public void Bot_ChallengesAProvenLieOnTheFirstShootoutThrow()
     {
         var pool = JunkPool(Rank.Six);
         var liar = new List<Card>(pool.GetRange(0, 12));
@@ -150,8 +150,7 @@ public class SimpleBluffBotShootoutTests
         var normally = ChallengeRate(plain, 1);
 
         Assert.True(normally > 200, "вне перестрелки вскрывает всего " + normally);
-        Assert.True(inShootout * 4 < normally,
-            "в перестрелке " + inShootout + ", обычно " + normally);
+        Assert.Equal(normally, inShootout);
     }
 
     /// <summary>
@@ -168,15 +167,16 @@ public class SimpleBluffBotShootoutTests
 
         var game = ShootoutOffered(Two, liar.ToArray(), bot.ToArray());
 
-        Apply(game, 0, BluffMove.DeclareShootout(Rank.Six, ThreeJunk(liar, 0)));
+        // Две заявленные карты при двух своих ещё не доказывают ложь.
+        Apply(game, 0, BluffMove.DeclareShootout(Rank.Six, liar.GetRange(0, 2)));
         var young = ChallengeRate(game, 1);
 
         // Гоняем круг дальше, пока котёл не вырастет. Руки тают поровну, так что лидера
         // за столом не появляется: проверяем именно влияние котла.
-        for (var lap = 1; lap <= 3; lap++)
+        for (var lap = 1; lap <= 5; lap++)
         {
-            Apply(game, 1, BluffMove.Follow(ThreeJunk(bot, 2 + (lap - 1) * 3)));
-            Apply(game, 0, BluffMove.Follow(ThreeJunk(liar, lap * 3)));
+            Apply(game, 1, BluffMove.Follow(bot.GetRange(2 + (lap - 1) * 2, 2)));
+            Apply(game, 0, BluffMove.Follow(liar.GetRange(lap * 2, 2)));
         }
 
         Assert.True(game.DeclaredPotCount >= 20, "котёл всего " + game.DeclaredPotCount);
@@ -187,6 +187,28 @@ public class SimpleBluffBotShootoutTests
     }
 
     // ---------- запас ----------
+
+    [Fact]
+    public void Bot_CanCheckAPlausibleFirstThrowAndStopsANearFinisherMoreOften()
+    {
+        var pool = JunkPool(Rank.Six);
+        var liar = pool.GetRange(0, 12);
+        var bot = pool.GetRange(12, 12);
+        var game = ShootoutOffered(Two, liar.ToArray(), bot.ToArray());
+        Apply(game, 0, BluffMove.DeclareShootout(Rank.Six, ThreeJunk(liar, 0)));
+        var early = ChallengeRate(game, 1);
+        Assert.InRange(early, 40, 200);
+
+        for (var lap = 1; lap <= 2; lap++)
+        {
+            Apply(game, 1, BluffMove.Follow(ThreeJunk(bot, (lap - 1) * 3)));
+            Apply(game, 0, BluffMove.Follow(ThreeJunk(liar, lap * 3)));
+        }
+        Assert.Equal(3, game.Players[0].Hand.Count);
+        var nearExit = ChallengeRate(game, 1);
+        Assert.True(nearExit > early * 2, "на первом броске " + early + ", перед выходом " + nearExit);
+        Assert.InRange(nearExit, 240, 390);
+    }
 
     /// <summary>
     /// Главный приём перестрелки: настоящая карта круга — это страховка. Пока котёл мал и
@@ -387,6 +409,6 @@ public class SimpleBluffBotShootoutTests
 
         Assert.True(shootouts > 5, "перестрелок за 25 партий всего " + shootouts);
         Assert.True(roosters > 0, "петухов не завелось ни одного — перестрелки никто не срывает");
-        Assert.True(roosters < shootouts, "перестрелки срывают чаще, чем объявляют");
+        Assert.True(roosters <= shootouts, "проверок больше, чем объявленных перестрелок");
     }
 }

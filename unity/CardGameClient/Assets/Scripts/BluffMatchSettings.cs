@@ -9,9 +9,6 @@ namespace CardGameClient
         public int PlayerCount;
         public DeckKind DeckSize;
 
-        /// <summary>Разрешено ли сбрасывать каре вне очереди.</summary>
-        public bool AllowFourOfAKind;
-
         /// <summary>
         /// Бывают ли за столом перестрелки. Домашнее правило: изредка ведущему круга
         /// предлагают её объявить, и тогда круг идёт на нервах — все валят мусор, котёл
@@ -23,7 +20,6 @@ namespace CardGameClient
         {
             PlayerCount = 4,
             DeckSize = DeckKind.ThirtySix,
-            AllowFourOfAKind = true,
             Shootout = true
         };
 
@@ -68,6 +64,6 @@ namespace CardGameClient
             }
         }
 
-        public BluffOptions BuildOptions() => new BluffOptions(3, AllowFourOfAKind, false, Shootout);
+        public BluffOptions BuildOptions() => new BluffOptions(3, true, false, Shootout);
     }
 }

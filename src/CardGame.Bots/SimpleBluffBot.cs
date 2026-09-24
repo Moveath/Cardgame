@@ -73,13 +73,12 @@ namespace CardGame.Bots
         private const double ShootoutOpenPerSpareCard = 0.5;
 
         /// <summary>
-        /// Во сколько раз реже бот проверяет в перестрелке. Механически проверка выгодна
-        /// как обычно — вся цена в петухе, и одного этого хватает, чтобы стол молчал.
+        /// Осторожность в начале перестрелки, пока нет явных причин её прервать.
         /// </summary>
-        private const double ShootoutShame = 0.10;
+        private const double ShootoutShame = 0.65;
 
         /// <summary>Но жадность пересиливает стыд: слагаемое за толстый котёл и близкого к выходу вруна.</summary>
-        private const double ShootoutNerve = 0.5;
+        private const double ShootoutNerve = 0.35;
 
         /// <summary>
         /// Какая часть этой жадности держится на одном размере котла, без оглядки на то,
@@ -363,8 +362,7 @@ namespace CardGame.Bots
             // Столько карт этого ранга в колоде просто нет — соврал наверняка. Ловим тем
             // охотнее, чем ближе врун к выходу: вскрыть лидера выгодно, а отстающему
             // лишняя пачка карт почти ничего не меняет — на него проверку можно и не тратить.
-            // В перестрелке проверка стоит петуха, и это главный тормоз: даже пойманного
-            // за руку вруна бот чаще всего пропускает молча.
+            // Клеймо не должно заставлять бота пропускать доказанную ложь.
             var restraint = ShootoutRestraint(game, pressure);
 
             // Кроме одного случая: соперник только что выложил последние карты. Промолчать
@@ -378,7 +376,7 @@ namespace CardGame.Bots
             if (mine + packet.DeclaredCount > CardsPerRank)
             {
                 var notice = NoticeCertainLieMin + (NoticeCertainLieMax - NoticeCertainLieMin) * pressure;
-                return _random.NextDouble() < notice * restraint;
+                return _random.NextDouble() < notice;
             }
 
             var suspicion = BaseSuspicion;
@@ -391,9 +389,22 @@ namespace CardGame.Bots
             // Та же мысль, но плавно: чем меньше карт у бросавшего, тем нужнее его вскрыть.
             suspicion += SuspicionPerPressure * pressure;
 
-            // Чем больше котёл, тем дороже ошибиться — и тем спокойнее бот смотрит на чужие
-            // заявки. Из этого сама собой получается нарастающая по кругу тишина.
-            suspicion -= CalmPerPotCard * game.DeclaredPotCount;
+            if (game.IsShootout)
+            {
+                // Большой котёл заманчиво вручить вруну. Проверка возможна с первого
+                // пакета; нарастающий риск не превращает перестрелку в бесплатный сброс.
+                suspicion += 0.12 + 0.3 * PotWeight(game);
+                var remaining = game.Players[packet.PlayerIndex].Hand.Count;
+                if (remaining <= game.Options.MaxCardsPerThrow)
+                {
+                    suspicion += 0.22;
+                    restraint = 1.0;
+                }
+            }
+            else
+            {
+                suspicion -= CalmPerPotCard * game.DeclaredPotCount;
+            }
 
             // Чем меньше своих карт, тем обиднее забирать котёл.
             suspicion -= CalmPerMissingCard * Math.Max(0, 6 - hand.Count);
@@ -403,8 +414,7 @@ namespace CardGame.Bots
 
         /// <summary>
         /// Во сколько раз слабее желание проверить, пока идёт перестрелка. Единица — вне
-        /// перестрелки. Внутри неё стыд давит почти до нуля, и пересиливает его только
-        /// жадность: гора карт, которую можно вручить тому, кто уже почти вышел.
+        /// перестрелки. Внутри неё осторожность ослабевает по мере роста котла.
         /// </summary>
         private static double ShootoutRestraint(BluffGame game, double pressure)
         {

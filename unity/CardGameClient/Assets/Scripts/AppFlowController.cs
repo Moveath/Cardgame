@@ -52,8 +52,6 @@ namespace CardGameClient
         private readonly List<Image> _bluffDeckButtonImages = new List<Image>();
         private readonly List<Button> _bluffPlayerButtons = new List<Button>();
         private readonly List<Image> _bluffPlayerButtonImages = new List<Image>();
-        private readonly Button[] _bluffFourButtons = new Button[2];
-        private readonly Image[] _bluffFourButtonImages = new Image[2];
         private readonly Button[] _bluffShootoutButtons = new Button[2];
         private readonly Image[] _bluffShootoutButtonImages = new Image[2];
 
@@ -620,11 +618,7 @@ namespace CardGameClient
                 _bluffPlayerButtonImages.Add(image);
             }
 
-            BuildBinaryToggle(_bluffLobbyScreen.transform, 476f, "Каре", "Без", "Сбрасывать",
-                _bluffFourButtons, _bluffFourButtonImages,
-                () => SelectBluffFour(false), () => SelectBluffFour(true));
-
-            BuildBinaryToggle(_bluffLobbyScreen.transform, 536f, "Перестрелка", "Без", "С перестрелкой",
+            BuildBinaryToggle(_bluffLobbyScreen.transform, 476f, "Перестрелка", "Без", "Включена",
                 _bluffShootoutButtons, _bluffShootoutButtonImages,
                 () => SelectBluffShootout(false), () => SelectBluffShootout(true));
 
@@ -632,16 +626,17 @@ namespace CardGameClient
                 "изредка круг идёт на нервах: кидают до последнего, а кто первым проверит — тот петух",
                 21, TextAnchor.UpperCenter);
             shootoutHint.color = new Color(1f, 0.78f, 0.6f, 0.8f);
-            PlaceFromTop((RectTransform)shootoutHint.transform, 0f, 592f, new Vector2(920f, 28f));
+            PlaceFromTop((RectTransform)shootoutHint.transform, 0f, 532f, new Vector2(920f, 28f));
 
             // Правила, которые не настраиваются: они держат всю игру и переключателями не бывают.
             var rules = CreateText(_bluffLobbyScreen.transform,
-                "Тузами заявляться нельзя — их можно только подкладывать втихую.\n"
+                "Каре сбрасывается автоматически.\n"
+                + "Тузами заявляться нельзя — их можно только подкладывать втихую.\n"
                 + "Партия идёт, пока у всех на руках не останутся одни тузы.\n"
                 + "Проигрывает тот, у кого их больше всех.",
                 22, TextAnchor.UpperCenter);
             rules.color = new Color(0.85f, 0.92f, 0.85f, 0.75f);
-            PlaceFromTop((RectTransform)rules.transform, 0f, 634f, new Vector2(900f, 90f));
+            PlaceFromTop((RectTransform)rules.transform, 0f, 574f, new Vector2(900f, 120f));
 
             _bluffSeatsSummary = CreateText(_bluffLobbyScreen.transform, string.Empty, 24, TextAnchor.MiddleCenter);
             _bluffSeatsSummary.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
@@ -689,12 +684,6 @@ namespace CardGameClient
             RefreshBluffLobbySelection();
         }
 
-        private void SelectBluffFour(bool allow)
-        {
-            _bluffSettings.AllowFourOfAKind = allow;
-            RefreshBluffLobbySelection();
-        }
-
         private void SelectBluffShootout(bool allow)
         {
             _bluffSettings.Shootout = allow;
@@ -719,9 +708,6 @@ namespace CardGameClient
                 var isSelected = _bluffSettings.PlayerCount == count;
                 SetChoiceState(_bluffPlayerButtons[index], _bluffPlayerButtonImages[index], isValid, isSelected);
             }
-
-            SetChoiceState(_bluffFourButtons[0], _bluffFourButtonImages[0], true, !_bluffSettings.AllowFourOfAKind);
-            SetChoiceState(_bluffFourButtons[1], _bluffFourButtonImages[1], true, _bluffSettings.AllowFourOfAKind);
 
             SetChoiceState(_bluffShootoutButtons[0], _bluffShootoutButtonImages[0], true, !_bluffSettings.Shootout);
             SetChoiceState(_bluffShootoutButtons[1], _bluffShootoutButtonImages[1], true, _bluffSettings.Shootout);
@@ -954,6 +940,13 @@ namespace CardGameClient
 
             var text = CreateText(go.transform, label, 30, TextAnchor.MiddleCenter);
             Stretch((RectTransform)text.transform);
+            ((RectTransform)text.transform).offsetMin = new Vector2(10f, 4f);
+            ((RectTransform)text.transform).offsetMax = new Vector2(-10f, -4f);
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = 18;
+            text.resizeTextMaxSize = 30;
 
             return image;
         }
