@@ -7,7 +7,7 @@ namespace CardGame.Core.Tests;
 /// <summary>
 /// Перестрелка — домашнее правило поверх обычного круга. Правила бросков в ней те же
 /// самые, и проверять в ней не запрещено: меняется только цена проверки. Тот, кто
-/// оборвал перестрелку, получает петуха до конца партии — ни очков, ни карт это не
+/// оборвал перестрелку, получает петуха на два круга — ни очков, ни карт это не
 /// стоит, и в этом весь смысл. Тесты стерегут границу: перестрелка не должна начать
 /// влиять на сами правила.
 /// </summary>
@@ -205,7 +205,7 @@ public class BluffShootoutTests
     // ---------- петух ----------
 
     [Fact]
-    public void Challenging_AShootout_BrandsTheChallengerForTheRestOfTheGame()
+    public void Challenging_AShootout_PutsTheHatOnForTwoRounds()
     {
         var game = BluffGame.Create(Three, Deck.Standard36(SeedWithOfferOnTheFirstRound(Three)), Shootouts);
 
@@ -214,6 +214,7 @@ public class BluffShootoutTests
 
         Assert.True(game.Players[1].IsRooster);
         Assert.Equal(1, game.Players[1].RoosterMarks);
+        Assert.Equal(BluffGame.RoosterRounds, game.Players[1].RoosterRoundsLeft);
         Assert.False(game.Players[0].IsRooster);
         Assert.False(game.Players[2].IsRooster);
 
@@ -222,16 +223,67 @@ public class BluffShootoutTests
         Assert.True(entry.BrokeShootout);
         Assert.Contains("петух", entry.Text);
 
-        // Круг кончился, а клеймо осталось.
+        // Круг кончился, а шапка осталась.
         Assert.False(game.IsShootout);
         Assert.Null(game.ShootoutStarterIndex);
 
-        for (var round = 0; round < 4 && !game.IsFinished; round++)
+        // Первый круг после перестрелки — ещё в шапке.
+        PlayWholeRound(game, openShootout: false);
+        Assert.True(game.Players[1].IsRooster);
+        Assert.Equal(1, game.Players[1].RoosterRoundsLeft);
+
+        // Второй — последний: после него шапку снимают. Счёт сорванных остаётся.
+        PlayWholeRound(game, openShootout: false);
+        Assert.False(game.IsFinished);
+        Assert.False(game.Players[1].IsRooster);
+        Assert.Equal(0, game.Players[1].RoosterRoundsLeft);
+        Assert.Equal(1, game.Players[1].RoosterMarks);
+    }
+
+    /// <summary>
+    /// Сорвал ещё одну перестрелку, пока шапка на голове, — срок начинается заново, а не
+    /// дотикивает старый. Для этого нужно, чтобы перестрелку предложили, пока петух ещё в
+    /// шапке, и вскрывать выпало именно ему, — такое бывает не на каждой раздаче, поэтому
+    /// перебираем, пока не найдём.
+    /// </summary>
+    [Fact]
+    public void BreakingAnotherShootout_WhileStillARooster_StartsTheTermAgain()
+    {
+        for (var seed = 0; seed < 400; seed++)
         {
-            PlayWholeRound(game, openShootout: false);
+            var game = BluffGame.Create(Two, Deck.Standard36(seed), Shootouts);
+            if (!game.ShootoutOffered)
+            {
+                continue;
+            }
+
+            PlayWholeRound(game, openShootout: true);
+            var rooster = game.Players[0].IsRooster ? 0 : 1;
+            Assert.True(game.Players[rooster].IsRooster);
+
+            for (var round = 0; round < BluffGame.RoosterRounds && !game.IsFinished; round++)
+            {
+                var leader = game.CurrentPlayerIndex;
+
+                // Вдвоём вскрывает тот, кто не ведёт.
+                if (game.ShootoutOffered && leader != rooster)
+                {
+                    Assert.Equal(BluffGame.RoosterRounds - round, game.Players[rooster].RoosterRoundsLeft);
+
+                    Apply(game, leader, SomeDeclaration(game, openShootout: true));
+                    Assert.Equal(rooster, game.CurrentPlayerIndex);
+                    Apply(game, rooster, BluffMove.Challenge());
+
+                    Assert.Equal(BluffGame.RoosterRounds, game.Players[rooster].RoosterRoundsLeft);
+                    Assert.Equal(2, game.Players[rooster].RoosterMarks);
+                    return;
+                }
+
+                PlayWholeRound(game, openShootout: false);
+            }
         }
 
-        Assert.True(game.Players[1].IsRooster);
+        Assert.Fail("Ни на одной из 400 раздач петуху не выпало сорвать вторую перестрелку, пока шапка на нём.");
     }
 
     [Fact]
@@ -247,7 +299,7 @@ public class BluffShootoutTests
         Assert.DoesNotContain("петух", game.Log[^1].Text);
     }
 
-    /// <summary>Сорвал вторую перестрелку — второе клеймо. Отмыться за партию нельзя.</summary>
+    /// <summary>Сорвал вторую перестрелку — счёт два, даже если шапку за это время уже сняли.</summary>
     [Fact]
     public void RoosterMarks_AddUp()
     {

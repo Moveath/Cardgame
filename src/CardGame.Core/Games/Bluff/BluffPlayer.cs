@@ -61,13 +61,21 @@ namespace CardGame.Core.Games.Bluff
         }
 
         /// <summary>
-        /// Сколько раз игрок сорвал перестрелку проверкой. Правилами это не запрещено и
-        /// ничего не стоит по очкам — но за столом за это дают петуха, и клеймо остаётся
-        /// до конца партии. Вся цена перестрелки в этом: механики никакой, стыд настоящий.
+        /// Сколько раз за партию игрок сорвал перестрелку проверкой. Правилами это не
+        /// запрещено и ничего не стоит по очкам — но за столом за это дают петуха. Вся цена
+        /// перестрелки в этом: механики никакой, стыд настоящий. Счёт копится за всю партию,
+        /// даже когда шапку уже сняли.
         /// </summary>
         public int RoosterMarks { get; private set; }
 
-        public bool IsRooster => RoosterMarks > 0;
+        /// <summary>
+        /// Сколько ещё кругов носить петуха. Шапка не навсегда: два круга после сорванной
+        /// перестрелки. Сорвал ещё одну, пока шапка на голове, — срок начинается заново;
+        /// не сорвал — шапку снимают.
+        /// </summary>
+        public int RoosterRoundsLeft { get; private set; }
+
+        public bool IsRooster => RoosterRoundsLeft > 0;
 
         public int CountOf(Rank rank)
         {
@@ -89,6 +97,19 @@ namespace CardGame.Core.Games.Bluff
 
         internal void Deal(Card card) => _hand.Add(card);
 
-        internal void MarkRooster() => RoosterMarks++;
+        internal void MarkRooster(int rounds)
+        {
+            RoosterMarks++;
+            RoosterRoundsLeft = rounds;
+        }
+
+        /// <summary>Круг кончился: петуху носить шапку на круг меньше.</summary>
+        internal void RoundPassed()
+        {
+            if (RoosterRoundsLeft > 0)
+            {
+                RoosterRoundsLeft--;
+            }
+        }
     }
 }

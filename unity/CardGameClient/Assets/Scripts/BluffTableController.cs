@@ -786,10 +786,9 @@ namespace CardGameClient
             avatar.pivot = new Vector2(0.5f, 1f);
             avatar.anchoredPosition = Vector2.zero;
 
-            var label = CreateText(container.transform,
-                player.IsRooster ? player.Name + " · петух" + (player.RoosterMarks > 1 ? " x" + player.RoosterMarks : string.Empty) : player.Name,
-                Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
-            label.color = player.IsRooster ? RoosterColor : (isActing ? AccentGlow : TextColor);
+            // Подписи «петух» у имени нет: шапка и так видна, а петух теперь на время.
+            var label = CreateText(container.transform, player.Name, Mathf.RoundToInt(24 * scale), TextAnchor.MiddleCenter);
+            label.color = isActing ? AccentGlow : TextColor;
             PlaceUnderAvatar((RectTransform)label.transform, (SeatFigure.Height + SeatFigure.NameGap) * scale,
                 new Vector2(220f * scale, SeatFigure.NameHeight * scale));
 
@@ -821,8 +820,9 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Шапка петуха тому, кто оборвал перестрелку. Не снимается до конца партии:
-        /// правилами проверка не запрещена, а стол всё равно не забудет.
+        /// Шапка петуха тому, кто оборвал перестрелку. Носится два круга; сорвал ещё одну,
+        /// пока она на голове, — срок заново. Срок вышел — шапку снимают, и портрет
+        /// возвращается в свой костюм: срезанная копия нужна только пока шапка надета.
         /// </summary>
         private void BuildRoosterHat(RectTransform container, float scale, SeatFigure.Headwear headwear)
         {

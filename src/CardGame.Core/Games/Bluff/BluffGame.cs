@@ -28,6 +28,12 @@ namespace CardGame.Core.Games.Bluff
         /// </summary>
         private const int ShootoutCooldownRounds = 1;
 
+        /// <summary>
+        /// Сколько кругов носят петуха после сорванной перестрелки. Считаются круги, которые
+        /// начались уже после неё: тот, где перестрелку сорвали, этой же проверкой и кончился.
+        /// </summary>
+        public const int RoosterRounds = 2;
+
         private readonly List<BluffPlayer> _players = new List<BluffPlayer>();
         private readonly BluffOptions _options;
 
@@ -451,12 +457,18 @@ namespace CardGame.Core.Games.Bluff
             var challenger = _players[challengerIndex];
             var target = _players[packet.PlayerIndex];
 
-            // Проверять в перестрелке не запрещено — хоть на первом же броске. Но тот, кто
-            // на это решился, получает петуха, и снять его до конца партии нельзя.
+            // Проверкой круг кончается: у прежних петухов срок идёт. Проверять в перестрелке
+            // не запрещено — хоть на первом же броске, — но кто решился, тот петух на два
+            // следующих круга. Уже был в шапке — срок начинается заново.
+            foreach (var player in _players)
+            {
+                player.RoundPassed();
+            }
+
             var brokeShootout = IsShootout;
             if (brokeShootout)
             {
-                challenger.MarkRooster();
+                challenger.MarkRooster(RoosterRounds);
             }
 
             // Врал — забирает сам, сказал правду — забирает тот, кто не поверил.
