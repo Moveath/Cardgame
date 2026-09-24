@@ -66,7 +66,7 @@ namespace CardGame.Core.Games.Bluff
             return result;
         }
 
-        /// <summary>«валетов», «дам», «шестёрок» — для строки лога «скинул 3 карты под видом валетов».</summary>
+        /// <summary>«вальтов», «дам», «шестёрок» — для строки лога «скинул 3 карты под видом вальтов».</summary>
         public static string RankPlural(Rank rank) => rank switch
         {
             Rank.Two => "двоек",
@@ -78,7 +78,7 @@ namespace CardGame.Core.Games.Bluff
             Rank.Eight => "восьмёрок",
             Rank.Nine => "девяток",
             Rank.Ten => "десяток",
-            Rank.Jack => "валетов",
+            Rank.Jack => "вальтов",
             Rank.Queen => "дам",
             Rank.King => "королей",
             Rank.Ace => "тузов",

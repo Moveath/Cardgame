@@ -543,7 +543,7 @@ public class BluffGameTests
         var thrown = game.Log[^1];
         Assert.Equal(BluffLogKind.Throw, thrown.Kind);
         Assert.Empty(thrown.RevealedCards);
-        Assert.Equal("Егор скинул 2 карты под видом валетов", thrown.Text);
+        Assert.Equal("Егор скинул 2 карты под видом вальтов", thrown.Text);
 
         Apply(game, 1, BluffMove.Challenge());
 

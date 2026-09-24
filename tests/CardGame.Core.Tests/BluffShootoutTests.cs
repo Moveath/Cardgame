@@ -408,7 +408,7 @@ public class BluffShootoutTests
     [Theory]
     [InlineData(Rank.Six, "перестрелку на шестёрки")]
     [InlineData(Rank.Ten, "перестрелку на десятки")]
-    [InlineData(Rank.Jack, "перестрелку на валетов")]
+    [InlineData(Rank.Jack, "перестрелку на вальтов")]
     [InlineData(Rank.Queen, "перестрелку на дам")]
     [InlineData(Rank.King, "перестрелку на королей")]
     public void Announcement_PutsTheRankIntoTheAccusative(Rank rank, string expected)

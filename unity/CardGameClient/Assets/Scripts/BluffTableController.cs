@@ -1296,7 +1296,7 @@ namespace CardGameClient
 
         private static string MasculineSingular(Rank rank) => rank switch
         {
-            Rank.Jack => "валета",
+            Rank.Jack => "вальта",
             Rank.King => "короля",
             _ => "туза"
         };
@@ -1327,7 +1327,7 @@ namespace CardGameClient
             Rank.Eight => "восьмёрки",
             Rank.Nine => "девятки",
             Rank.Ten => "десятки",
-            Rank.Jack => "валеты",
+            Rank.Jack => "вальты",
             Rank.Queen => "дамы",
             Rank.King => "короли",
             _ => "тузы"

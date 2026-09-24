@@ -571,7 +571,7 @@ public class DurakOptionsTests
     {
         var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), 0, Attacker, Defender, Bystander);
 
-        // Играем первую раздачу честно до биты: шестёрку кроют валетом треф.
+        // Играем первую раздачу честно до биты: шестёрку кроют вальтом треф.
         Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
         Assert.True(game.TryApplyMove(1, DurakMove.Defend(new Card(Rank.Jack, Suit.Clubs), 0), out var e2), e2);
         PassUntilBoutEnds(game);
