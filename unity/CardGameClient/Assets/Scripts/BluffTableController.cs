@@ -154,6 +154,19 @@ namespace CardGameClient
         /// <summary>Пауза перед каре, пришедшим прямо на раздаче: стол успевают увидеть.</summary>
         private const float DealSettle = 0.7f;
 
+        // Концовка: тузы проигравшего выносят вперёд и рвут. Крупно — это главный кадр
+        // партии, — но четыре штуки обязаны влезть в ширину экрана.
+        private const float TornAceScale = 1.6f;
+        private const float TornAceGap = 34f;
+        private const float TornFlight = 0.55f;
+        private const float TornHold = 0.7f;
+
+        /// <summary>Тузы рвут по очереди, а не разом: каждый разрыв должно быть видно.</summary>
+        private const float TornStagger = 0.3f;
+
+        private const float TornScrimAlpha = 0.62f;
+        private const float TornFade = 0.3f;
+
         // Объявление перестрелки: короткий наплыв, пауза, чтобы успели прочитать все, и уход.
         private const float ShootoutFlashIn = 0.2f;
         private const float ShootoutHold = 1.9f;
@@ -204,6 +217,11 @@ namespace CardGameClient
         private Sprite[] _playerPortraits;
         private float _handHalfWidth;
 
+        /// <summary>Чьи тузы унесли рвать: у него в руке и в веере их больше не рисуем.</summary>
+        private int? _tornFrom;
+
+        private RectTransform _tornStage;
+
         public void Configure(BluffMatchSettings settings, Action onExit)
         {
             _settings = settings;
@@ -235,9 +253,15 @@ namespace CardGameClient
             _concedeAsked = false;
             _pendingMove = null;
             _waitingForHuman = false;
+            _tornFrom = null;
             _restartButton.gameObject.SetActive(false);
             Clear(_flyLayer);
             Clear(_revealArea);
+            if (_tornStage != null)
+            {
+                Destroy(_tornStage.gameObject);
+                _tornStage = null;
+            }
 
             StopAllCoroutines();
             StartCoroutine(GameLoop());
@@ -312,6 +336,13 @@ namespace CardGameClient
 
             _waitingForHuman = false;
             Refresh();
+            yield return FinishGame();
+        }
+
+        /// <summary>Тузы проигравшего рвут у всех на глазах, и только потом итог партии.</summary>
+        private IEnumerator FinishGame()
+        {
+            yield return TearLoserAces();
             ShowResult();
         }
 
@@ -780,9 +811,10 @@ namespace CardGameClient
 
             // Сколько карт на руках, видно по вееру рубашек — цифрой это писать не надо,
             // за настоящим столом её тоже никто не объявляет.
-            if (fanWidth > 0f && player.Hand.Count > 0)
+            var shown = ShownHand(player).Count;
+            if (fanWidth > 0f && shown > 0)
             {
-                BuildSeatFan(containerRect, player.Hand.Count, scale, fanWidth, fanSide);
+                BuildSeatFan(containerRect, shown, scale, fanWidth, fanSide);
             }
 
             return containerRect;
@@ -925,7 +957,7 @@ namespace CardGameClient
         {
             Clear(_handRow);
 
-            var hand = _game.Players[HumanIndex].Hand;
+            var hand = ShownHand(_game.Players[HumanIndex]);
             _handHalfWidth = 0f;
             if (hand.Count == 0)
             {
@@ -1103,7 +1135,7 @@ namespace CardGameClient
             _waitingForHuman = false;
             Clear(_revealArea);
             Refresh();
-            ShowResult();
+            StartCoroutine(FinishGame());
         }
 
         /// <summary>
@@ -1194,6 +1226,155 @@ namespace CardGameClient
         };
 
         private static string RankPluralGenitive(Rank rank) => BluffRules.RankPlural(rank);
+
+        /// <summary>
+        /// Концовка проигравшего: все его тузы — сколько осталось, от одного до четырёх, —
+        /// выносят вперёд крупно и рвут пополам, по одному. Стол уходит в тень: это главный
+        /// кадр партии. При ничьей рвать некому — проигравшего нет.
+        /// </summary>
+        private IEnumerator TearLoserAces()
+        {
+            if (!_game.LoserIndex.HasValue)
+            {
+                yield break;
+            }
+
+            var loser = _game.Players[_game.LoserIndex.Value];
+            var aces = new List<Card>();
+            foreach (var card in loser.Hand)
+            {
+                if (card.Rank == Rank.Ace)
+                {
+                    aces.Add(card);
+                }
+            }
+
+            if (aces.Count == 0)
+            {
+                yield break;
+            }
+
+            aces.Sort((left, right) => left.Suit.CompareTo(right.Suit));
+
+            // Тузы забирают прямо у игрока: из руки, если проиграл ты, или от места соперника.
+            var fromWorld = loser.Index == HumanIndex
+                ? _handRow.position
+                : _flyLayer.TransformPoint(SeatAnchor(loser.Index));
+
+            _tornFrom = loser.Index;
+            Refresh();
+
+            var root = (RectTransform)transform;
+            _tornStage = CreatePanel("TornAces", root, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            _tornStage.anchorMin = Vector2.zero;
+            _tornStage.anchorMax = Vector2.one;
+            _tornStage.offsetMin = Vector2.zero;
+            _tornStage.offsetMax = Vector2.zero;
+            _tornStage.SetAsLastSibling();
+
+            // Тень на весь стол. Заодно глушит клики, пока идёт сцена.
+            var scrimGo = new GameObject("Scrim", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            scrimGo.transform.SetParent(_tornStage, false);
+            var scrimRect = (RectTransform)scrimGo.transform;
+            scrimRect.anchorMin = Vector2.zero;
+            scrimRect.anchorMax = Vector2.one;
+            scrimRect.offsetMin = Vector2.zero;
+            scrimRect.offsetMax = Vector2.zero;
+            var scrim = scrimGo.GetComponent<Image>();
+            scrim.color = new Color(0f, 0f, 0f, 0f);
+
+            var room = root.rect.width - 240f;
+            var scale = Mathf.Min(TornAceScale, (room - (aces.Count - 1) * TornAceGap) / (aces.Count * CardView.Width));
+            var step = CardView.Width * scale + TornAceGap;
+            var start = -(aces.Count - 1) * step * 0.5f;
+            const float row = -30f;
+
+            var captionGo = new GameObject("Caption", typeof(RectTransform), typeof(CanvasGroup));
+            captionGo.transform.SetParent(_tornStage, false);
+            var captionRect = (RectTransform)captionGo.transform;
+            captionRect.anchorMin = captionRect.anchorMax = captionRect.pivot = new Vector2(0.5f, 0.5f);
+            captionRect.sizeDelta = new Vector2(1200f, 140f);
+            captionRect.anchoredPosition = new Vector2(0f, row + CardView.Height * scale * 0.5f + 84f);
+            var caption = captionGo.GetComponent<CanvasGroup>();
+            caption.alpha = 0f;
+
+            var title = CreateText(captionRect, loser.Name, 58, TextAnchor.MiddleCenter);
+            title.color = LieColor;
+            title.fontStyle = FontStyle.Bold;
+            Place((RectTransform)title.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 26f), new Vector2(1200f, 70f));
+
+            var verdict = CreateText(captionRect, "порвали " + TornAcesPhrase(aces.Count), 36, TextAnchor.MiddleCenter);
+            verdict.color = TextColor;
+            Place((RectTransform)verdict.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -32f), new Vector2(1200f, 46f));
+
+            Vector2 from = _tornStage.InverseTransformPoint(fromWorld);
+            var cards = new List<TornCard>();
+            for (var i = 0; i < aces.Count; i++)
+            {
+                var torn = TornCard.Create(_tornStage, _font, aces[i], scale, i);
+                torn.StartCoroutine(torn.FlyIn(from, new Vector2(start + i * step, row), TornFlight, i * 0.08f));
+                cards.Add(torn);
+            }
+
+            var arrive = TornFlight + (aces.Count - 1) * 0.08f;
+            yield return FadeStage(scrim, caption, 0f, 1f, arrive);
+            yield return new WaitForSeconds(TornHold);
+
+            for (var i = 0; i < cards.Count; i++)
+            {
+                cards[i].StartCoroutine(cards[i].Tear());
+                if (i < cards.Count - 1)
+                {
+                    yield return new WaitForSeconds(TornStagger);
+                }
+            }
+
+            yield return new WaitForSeconds(TornCard.TearDuration);
+            yield return FadeStage(scrim, caption, 1f, 0f, TornFade);
+
+            Destroy(_tornStage.gameObject);
+            _tornStage = null;
+        }
+
+        private static IEnumerator FadeStage(Image scrim, CanvasGroup caption, float from, float to, float duration)
+        {
+            var t = 0f;
+            while (t < duration)
+            {
+                t += Time.deltaTime;
+                var k = Mathf.Lerp(from, to, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / duration)));
+                scrim.color = new Color(0f, 0f, 0f, TornScrimAlpha * k);
+                caption.alpha = k;
+                yield return null;
+            }
+
+            scrim.color = new Color(0f, 0f, 0f, TornScrimAlpha * to);
+            caption.alpha = to;
+        }
+
+        /// <summary>
+        /// «туза», «двух тузов» — винительный, как по всей игре: карты за столом склоняют
+        /// как живых, «побил туза». Четыре — это все, так и говорим.
+        /// </summary>
+        private static string TornAcesPhrase(int count) => count switch
+        {
+            1 => "туза",
+            2 => "двух тузов",
+            3 => "трёх тузов",
+            _ => "всех четырёх тузов"
+        };
+
+        /// <summary>Рука, как её рисуем. Унесённые рвать тузы в ней уже не показываем.</summary>
+        private List<Card> ShownHand(BluffPlayer player)
+        {
+            var hand = new List<Card>(player.Hand);
+            if (_tornFrom == player.Index)
+            {
+                hand.RemoveAll(card => card.Rank == Rank.Ace);
+            }
+
+            return hand;
+        }
 
         private void ShowResult()
         {

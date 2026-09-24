@@ -123,6 +123,129 @@ namespace CardGameClient
             return sprite;
         }
 
+        /// <summary>
+        /// Поля вокруг карты в текстурах разрыва, в единицах карты. В них помещается тень
+        /// половинки: маска режет всё, что в неё не попало, и тень тоже.
+        /// </summary>
+        public const int TearMargin = 12;
+
+        private const int TearWidth = 120 + 2 * TearMargin;
+        private const int TearHeight = 168 + 2 * TearMargin;
+
+        /// <summary>
+        /// Половина карты для разрыва — маска с рваным краем. Левая и правая половины одного
+        /// варианта режутся по одной и той же линии, поэтому в покое складываются в целую
+        /// карту без щели. Линия не прямая — карты рвут руками, а не ножницами: она гуляет
+        /// из стороны в сторону и идёт мелкими зубцами. Варианты разные, чтобы тузы не
+        /// рвались под копирку.
+        /// </summary>
+        public static Sprite TearMask(int variant, bool left)
+        {
+            var key = "tear_" + variant + (left ? "_left" : "_right");
+            if (Cache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var line = TearLine(variant);
+            var pixels = new Color32[TearWidth * TearHeight];
+            var solid = new Color32(255, 255, 255, 255);
+            var empty = new Color32(255, 255, 255, 0);
+            for (var y = 0; y < TearHeight; y++)
+            {
+                for (var x = 0; x < TearWidth; x++)
+                {
+                    var onLeft = x + 0.5f < line[y];
+                    pixels[y * TearWidth + x] = onLeft == left ? solid : empty;
+                }
+            }
+
+            return Cache[key] = TearSprite(pixels);
+        }
+
+        /// <summary>
+        /// Белые волокна по линии разрыва: у рваного картона край светлый, а не цветной.
+        /// Одна текстура на обе половинки — каждая маска оставляет только свою сторону.
+        /// Волокна лежат только в пределах самой карты, в поля не выходят.
+        /// </summary>
+        public static Sprite TearFibers(int variant)
+        {
+            var key = "tear_" + variant + "_fibers";
+            if (Cache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            var line = TearLine(variant);
+            var random = new System.Random(31 * (variant + 1));
+            var phase = (float)(random.NextDouble() * Mathf.PI * 2f);
+            var pixels = new Color32[TearWidth * TearHeight];
+            for (var y = TearMargin; y < TearHeight - TearMargin; y++)
+            {
+                // Толщина волокон неровная: где-то нитка, где-то клок.
+                var leftWidth = 1.3f + 1.6f * (0.5f + 0.5f * Mathf.Sin(y * 0.55f + phase)) + (float)random.NextDouble() * 0.8f;
+                var rightWidth = 1.3f + 1.6f * (0.5f + 0.5f * Mathf.Sin(y * 0.43f + phase * 1.7f)) + (float)random.NextDouble() * 0.8f;
+                for (var x = TearMargin; x < TearWidth - TearMargin; x++)
+                {
+                    var offset = x + 0.5f - line[y];
+                    var width = offset < 0f ? leftWidth : rightWidth;
+                    var coverage = Mathf.Clamp01(width - Mathf.Abs(offset) + 0.5f);
+                    if (coverage > 0f)
+                    {
+                        pixels[y * TearWidth + x] = new Color32(255, 250, 238, (byte)(coverage * 255f));
+                    }
+                }
+            }
+
+            return Cache[key] = TearSprite(pixels);
+        }
+
+        private static float[] TearLine(int variant)
+        {
+            var random = new System.Random(7919 * (variant + 1));
+            var line = new float[TearHeight];
+            var center = TearWidth * 0.5f + (float)(random.NextDouble() - 0.5) * 8f;
+            var phaseA = (float)(random.NextDouble() * Mathf.PI * 2f);
+            var phaseB = (float)(random.NextDouble() * Mathf.PI * 2f);
+
+            var tooth = 0;
+            var toothLength = 7;
+            var toothHeight = 2f;
+            var side = 1f;
+            for (var y = 0; y < TearHeight; y++)
+            {
+                if (tooth >= toothLength)
+                {
+                    tooth = 0;
+                    toothLength = random.Next(5, 11);
+                    toothHeight = 1f + (float)random.NextDouble() * 2.2f;
+                    side = -side;
+                }
+
+                // Плавный изгиб всей линии плюс зубцы поверх: треугольник туда и обратно.
+                var t = y / (float)TearHeight;
+                var wander = 5f * Mathf.Sin(t * Mathf.PI * 1.4f + phaseA) + 2.5f * Mathf.Sin(t * Mathf.PI * 3.8f + phaseB);
+                var k = tooth / (float)toothLength;
+                var teeth = side * toothHeight * (1f - Mathf.Abs(2f * k - 1f));
+                line[y] = center + wander + teeth;
+                tooth++;
+            }
+
+            return line;
+        }
+
+        private static Sprite TearSprite(Color32[] pixels)
+        {
+            var texture = new Texture2D(TearWidth, TearHeight, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, TearWidth, TearHeight), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+        }
+
         /// <summary>Доли гребешка слева направо. Средняя выше — как у петуха.</summary>
         private static readonly float[] CombPeaks = { 0.72f, 1f, 0.78f };
 
