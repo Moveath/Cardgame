@@ -8,28 +8,37 @@ namespace CardGameClient
     /// <summary>
     /// Карта, которую рвут пополам по вертикали. Собрана из двух половинок с рваным краем:
     /// в покое они складываются в целую карту, а при разрыве раскрываются от низа, как
-    /// будто карту тянут за верхние углы в разные стороны, и потом разлетаются.
+    /// будто карту тянут за верхние углы в разные стороны. Порванная так и остаётся лежать
+    /// двумя обрывками — концовка партии не исчезает, её видно до новой раздачи.
     /// </summary>
     public sealed class TornCard : MonoBehaviour
     {
-        // Темп средний: сам разрыв должен читаться, но и ждать его не хочется.
-        private const float StrainDuration = 0.3f;
-        private const float RipDuration = 0.45f;
-        private const float FallDuration = 0.7f;
+        // Темп спокойный: разрыв смакуют, а не проскакивают.
+        private const float StrainDuration = 0.45f;
+        private const float RipDuration = 0.75f;
+        private const float SettleDuration = 0.8f;
 
-        /// <summary>Сколько идёт разрыв одной карты от натяга до исчезновения.</summary>
-        public const float TearDuration = StrainDuration + RipDuration + FallDuration;
+        /// <summary>Сколько идёт разрыв одной карты: от натяга до обрывков, легших на стол.</summary>
+        public const float TearDuration = StrainDuration + RipDuration + SettleDuration;
 
         /// <summary>На сколько градусов половинки раскрываются, пока ещё держатся внизу.</summary>
         private const float RipAngle = 7f;
 
+        /// <summary>
+        /// Насколько обрывки расходятся в конце, в единицах карты, — по этому числу стол
+        /// оставляет место между тузами, чтобы соседние обрывки не наезжали друг на друга.
+        /// </summary>
+        public const float SettledSpread = 12f;
+
+        /// <summary>Насколько ниже опускается нижний из двух обрывков, в единицах карты.</summary>
+        public const float SettledDrop = 26f;
+
         private RectTransform _left;
         private RectTransform _right;
-        private CanvasGroup _leftGroup;
-        private CanvasGroup _rightGroup;
         private Image _leftFibers;
         private Image _rightFibers;
         private float _scale;
+        private int _variant;
 
         public RectTransform Rect { get; private set; }
 
@@ -43,16 +52,17 @@ namespace CardGameClient
             torn.Rect.anchorMin = torn.Rect.anchorMax = torn.Rect.pivot = new Vector2(0.5f, 0.5f);
             torn.Rect.sizeDelta = new Vector2(CardView.Width * scale, CardView.Height * scale);
             torn._scale = scale;
+            torn._variant = variant;
 
-            torn._left = torn.BuildHalf(font, card, variant, true, out torn._leftGroup, out torn._leftFibers);
-            torn._right = torn.BuildHalf(font, card, variant, false, out torn._rightGroup, out torn._rightFibers);
+            torn._left = torn.BuildHalf(font, card, variant, true, out torn._leftFibers);
+            torn._right = torn.BuildHalf(font, card, variant, false, out torn._rightFibers);
             return torn;
         }
 
-        private RectTransform BuildHalf(Font font, Card card, int variant, bool left, out CanvasGroup group, out Image fibers)
+        private RectTransform BuildHalf(Font font, Card card, int variant, bool left, out Image fibers)
         {
             var go = new GameObject(left ? "Left" : "Right",
-                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask), typeof(CanvasGroup));
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask));
             go.transform.SetParent(Rect, false);
 
             var margin = UiTextures.TearMargin;
@@ -72,9 +82,6 @@ namespace CardGameClient
             mask.sprite = UiTextures.TearMask(variant, left);
             mask.raycastTarget = false;
             go.GetComponent<Mask>().showMaskGraphic = false;
-
-            group = go.GetComponent<CanvasGroup>();
-            group.blocksRaycasts = false;
 
             var face = CardView.Create(rect, font, _scale);
             face.ShowFace(card);
@@ -131,8 +138,8 @@ namespace CardGameClient
         /// <summary>
         /// Разрыв в три такта. Натяг — карта дрожит целиком, её тянут, она ещё держится.
         /// Разрыв — половинки раскрываются от низа, щель бежит сверху вниз, по краю
-        /// проступают белые волокна. Конец — нижняя перемычка рвётся, и половинки
-        /// разлетаются в стороны и падают, растворяясь.
+        /// проступают белые волокна. Конец — нижняя перемычка рвётся, и обрывки ложатся
+        /// чуть в стороны и чуть вниз, один ниже другого, как упавшие, — и так и остаются.
         /// </summary>
         public IEnumerator Tear()
         {
@@ -143,9 +150,9 @@ namespace CardGameClient
             {
                 t += Time.deltaTime;
                 var k = Mathf.Clamp01(t / StrainDuration);
-                var tremble = Mathf.Sin(t * 75f) * 1.6f * _scale * k;
+                var tremble = Mathf.Sin(t * 60f) * 1.6f * _scale * k;
                 Rect.anchoredPosition = rest + new Vector2(tremble, 0f);
-                Rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Sin(t * 53f) * 0.8f * k);
+                Rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Sin(t * 43f) * 0.8f * k);
                 yield return null;
             }
 
@@ -158,35 +165,50 @@ namespace CardGameClient
                 t += Time.deltaTime;
                 var linear = Mathf.Clamp01(t / RipDuration);
                 var k = Mathf.SmoothStep(0f, 1f, linear);
-                SetHalves(2f * _scale * k, 0f, RipAngle * k, 1f);
+                var apart = 2f * _scale * k;
+                SetHalves(apart, 0f, RipAngle * k, apart, 0f, RipAngle * k);
                 SetFibers(Mathf.Clamp01(linear / 0.4f));
                 yield return null;
             }
 
+            // Какой обрывок ляжет ниже — от варианта разрыва: у соседних тузов по-разному,
+            // иначе ряд выглядел бы отпечатанным под копирку.
+            var lowLeft = _variant % 2 == 0;
+            var leftDrop = (lowLeft ? SettledDrop : SettledDrop * 0.45f) * _scale;
+            var rightDrop = (lowLeft ? SettledDrop * 0.45f : SettledDrop) * _scale;
+            var leftAngle = lowLeft ? 10f : 5f;
+            var rightAngle = lowLeft ? 5f : 10f;
+
             t = 0f;
-            while (t < FallDuration)
+            while (t < SettleDuration)
             {
                 t += Time.deltaTime;
-                var linear = Mathf.Clamp01(t / FallDuration);
-                var spread = Mathf.SmoothStep(0f, 1f, linear);
-                var fall = linear * linear;
-                var fade = 1f - Mathf.Clamp01((linear - 0.35f) / 0.65f);
-                SetHalves((2f + 46f * spread) * _scale, -150f * _scale * fall, RipAngle + 24f * spread, fade);
+                var k = EaseOutBack(Mathf.Clamp01(t / SettleDuration));
+                var apart = Mathf.LerpUnclamped(2f, SettledSpread, k) * _scale;
+                SetHalves(apart, -leftDrop * k, Mathf.LerpUnclamped(RipAngle, leftAngle, k),
+                    apart, -rightDrop * k, Mathf.LerpUnclamped(RipAngle, rightAngle, k));
                 yield return null;
             }
 
-            gameObject.SetActive(false);
+            SetHalves(SettledSpread * _scale, -leftDrop, leftAngle, SettledSpread * _scale, -rightDrop, rightAngle);
         }
 
-        private void SetHalves(float apart, float drop, float angle, float alpha)
+        /// <summary>Мягкая посадка с небольшим перелётом: обрывок падает и чуть оседает.</summary>
+        private static float EaseOutBack(float t)
         {
-            var pivotY = -CardView.Height * _scale * 0.5f + drop;
-            _left.anchoredPosition = new Vector2(-apart, pivotY);
-            _right.anchoredPosition = new Vector2(apart, pivotY);
-            _left.localRotation = Quaternion.Euler(0f, 0f, angle);
-            _right.localRotation = Quaternion.Euler(0f, 0f, -angle);
-            _leftGroup.alpha = alpha;
-            _rightGroup.alpha = alpha;
+            const float overshoot = 1.2f;
+            var u = t - 1f;
+            return 1f + (overshoot + 1f) * u * u * u + overshoot * u * u;
+        }
+
+        private void SetHalves(float leftApart, float leftDrop, float leftAngle,
+            float rightApart, float rightDrop, float rightAngle)
+        {
+            var pivotY = -CardView.Height * _scale * 0.5f;
+            _left.anchoredPosition = new Vector2(-leftApart, pivotY + leftDrop);
+            _right.anchoredPosition = new Vector2(rightApart, pivotY + rightDrop);
+            _left.localRotation = Quaternion.Euler(0f, 0f, leftAngle);
+            _right.localRotation = Quaternion.Euler(0f, 0f, -rightAngle);
         }
 
         private void SetFibers(float alpha)

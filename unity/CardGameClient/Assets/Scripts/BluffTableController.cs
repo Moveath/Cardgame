@@ -155,17 +155,23 @@ namespace CardGameClient
         private const float DealSettle = 0.7f;
 
         // Концовка: тузы проигравшего выносят вперёд и рвут. Крупно — это главный кадр
-        // партии, — но четыре штуки обязаны влезть в ширину экрана.
+        // партии, — но четыре штуки обязаны влезть в ширину экрана вместе с обрывками.
         private const float TornAceScale = 1.6f;
-        private const float TornAceGap = 34f;
-        private const float TornFlight = 0.55f;
-        private const float TornHold = 0.7f;
+
+        /// <summary>
+        /// Промежуток между тузами, в единицах карты. С запасом: порванные обрывки ложатся
+        /// шире самой карты, и соседние не должны наезжать друг на друга.
+        /// </summary>
+        private const float TornAceGap = 80f;
+
+        // Темп спокойный: вынести, дать рассмотреть, рвать по одному.
+        private const float TornFlight = 0.7f;
+        private const float TornHold = 1f;
 
         /// <summary>Тузы рвут по очереди, а не разом: каждый разрыв должно быть видно.</summary>
-        private const float TornStagger = 0.3f;
+        private const float TornStagger = 0.5f;
 
         private const float TornScrimAlpha = 0.62f;
-        private const float TornFade = 0.3f;
 
         // Объявление перестрелки: короткий наплыв, пауза, чтобы успели прочитать все, и уход.
         private const float ShootoutFlashIn = 0.2f;
@@ -198,6 +204,7 @@ namespace CardGameClient
         private Outline _shootoutGlow;
         private Button _concedeButton;
         private Button _restartButton;
+        private Button _menuButton;
 
         private readonly List<Card> _selected = new List<Card>();
         private readonly List<Button> _rankButtons = new List<Button>();
@@ -221,6 +228,9 @@ namespace CardGameClient
         private int? _tornFrom;
 
         private RectTransform _tornStage;
+
+        /// <summary>Нижний край порванных тузов: под ними встаёт кнопка новой партии.</summary>
+        private float _tornBottom;
 
         public void Configure(BluffMatchSettings settings, Action onExit)
         {
@@ -1284,28 +1294,30 @@ namespace CardGameClient
             scrim.color = new Color(0f, 0f, 0f, 0f);
 
             var room = root.rect.width - 240f;
-            var scale = Mathf.Min(TornAceScale, (room - (aces.Count - 1) * TornAceGap) / (aces.Count * CardView.Width));
-            var step = CardView.Width * scale + TornAceGap;
+            var scale = Mathf.Min(TornAceScale, room / (aces.Count * CardView.Width + (aces.Count - 1) * TornAceGap));
+            var step = (CardView.Width + TornAceGap) * scale;
             var start = -(aces.Count - 1) * step * 0.5f;
-            const float row = -30f;
+            const float row = -20f;
 
             var captionGo = new GameObject("Caption", typeof(RectTransform), typeof(CanvasGroup));
             captionGo.transform.SetParent(_tornStage, false);
             var captionRect = (RectTransform)captionGo.transform;
             captionRect.anchorMin = captionRect.anchorMax = captionRect.pivot = new Vector2(0.5f, 0.5f);
-            captionRect.sizeDelta = new Vector2(1200f, 140f);
-            captionRect.anchoredPosition = new Vector2(0f, row + CardView.Height * scale * 0.5f + 84f);
+            captionRect.sizeDelta = new Vector2(1400f, 80f);
+            captionRect.anchoredPosition = new Vector2(0f, row + CardView.Height * scale * 0.5f + 70f);
             var caption = captionGo.GetComponent<CanvasGroup>();
             caption.alpha = 0f;
 
-            var title = CreateText(captionRect, loser.Name, 58, TextAnchor.MiddleCenter);
-            title.color = LieColor;
+            // Одна строка: «Аслану порвали туз». Сколько тузов, не говорим — их и так видно.
+            // Имя красным и в дательном падеже: склоняет его ядро, чтобы «Али» не стал «Алиу».
+            var title = CreateText(captionRect,
+                "<color=#" + ColorUtility.ToHtmlStringRGB(LieColor) + ">" + BluffRules.NameDative(loser.Name)
+                + "</color> порвали туз",
+                58, TextAnchor.MiddleCenter);
+            title.color = TextColor;
             title.fontStyle = FontStyle.Bold;
-            Place((RectTransform)title.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 26f), new Vector2(1200f, 70f));
-
-            var verdict = CreateText(captionRect, "порвали " + TornAcesPhrase(aces.Count), 36, TextAnchor.MiddleCenter);
-            verdict.color = TextColor;
-            Place((RectTransform)verdict.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -32f), new Vector2(1200f, 46f));
+            title.supportRichText = true;
+            Place((RectTransform)title.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1400f, 80f));
 
             Vector2 from = _tornStage.InverseTransformPoint(fromWorld);
             var cards = new List<TornCard>();
@@ -1330,10 +1342,10 @@ namespace CardGameClient
             }
 
             yield return new WaitForSeconds(TornCard.TearDuration);
-            yield return FadeStage(scrim, caption, 1f, 0f, TornFade);
 
-            Destroy(_tornStage.gameObject);
-            _tornStage = null;
+            // Сцена не исчезает: порванные тузы и подпись остаются до новой раздачи, а итог
+            // и кнопки встают поверх тени (это делает ShowResult).
+            _tornBottom = row - (CardView.Height * 0.5f + TornCard.SettledDrop) * scale;
         }
 
         private static IEnumerator FadeStage(Image scrim, CanvasGroup caption, float from, float to, float duration)
@@ -1351,18 +1363,6 @@ namespace CardGameClient
             scrim.color = new Color(0f, 0f, 0f, TornScrimAlpha * to);
             caption.alpha = to;
         }
-
-        /// <summary>
-        /// «туза», «двух тузов» — винительный, как по всей игре: карты за столом склоняют
-        /// как живых, «побил туза». Четыре — это все, так и говорим.
-        /// </summary>
-        private static string TornAcesPhrase(int count) => count switch
-        {
-            1 => "туза",
-            2 => "двух тузов",
-            3 => "трёх тузов",
-            _ => "всех четырёх тузов"
-        };
 
         /// <summary>Рука, как её рисуем. Унесённые рвать тузы в ней уже не показываем.</summary>
         private List<Card> ShownHand(BluffPlayer player)
@@ -1404,6 +1404,21 @@ namespace CardGameClient
             }
 
             _concedeButton.gameObject.SetActive(false);
+
+            // Порванные тузы остаются на экране, поэтому итог, новая партия и выход в меню
+            // встают поверх их тени. Кнопка — под обрывками, а не на них.
+            var restart = (RectTransform)_restartButton.transform;
+            if (_tornStage != null)
+            {
+                restart.anchoredPosition = new Vector2(0f, _tornBottom - 80f);
+                _status.transform.SetAsLastSibling();
+                _menuButton.transform.SetAsLastSibling();
+                _restartButton.transform.SetAsLastSibling();
+            }
+            else
+            {
+                restart.anchoredPosition = new Vector2(0f, -120f);
+            }
 
             _restartButton.gameObject.SetActive(true);
         }
@@ -1654,7 +1669,7 @@ namespace CardGameClient
 
         private void BuildControls(RectTransform root)
         {
-            CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, -60f), new Vector2(180f, 64f),
+            _menuButton = CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, -60f), new Vector2(180f, 64f),
                 new Color(0.3f, 0.3f, 0.32f), () =>
                 {
                     StopAllCoroutines();

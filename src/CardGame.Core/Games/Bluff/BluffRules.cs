@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CardGame.Core.Cards;
 
@@ -101,6 +102,59 @@ namespace CardGame.Core.Games.Bluff
             Rank.Ten => "десятки",
             _ => RankPlural(rank)
         };
+
+        /// <summary>Имена с беглой гласной: по общему правилу вышло бы «Пётру» и «Павелу».</summary>
+        private static readonly Dictionary<string, string> DativeExceptions = new Dictionary<string, string>
+        {
+            { "Пётр", "Петру" },
+            { "Павел", "Павлу" },
+            { "Лев", "Льву" },
+        };
+
+        /// <summary>
+        /// Имя в дательном падеже — для «Аслану порвали туз». Мужские на согласную получают
+        /// «-у» (Егору), на «-й» и «-ь» — «-ю» (Сергею, Игорю), на «-а» и «-я» — «-е» (Вере,
+        /// Илье), на «-ия» — «-ии» (Марии). Имена на гласную вроде «Али» не склоняются. Номер
+        /// повтора остаётся как был: «Егор 2» — «Егору 2».
+        /// </summary>
+        public static string NameDative(string name)
+        {
+            var space = name.IndexOf(' ');
+            if (space > 0)
+            {
+                return NameDative(name.Substring(0, space)) + name.Substring(space);
+            }
+
+            if (DativeExceptions.TryGetValue(name, out var exception))
+            {
+                return exception;
+            }
+
+            if (name.Length < 2)
+            {
+                return name;
+            }
+
+            var stem = name.Substring(0, name.Length - 1);
+            var last = char.ToLowerInvariant(name[name.Length - 1]);
+
+            if (name.EndsWith("ия", StringComparison.OrdinalIgnoreCase))
+            {
+                return stem + "и";
+            }
+
+            switch (last)
+            {
+                case 'а':
+                case 'я':
+                    return stem + "е";
+                case 'й':
+                case 'ь':
+                    return stem + "ю";
+            }
+
+            return "бвгджзклмнпрстфхцчшщ".IndexOf(last) >= 0 ? name + "у" : name;
+        }
 
         /// <summary>Согласование «1 карту», «2 карты», «5 карт» — бросок больше трёх карт не бывает, но пусть будет общим.</summary>
         public static string CardsWord(int count)
