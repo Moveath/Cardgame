@@ -19,8 +19,8 @@ namespace CardGameClient
     {
         private const int HumanIndex = 0;
 
-        // Позже имя придёт из профиля игрока, пока зашито.
-        private const string HumanName = "Егор";
+        private static string HumanName => PlayerProfile.DisplayName;
+        private bool _hubMatchReported;
 
         // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
         private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
@@ -192,6 +192,7 @@ namespace CardGameClient
 
         private void StartNewGame()
         {
+            _hubMatchReported = false;
             var seed = UnityEngine.Random.Range(0, int.MaxValue);
 
             // Сначала лица, потом имена: бот с лицом реального человека называется так же,
@@ -679,6 +680,12 @@ namespace CardGameClient
 
         private void Refresh()
         {
+            if (!_hubMatchReported && _game.IsFinished)
+            {
+                _hubMatchReported = true;
+                HubMatchReporter.ReportMatchCompleted("durak",
+                    _game.LoserIndex.HasValue && _game.LoserIndex.Value != HumanIndex,draw:!_game.LoserIndex.HasValue);
+            }
             _humanLegalMoves = _waitingForHuman ? _game.GetLegalMoves(HumanIndex) : Array.Empty<DurakMove>();
             _humanCheatMoves = _waitingForHuman && _settings.AllowCheating
                 ? _game.GetCheatMoves(HumanIndex)
@@ -728,6 +735,7 @@ namespace CardGameClient
                 names.Add(name);
             }
 
+            HubRoster.TryApply("durak", names, _playerPortraits);
             return names;
         }
 
@@ -1141,6 +1149,18 @@ namespace CardGameClient
                 return;
             }
 
+            // Рука по порядку: слева младшие, справа старшие. Козыри — отдельно, после всех
+            // остальных карт у правого края: козырная шестёрка стоит там, а не среди шестёрок,
+            // и сколько козырей на руках, видно сразу. Джокеры — в самом конце. Добранные
+            // карты, пока летят, в руку не попадают: они всегда в конце руки правил.
+            var shown = new List<Card>();
+            for (var i = 0; i < count; i++)
+            {
+                shown.Add(hand[i]);
+            }
+
+            shown.Sort(CompareInHand);
+
             const float handCardScale = 1.05f;
             var cardWidth = CardView.Width * handCardScale;
             var angleStep = Mathf.Min(5f, 22f / Mathf.Max(count - 1, 1));
@@ -1168,7 +1188,7 @@ namespace CardGameClient
 
             for (var i = 0; i < count; i++)
             {
-                var card = hand[i];
+                var card = shown[i];
                 var view = CardView.Create(_handRow, _font, handCardScale);
                 view.ShowFace(card);
 
@@ -1249,6 +1269,21 @@ namespace CardGameClient
                 CreateChoiceChip("перевести", Mathf.Max(choiceX, minCenter), chipY, TransferChipColor, choiceTransfer.Value);
             }
         }
+
+        /// <summary>Порядок карт в своей руке: обычные, потом козыри, потом джокеры; внутри — по рангу.</summary>
+        private int CompareInHand(Card left, Card right)
+        {
+            var byGroup = HandGroup(left).CompareTo(HandGroup(right));
+            if (byGroup != 0)
+            {
+                return byGroup;
+            }
+
+            var byRank = left.Rank.CompareTo(right.Rank);
+            return byRank != 0 ? byRank : left.Suit.CompareTo(right.Suit);
+        }
+
+        private int HandGroup(Card card) => card.IsJoker ? 2 : card.Suit == _game.Trump ? 1 : 0;
 
         /// <summary>Сколько карт на столе можно накрыть этой картой — честно или подлогом.</summary>
         private int CountTargets(Card card)

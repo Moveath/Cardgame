@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: 689a6627e6a4463ea3775d4a26f437e6
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Playfair Display SC
+  fallbackFontReferences: []
+  customCharacters:
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  userData: Playfair Display SC, SIL Open Font License 1.1 (see SignDisplay-OFL.txt); subset to Latin, Cyrillic and punctuation.
+  assetBundleName:
+  assetBundleVariant:

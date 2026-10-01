@@ -42,6 +42,7 @@ namespace CardGameClient
         private static readonly Dictionary<string, Sprite> ArtCache = new Dictionary<string, Sprite>();
 
         private Image _background;
+        private Image _shadow;
         private Outline _outline;
         private Text _corner;
         private Text _center;
@@ -65,7 +66,7 @@ namespace CardGameClient
 
         public static CardView Create(Transform parent, Font font, float scale = 1f)
         {
-            var go = new GameObject("Card", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Shadow), typeof(CanvasGroup));
+            var go = new GameObject("Card", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(CanvasGroup));
             go.transform.SetParent(parent, false);
 
             var view = go.AddComponent<CardView>();
@@ -75,17 +76,17 @@ namespace CardGameClient
             view.Rect.pivot = new Vector2(0.5f, 0.5f);
             view.Rect.sizeDelta = new Vector2(Width * scale, Height * scale);
 
-            view._background = go.GetComponent<Image>();
-            view._background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
-            view._background.type = Image.Type.Sliced;
-            view._background.color = FaceColor;
+            // Keep the root hit surface for the card's existing pointer behaviour.
+            // Shadow and outlined face use separate meshes: Outline must never expand
+            // the offset shadow, which otherwise creates a second crooked cyan edge.
+            go.GetComponent<Image>().color = Color.clear;
+            view._shadow = CreateArtLayer(view.Rect, "Card shadow", new Vector2(3f, -5f));
+            view._shadow.color = new Color(0f, 0f, 0f, 0.35f);
+            view._background = CreateArtLayer(view.Rect, "Card face", Vector2.zero);
+            view.SetArt(UiTextures.RoundedRect(128, 180, 16f, Color.white), Image.Type.Sliced, FaceColor);
             view._group = go.GetComponent<CanvasGroup>();
 
-            var shadow = go.GetComponent<Shadow>();
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.35f);
-            shadow.effectDistance = new Vector2(3f, -5f);
-
-            view._outline = go.AddComponent<Outline>();
+            view._outline = view._background.gameObject.AddComponent<Outline>();
             view._outline.effectColor = TrumpGlow;
             view._outline.effectDistance = new Vector2(3f, 3f);
             view._outline.enabled = false;
@@ -113,17 +114,13 @@ namespace CardGameClient
             var art = LoadArt(artKey);
             if (art != null)
             {
-                _background.sprite = art;
-                _background.type = Image.Type.Simple;
-                _background.color = Color.white;
+                SetArt(art, Image.Type.Simple, Color.white);
                 _corner.text = string.Empty;
                 _center.text = string.Empty;
                 return;
             }
 
-            _background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
-            _background.type = Image.Type.Sliced;
-            _background.color = FaceColor;
+            SetArt(UiTextures.RoundedRect(128, 180, 16f, Color.white), Image.Type.Sliced, FaceColor);
 
             if (card.IsJoker)
             {
@@ -148,19 +145,35 @@ namespace CardGameClient
             var art = LoadArt("back");
             if (art != null)
             {
-                _background.sprite = art;
-                _background.type = Image.Type.Simple;
-                _background.color = Color.white;
+                SetArt(art, Image.Type.Simple, Color.white);
                 _corner.text = string.Empty;
                 _center.text = string.Empty;
                 return;
             }
 
-            _background.sprite = UiTextures.RoundedRect(128, 180, 16f, Color.white);
-            _background.type = Image.Type.Sliced;
-            _background.color = BackColor;
+            SetArt(UiTextures.RoundedRect(128, 180, 16f, Color.white), Image.Type.Sliced, BackColor);
             _corner.text = string.Empty;
             _center.text = string.Empty;
+        }
+
+        private void SetArt(Sprite sprite, Image.Type type, Color tint)
+        {
+            _background.sprite = _shadow.sprite = sprite;
+            _background.type = _shadow.type = type;
+            _background.color = tint;
+        }
+
+        private static Image CreateArtLayer(RectTransform parent, string name, Vector2 offset)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(parent, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = rect.offsetMax = offset;
+            var image = go.GetComponent<Image>();
+            image.raycastTarget = false;
+            return image;
         }
 
         private static Sprite LoadArt(string key)

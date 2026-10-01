@@ -3,25 +3,47 @@ using UnityEngine;
 namespace CardGameClient
 {
     /// <summary>
-    /// Что игрок выбрал про себя. Пока это только аватар, позже сюда же переедет имя,
-    /// и всё это будет храниться в аккаунте, а не в настройках устройства.
+    /// Name and avatar from the shared local profile service, used by every game.
     /// </summary>
     public static class PlayerProfile
     {
-        private const string AvatarKey = "player.avatar";
+        public static string DisplayName => PlayerHubRuntime.DisplayName;
 
         /// <summary>Имя спрайта, а не индекс: список аватаров растёт, и индекс бы съезжал.</summary>
         public static string AvatarName
         {
-            get => PlayerPrefs.GetString(AvatarKey, string.Empty);
-            set
+            get => PlayerHubRuntime.AvatarName;
+            set { _ = PlayerHubRuntime.SelectAvatarAsync(value); }
+        }
+
+        public static System.Threading.Tasks.Task<bool> SetAvatarAsync(string value)
+            => PlayerHubRuntime.SelectAvatarAsync(value);
+
+        /// <summary>
+        /// Выбранный аватар. У каждого человека пока один образ, поэтому прежний выбор
+        /// (например, yegor_07 из старых наборов) ведёт к образу того же человека; без выбора — Егор.
+        /// </summary>
+        public static Sprite Avatar
+        {
+            get
             {
-                PlayerPrefs.SetString(AvatarKey, value ?? string.Empty);
-                PlayerPrefs.Save();
+                var name = AvatarName;
+                var sprite = AvatarCatalog.Find(name);
+                if (sprite != null) return sprite;
+                var underscore = string.IsNullOrEmpty(name) ? -1 : name.LastIndexOf('_');
+                return FirstOf(underscore > 0 ? name.Substring(0, underscore) : null) ?? FirstOf(DefaultPerson);
             }
         }
 
-        /// <summary>Выбранный аватар или null, если игрок ещё не выбирал (тогда дадим случайный).</summary>
-        public static Sprite Avatar => AvatarCatalog.Find(AvatarName);
+        private const string DefaultPerson = "yegor";
+
+        private static Sprite FirstOf(string groupId)
+        {
+            if (string.IsNullOrEmpty(groupId)) return null;
+            foreach (var group in AvatarCatalog.Groups)
+                if (group.Id == groupId && group.Sprites.Count > 0)
+                    return group.Sprites[0];
+            return null;
+        }
     }
 }

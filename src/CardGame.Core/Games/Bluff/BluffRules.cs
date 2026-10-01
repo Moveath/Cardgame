@@ -156,6 +156,55 @@ namespace CardGame.Core.Games.Bluff
             return "бвгджзклмнпрстфхцчшщ".IndexOf(last) >= 0 ? name + "у" : name;
         }
 
+        private static readonly Dictionary<string, string> GenitiveExceptions = new Dictionary<string, string>
+        {
+            { "Пётр", "Петра" },
+            { "Петр", "Петра" },
+            { "Павел", "Павла" },
+            { "Лев", "Льва" },
+        };
+
+        /// <summary>
+        /// Имя владельца в родительном падеже: «Сундук Егора», «Сундук Ольги», «Сундук Али».
+        /// Правила рассчитаны на имена из игровых наборов и запасного пула ботов, а не на
+        /// произвольные никнеймы. Суффикс образа, например номер в «Егор 2», сохраняется.
+        /// </summary>
+        public static string NameGenitive(string name)
+        {
+            var space = name.IndexOf(' ');
+            if (space > 0)
+            {
+                return NameGenitive(name.Substring(0, space)) + name.Substring(space);
+            }
+
+            if (GenitiveExceptions.TryGetValue(name, out var exception))
+            {
+                return exception;
+            }
+
+            if (name.Length < 2)
+            {
+                return name;
+            }
+
+            var stem = name.Substring(0, name.Length - 1);
+            var last = char.ToLowerInvariant(name[name.Length - 1]);
+
+            switch (last)
+            {
+                case 'а':
+                    var beforeLast = char.ToLowerInvariant(name[name.Length - 2]);
+                    return stem + ("гкхжчшщ".IndexOf(beforeLast) >= 0 ? "и" : "ы");
+                case 'я':
+                    return stem + "и";
+                case 'й':
+                case 'ь':
+                    return stem + "я";
+            }
+
+            return "бвгджзклмнпрстфхцчшщ".IndexOf(last) >= 0 ? name + "а" : name;
+        }
+
         /// <summary>Согласование «1 карту», «2 карты», «5 карт» — бросок больше трёх карт не бывает, но пусть будет общим.</summary>
         public static string CardsWord(int count)
         {

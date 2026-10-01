@@ -1,0 +1,16 @@
+Generate ONE image with your built-in image generation tool. Do not write code, do not edit files, do not run commands. After the image is generated, reply only with the word DONE.
+
+Use case: 2D game character sprite sheet. Reference image: the attached avatar portrait.
+Draw THE SAME character as the reference — identical face, hair, skin tone, eye colour, beard or makeup, costume, colours, headwear and accessories — as a full-body cartoon figure. Continue the costume from the portrait naturally below the chest: the same jacket, robe, dress, armour or uniform, with fitting trousers or skirt and fitting shoes or boots, as a costume designer would complete it. Cute proportions: head about one quarter of the height. Polished cel-shaded cartoon style with a dark outline, matching the reference portrait's style exactly.
+
+Five images in ONE row, left to right, same scale, the feet of all four figures on the same baseline, generous empty space between them, nothing overlapping:
+1. Standing confidently, hands on hips, slight smug smile.
+2. Worried: brows knitted, lips pressed, arms spread to the sides for balance.
+3. Scared: eyes wide, mouth open, both hands raised at shoulder height, palms out.
+4. Panic: eyes huge and round, mouth wide open screaming, same body pose as 3.
+5. ONLY the character's headwear alone (hat, cap, crown, helmet, turban, headscarf), no head, upright, same scale. If the character has no headwear, leave the fifth place completely empty.
+
+All four figures are complete full-body figures standing on nothing: NO mud, no puddle, no water, no splashes, no sweat drops, no ground, no cast shadow, no text, no labels, no frame.
+Background: SOLID PURE MAGENTA #FF00FF everywhere, perfectly flat, no gradient, no vignette, no checkerboard.
+Do not use magenta or hot pink anywhere inside the character; if the costume has a pink or magenta part, make it a clearly different shade (crimson, violet or salmon).
+Wide landscape canvas.

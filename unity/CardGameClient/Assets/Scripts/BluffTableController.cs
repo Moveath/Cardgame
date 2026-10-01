@@ -20,7 +20,8 @@ namespace CardGameClient
     public sealed class BluffTableController : MonoBehaviour
     {
         private const int HumanIndex = 0;
-        private const string HumanName = "Егор";
+        private static string HumanName => PlayerProfile.DisplayName;
+        private bool _hubMatchReported;
 
         private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
 
@@ -253,6 +254,7 @@ namespace CardGameClient
 
         private void StartNewGame()
         {
+            _hubMatchReported = false;
             var seed = UnityEngine.Random.Range(0, int.MaxValue);
 
             // Сначала лица, потом имена: бот с лицом реального человека называется так же,
@@ -767,6 +769,13 @@ namespace CardGameClient
 
         private void Refresh()
         {
+            if (!_hubMatchReported && _game.IsFinished)
+            {
+                _hubMatchReported = true;
+                var won = _game.Losers.Count > 0;
+                foreach (var loser in _game.Losers) if (loser == HumanIndex) won = false;
+                HubMatchReporter.ReportMatchCompleted("bluff", won,draw:_game.Losers.Count==0);
+            }
             RefreshStatus();
             RefreshPot();
 
@@ -1677,6 +1686,7 @@ namespace CardGameClient
                 names.Add(name);
             }
 
+            HubRoster.TryApply("bluff", names, _playerPortraits);
             return names;
         }
 

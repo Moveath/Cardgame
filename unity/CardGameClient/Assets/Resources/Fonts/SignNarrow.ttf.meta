@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: 9e8d0b3f7cc54c8aa87cdcf20a70c677
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Oswald
+  fallbackFontReferences: []
+  customCharacters:
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  userData: Oswald, SIL Open Font License 1.1 (see SignNarrow-OFL.txt); subset to Latin, Cyrillic and punctuation.
+  assetBundleName:
+  assetBundleVariant:

@@ -6,6 +6,12 @@ namespace CardGameClient
     /// <summary>Настройки одной партии в «верю — не верю», собранные в своей комнате.</summary>
     public struct BluffMatchSettings
     {
+        /// <summary>
+        /// Больше шести комната пока не предлагает. Семь и восемь убраны только отсюда:
+        /// правила, боты и стол их по-прежнему тянут. Чтобы вернуть — поставить 8.
+        /// </summary>
+        public const int MaxPlayers = 6;
+
         public int PlayerCount;
         public DeckKind DeckSize;
 
@@ -33,12 +39,13 @@ namespace CardGameClient
         /// <summary>
         /// Раздаётся вся колода, поэтому ограничение другое, чем в дураке: важно не то,
         /// хватит ли карт на раздачу, а то, останется ли чем играть. Меньше четырёх карт
-        /// на руках — и партия кончается, не начавшись.
+        /// на руках — и партия кончается, не начавшись. И не больше, чем предлагает
+        /// комната (<see cref="MaxPlayers"/>).
         /// </summary>
         public static int MaxPlayersFor(DeckKind deck)
         {
             var byCards = CardCount(deck) / 4;
-            return byCards > 8 ? 8 : byCards;
+            return byCards > MaxPlayers ? MaxPlayers : byCards;
         }
 
         public static int CardCount(DeckKind deck)

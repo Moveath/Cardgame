@@ -36,3 +36,5 @@ unity/*/MemoryCaptures/
 
 # Прочее
 *.log
+__pycache__/
+*.py[cod]

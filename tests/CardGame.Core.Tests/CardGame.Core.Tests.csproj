@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CardGame.Core\CardGame.Core.csproj" />
     <ProjectReference Include="..\..\src\CardGame.Bots\CardGame.Bots.csproj" />
+    <Compile Include="..\..\unity\CardGameClient\Assets\Scripts\GovnoGestureState.cs" Link="Client\GovnoGestureState.cs" />
   </ItemGroup>
 
 </Project>

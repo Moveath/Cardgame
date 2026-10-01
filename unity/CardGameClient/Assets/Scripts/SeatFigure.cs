@@ -103,7 +103,7 @@ namespace CardGameClient
                 return new Headwear { Rim = FallbackEyeLine + fit.RimAboveEyes };
             }
 
-            if (HeadwearCache.TryGetValue((portrait, fit), out var cached))
+            if (HeadwearCache.TryGetValue((portrait, fit), out var cached) && cached.Portrait != null)
             {
                 return cached;
             }
@@ -253,6 +253,156 @@ namespace CardGameClient
             portraitImage.raycastTarget = false;
 
             return wrapperRect;
+        }
+
+        /// <summary>Толщина обводки выбранного соперника, в пикселях картинки портрета.</summary>
+        private const int OutlinePixels = 9;
+
+        private static readonly Dictionary<Sprite, Sprite> SilhouetteCache = new Dictionary<Sprite, Sprite>();
+
+        /// <summary>
+        /// Обводка по контуру персонажа — для выбора соперника. Рамка вернула бы «картинку в
+        /// коробочке», а пятно света под фигурой уже занято тем, кто ходит. Под портретом
+        /// кладётся его же силуэт, раздутый на несколько пикселей и залитый одним цветом, —
+        /// из-за краёв он и виден как обводка. Возвращается выключенной: включает тот, кто
+        /// выбирает.
+        /// </summary>
+        public static GameObject AddOutline(RectTransform avatar, Sprite portrait, float scale, Color color)
+        {
+            var go = new GameObject("Outline", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            go.transform.SetParent(avatar, false);
+
+            var rect = (RectTransform)go.transform;
+            var image = go.GetComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+
+            // Под фигурой, но над пятном света ходящего: иначе свет перекрасил бы обводку.
+            var body = avatar.Find(portrait == null ? "Circle" : "Portrait");
+            if (body != null)
+            {
+                go.transform.SetSiblingIndex(body.GetSiblingIndex());
+            }
+
+            if (portrait == null)
+            {
+                // Кружок с буквой: кольцо чуть шире самого кружка.
+                var diameter = Width * scale * 0.75f + 10f * scale;
+                rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.sizeDelta = new Vector2(diameter, diameter);
+                image.sprite = UiTextures.Circle(64, Color.white);
+                go.SetActive(false);
+                return go;
+            }
+
+            var portraitScale = PortraitScale(portrait, scale);
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = new Vector2(0f, -OutlinePixels * portraitScale);
+            rect.sizeDelta = new Vector2(
+                (portrait.rect.width + 2f * OutlinePixels) * portraitScale,
+                (portrait.rect.height + 2f * OutlinePixels) * portraitScale);
+            image.sprite = Silhouette(portrait);
+
+            go.SetActive(false);
+            return go;
+        }
+
+        /// <summary>
+        /// Белый силуэт портрета, раздутый на <see cref="OutlinePixels"/> во все стороны.
+        /// Раздуваем кругом, а не квадратом, — иначе на плечах и шляпах вылезают углы.
+        /// Считается раз на портрет: сначала по строкам — до ближайшего непрозрачного
+        /// пикселя, потом по столбцам — настоящее расстояние. Край мягкий, в полпикселя.
+        /// </summary>
+        private static Sprite Silhouette(Sprite portrait)
+        {
+            if (SilhouetteCache.TryGetValue(portrait, out var cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var pixels = ReadPixels(portrait, out var width, out var height);
+            const int reach = OutlinePixels;
+            var paddedWidth = width + 2 * reach;
+            var paddedHeight = height + 2 * reach;
+            var far = reach + 1;
+
+            // По строкам: сколько до ближайшего непрозрачного пикселя слева или справа.
+            var rowDistance = new int[paddedWidth * paddedHeight];
+            for (var y = 0; y < paddedHeight; y++)
+            {
+                var sourceY = y - reach;
+                var last = -far * 2;
+                for (var x = 0; x < paddedWidth; x++)
+                {
+                    var sourceX = x - reach;
+                    var solid = sourceY >= 0 && sourceY < height && sourceX >= 0 && sourceX < width
+                                && pixels[(sourceY * width + sourceX) * 4 + 3] > 96;
+                    if (solid)
+                    {
+                        last = x;
+                    }
+
+                    rowDistance[y * paddedWidth + x] = Mathf.Min(far, x - last);
+                }
+
+                last = paddedWidth + far * 2;
+                for (var x = paddedWidth - 1; x >= 0; x--)
+                {
+                    var index = y * paddedWidth + x;
+                    if (rowDistance[index] == 0)
+                    {
+                        last = x;
+                    }
+
+                    rowDistance[index] = Mathf.Min(rowDistance[index], Mathf.Min(far, last - x));
+                }
+            }
+
+            var silhouette = new byte[paddedWidth * paddedHeight * 4];
+            for (var y = 0; y < paddedHeight; y++)
+            {
+                for (var x = 0; x < paddedWidth; x++)
+                {
+                    var best = far * far;
+                    for (var dy = -reach; dy <= reach; dy++)
+                    {
+                        var row = y + dy;
+                        if (row < 0 || row >= paddedHeight)
+                        {
+                            continue;
+                        }
+
+                        var along = rowDistance[row * paddedWidth + x];
+                        var distance = dy * dy + along * along;
+                        if (distance < best)
+                        {
+                            best = distance;
+                        }
+                    }
+
+                    var alpha = Mathf.Clamp01(reach + 0.5f - Mathf.Sqrt(best));
+                    var offset = (y * paddedWidth + x) * 4;
+                    silhouette[offset] = 255;
+                    silhouette[offset + 1] = 255;
+                    silhouette[offset + 2] = 255;
+                    silhouette[offset + 3] = (byte)Mathf.RoundToInt(alpha * 255f);
+                }
+            }
+
+            var texture = new Texture2D(paddedWidth, paddedHeight, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            texture.SetPixelData(silhouette, 0);
+            texture.Apply(false, true);
+
+            var sprite = Sprite.Create(texture, new Rect(0f, 0f, paddedWidth, paddedHeight), new Vector2(0.5f, 0f),
+                portrait.pixelsPerUnit, 0, SpriteMeshType.FullRect);
+
+            SilhouetteCache[portrait] = sprite;
+            return sprite;
         }
 
         private static Text CreateLabel(Transform parent, Font font, string content, int fontSize)

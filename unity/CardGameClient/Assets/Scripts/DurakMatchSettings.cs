@@ -13,6 +13,12 @@ namespace CardGameClient
     /// <summary>Настройки одной партии, собранные в лобби перед стартом игры.</summary>
     public struct DurakMatchSettings
     {
+        /// <summary>
+        /// Больше шести комната пока не предлагает. Семь и восемь убраны только отсюда:
+        /// правила, боты и стол их по-прежнему тянут. Чтобы вернуть — поставить 8.
+        /// </summary>
+        public const int MaxPlayers = 6;
+
         public int PlayerCount;
         public DeckKind DeckSize;
 
@@ -30,15 +36,21 @@ namespace CardGameClient
             AllowCheating = false
         };
 
-        /// <summary>Сколько игроков умещается в выбранной колоде без пересдачи по кругу.</summary>
+        /// <summary>
+        /// Сколько игроков умещается в выбранной колоде без пересдачи по кругу — но не
+        /// больше, чем предлагает комната (<see cref="MaxPlayers"/>).
+        /// </summary>
         public static int MaxPlayersFor(DeckKind deck)
         {
+            int byDeck;
             switch (deck)
             {
-                case DeckKind.Twenty4: return 4;
-                case DeckKind.ThirtySix: return 6;
-                default: return 8;
+                case DeckKind.Twenty4: byDeck = 4; break;
+                case DeckKind.ThirtySix: byDeck = 6; break;
+                default: byDeck = 8; break;
             }
+
+            return byDeck > MaxPlayers ? MaxPlayers : byDeck;
         }
 
         public static int CardCount(DeckKind deck)

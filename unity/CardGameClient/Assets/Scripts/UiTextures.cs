@@ -10,12 +10,14 @@ namespace CardGameClient
     /// </summary>
     public static class UiTextures
     {
+        // Кэш переживает выход из Play (перезагрузка домена в проекте выключена), а сами текстуры Unity при
+        // выходе удаляет: удалённую запись рисуем заново, иначе картинка выходит сплошным прямоугольником.
         private static readonly Dictionary<string, Sprite> Cache = new Dictionary<string, Sprite>();
 
         public static Sprite RoundedRect(int width, int height, float radius, Color color)
         {
             var key = width + "_" + height + "_" + radius + "_" + color;
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
@@ -55,7 +57,7 @@ namespace CardGameClient
         public static Sprite SoftShadow(int width, int height, float radius, float feather, float strength)
         {
             var key = "soft_" + width + "_" + height + "_" + radius + "_" + feather + "_" + strength;
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
@@ -92,7 +94,7 @@ namespace CardGameClient
         public static Sprite RadialGlow(int diameter, Color color)
         {
             var key = "glow_" + diameter + "_" + color;
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
@@ -142,7 +144,7 @@ namespace CardGameClient
         public static Sprite TearMask(int variant, bool left)
         {
             var key = "tear_" + variant + (left ? "_left" : "_right");
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
@@ -171,7 +173,7 @@ namespace CardGameClient
         public static Sprite TearFibers(int variant)
         {
             var key = "tear_" + variant + "_fibers";
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
@@ -270,7 +272,7 @@ namespace CardGameClient
         public static Sprite RoosterHat(Color color)
         {
             var key = "hat_" + color;
-            if (Cache.TryGetValue(key, out var cached))
+            if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
             }
