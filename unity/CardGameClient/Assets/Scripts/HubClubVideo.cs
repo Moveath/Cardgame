@@ -12,6 +12,7 @@ namespace CardGameClient
     /// и start (idle → play) — переходы; переходов может не быть, тогда петли сменяют друг друга плавно.
     /// Житель «играет», пока его не остановили нажатием (<see cref="Stopped"/>) и <see cref="Allowed"/> разрешает
     /// (у пианистки — включённая музыка), иначе сидит. Без позы покоя остановленный ролик гаснет до картинки.
+    /// Для жителя без idle <see cref="SetupVariation"/> добавляет редкий одиночный жест между обычными петлями.
     /// Ролики крутятся, только пока житель виден на экране. Два слоя: новый ролик проявляется поверх старого.
     /// </summary>
     public sealed class HubClubVideo : MonoBehaviour
@@ -22,7 +23,7 @@ namespace CardGameClient
         private const float PlayEntrySpeed = .55f;
         private const float PlaySpeedupSeconds = .75f;
 
-        private enum Clip { Play, Idle, Stop, Start }
+        private enum Clip { Play, Idle, Stop, Start, Action }
 
         private sealed class Layer
         {
@@ -45,15 +46,19 @@ namespace CardGameClient
         public Func<bool> Allowed;
         public RectTransform Viewport;
 
-        private readonly VideoClip[] _clips = new VideoClip[4];
+        private readonly VideoClip[] _clips = new VideoClip[5];
         // С какого кадра петля начинается после перехода (подобран по позе и движению, `club-<житель>-entry`).
-        private readonly long[] _entries = new long[4];
+        private readonly long[] _entries = new long[5];
         private Layer _front, _back;
         private Material _material;
         private bool _started, _switching;
         private float _alpha;
         private float _blendTime, _blendSeconds;
         private bool _bakedLanding;
+        private readonly System.Random _variationRandom = new System.Random();
+        private float _variationWait, _variationLastDelay = -1;
+        private double _variationLastPeriod = -1;
+        private float _variationMinDelay, _variationMaxDelay, _variationBlendSeconds;
         private readonly Vector3[] _corners = new Vector3[4], _view = new Vector3[4];
 
         /// <summary>Плеер ролика, что сейчас на экране.</summary>
@@ -61,9 +66,67 @@ namespace CardGameClient
         public Material Material => _material;
         /// <summary>Житель должен играть (виден, не остановлен, разрешён).</summary>
         public bool Wanted => !Stopped && (Allowed == null || Allowed()) && Visible();
-        /// <summary>Какой ролик сейчас на экране или проявляется: play, idle, stop, start.</summary>
+        /// <summary>Какой ролик сейчас на экране или проявляется: play, idle, stop, start, action.</summary>
         public string Showing => (_switching ? _back : _front).Clip.ToString().ToLowerInvariant();
         public bool HasIdle => _clips[(int)Clip.Idle] != null;
+        public bool HasVariation => _clips[(int)Clip.Action] != null;
+        public bool IsBlending => _switching;
+        /// <summary>До разрешения следующего жеста; затем ждём совпадающую фазу конца play.</summary>
+        public float VariationSecondsRemaining => _variationWait;
+        public float VariationMinDelay => _variationMinDelay;
+        public float VariationMaxDelay => _variationMaxDelay;
+        public float VariationBlendSeconds => _variationBlendSeconds;
+
+        /// <summary>
+        /// Редкий жест между обычными петлями. Начало action должно повторять последние blendSeconds петли play,
+        /// а конец action — первые blendSeconds play. Переключаемся только в этих совпадающих фазах.
+        /// Отсчёт идёт при видимом, работающем жителе; новый интервал выбирается после возвращения к play.
+        /// </summary>
+        public void SetupVariation(VideoClip action, float minDelay = 8, float maxDelay = 28, float blendSeconds = .3f)
+        {
+            if (_front == null) throw new InvalidOperationException("Call Setup before SetupVariation.");
+            if (HasIdle) throw new InvalidOperationException("An occasional action requires a resident without idle/start/stop clips.");
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            if (action.width != _clips[(int)Clip.Play].width || action.height != _clips[(int)Clip.Play].height)
+                throw new ArgumentException("Play and action clips must share the same crop and resolution.", nameof(action));
+            if (minDelay < 0 || maxDelay < minDelay || float.IsNaN(minDelay) || float.IsNaN(maxDelay) ||
+                float.IsInfinity(minDelay) || float.IsInfinity(maxDelay))
+                throw new ArgumentOutOfRangeException(nameof(minDelay), "Variation intervals must be finite and ordered.");
+            if (blendSeconds <= 0 || float.IsNaN(blendSeconds) || float.IsInfinity(blendSeconds) ||
+                blendSeconds * 2 >= action.length || blendSeconds * 2 >= _clips[(int)Clip.Play].length)
+                throw new ArgumentOutOfRangeException(nameof(blendSeconds), "The overlap must fit within both clips.");
+            _clips[(int)Clip.Action] = action;
+            _variationMinDelay = minDelay;
+            _variationMaxDelay = maxDelay;
+            _variationBlendSeconds = blendSeconds;
+            ScheduleVariation();
+        }
+
+        private void ScheduleVariation()
+        {
+            var range = _variationMaxDelay - _variationMinDelay;
+            var clip = _clips[(int)Clip.Play];
+            var duration = clip.frameCount / clip.frameRate;
+            var phase = _front.Clip == Clip.Play && _front.Player.isPrepared
+                ? Math.Max(0, _front.Player.frame) / clip.frameRate : 0;
+            var untilExit = Math.Max(0, duration - _variationBlendSeconds - phase);
+            double Period(float wait) => Math.Ceiling(Math.Max(0, wait - untilExit) / duration);
+            var canVaryPeriod = Period(_variationMinDelay) != _variationLastPeriod ||
+                Period(_variationMaxDelay) != _variationLastPeriod;
+            float delay;
+            var tries = 0;
+            do
+            {
+                delay = _variationMinDelay + (float)_variationRandom.NextDouble() * range;
+            }
+            while (++tries < 32 && (Mathf.Abs(delay - _variationLastDelay) < range * .15f ||
+                canVaryPeriod && Period(delay) == _variationLastPeriod));
+            // Разные секунды могут попасть в один и тот же конец петли. Избегаем повтора и видимого интервала.
+            if (canVaryPeriod && Period(delay) == _variationLastPeriod)
+                delay = Period(_variationMinDelay) != _variationLastPeriod ? _variationMinDelay : _variationMaxDelay;
+            _variationWait = _variationLastDelay = delay;
+            _variationLastPeriod = Period(delay);
+        }
 
         public void Setup(Texture mask, VideoClip play, VideoClip idle = null, VideoClip stop = null, VideoClip start = null,
             string entries = null)
@@ -249,7 +312,8 @@ namespace CardGameClient
         {
             var startingPlay = _front.Clip == Clip.Start && _back.Clip == Clip.Play;
             _blendTime = 0;
-            _blendSeconds = startingPlay ? PlayLandingSeconds : FadeSeconds;
+            _blendSeconds = _front.Clip == Clip.Action || _back.Clip == Clip.Action
+                ? _variationBlendSeconds : startingPlay ? PlayLandingSeconds : FadeSeconds;
             if (startingPlay && !_bakedLanding)
             {
                 var speed = _back.Player.canSetPlaybackSpeed ? PlayEntrySpeed : 1;
@@ -303,6 +367,11 @@ namespace CardGameClient
                 _started = true;
                 Load(_front, _clips[(int)(play ? Clip.Play : rest)], play ? Clip.Play : rest);
                 _alpha = 0;
+            }
+            if (HasVariation)
+            {
+                UpdateVariation(play);
+                return;
             }
             if (_switching)
             {
@@ -363,6 +432,73 @@ namespace CardGameClient
                 _ => _front.Ended || _front.Player.frame >= 1 && left <= overlap,
             };
             if (go) Begin();
+        }
+
+        private void UpdateVariation(bool play)
+        {
+            if (!play)
+            {
+                // Нажатие останавливает и жест, и его часы. Возобновление не перескакивает к другой позе.
+                _front.Player.Pause();
+                if (_switching) _back.Player.Pause();
+                _front.HeldSeconds = _back.HeldSeconds = 0;
+                _alpha = Mathf.MoveTowards(_alpha, 0, Time.unscaledDeltaTime / FadeSeconds);
+                PaintVariation();
+                return;
+            }
+
+            if (!_front.Player.isPlaying && !_front.Ended) _front.Player.Play();
+            RecoverHeldFrame(_front);
+            _alpha = Mathf.MoveTowards(_alpha, _front.Player.frame >= 1 || _alpha > 0 ? 1 : 0,
+                Time.unscaledDeltaTime / FadeSeconds);
+            if (_switching)
+            {
+                if (!_back.Player.isPlaying && !_back.Ended) _back.Player.Play();
+                RecoverHeldFrame(_back);
+                if (_back.Fresh)
+                {
+                    _blendTime = Mathf.Min(_blendSeconds, _blendTime + Time.unscaledDeltaTime);
+                    if (_blendTime >= _blendSeconds)
+                    {
+                        _front.Player.Stop();
+                        _front.Image.color = new Color(1, 1, 1, 0);
+                        // Остановленный плеер выгрузил ролик: пусть Ready загрузит его заново, а не ждёт кадра,
+                        // которого не будет (бармен застывал в конце жеста).
+                        _front.Player.clip = null;
+                        _front.Fresh = _front.Cueing = false;
+                        (_front, _back) = (_back, _front);
+                        _switching = false;
+                        if (_front.Clip == Clip.Play) ScheduleVariation();
+                    }
+                }
+                PaintVariation();
+                return;
+            }
+
+            var returning = _front.Clip == Clip.Action;
+            if (!returning && _alpha >= .999f)
+                _variationWait = Mathf.Max(0, _variationWait - Time.unscaledDeltaTime);
+
+            // Задний слой уже хранит декодированный кадр: на видимом стыке не нужен ни Prepare, ни seek.
+            Ready(returning ? Clip.Play : Clip.Action);
+            if (_back.Player.isPrepared && _back.Fresh && (returning || _variationWait <= 0))
+            {
+                var overlap = (long)Mathf.Ceil(_variationBlendSeconds * (float)_front.Player.frameRate);
+                var remaining = (long)_front.Player.frameCount - _front.Player.frame;
+                if (_front.Ended || _front.Player.frame >= 1 && remaining <= overlap)
+                    Begin();
+            }
+            PaintVariation();
+        }
+
+        private void PaintVariation()
+        {
+            _front.Image.color = new Color(1, 1, 1, _alpha);
+            if (_switching)
+            {
+                var a = Mathf.SmoothStep(0, 1, _blendTime / _blendSeconds);
+                _back.Image.color = new Color(1, 1, 1, a * _alpha);
+            }
         }
 
         private void OnDestroy()

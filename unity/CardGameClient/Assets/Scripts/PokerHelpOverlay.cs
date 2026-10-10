@@ -71,7 +71,7 @@ namespace CardGameClient
         private void Build()
         {
             _panel = Box(_root, "Poker guide", Vector2.zero, new Vector2(1510, 852), new Color(0.045f, 0.13f, 0.12f));
-            var outline = _panel.gameObject.AddComponent<Outline>();
+            var outline = _panel.gameObject.AddComponent<HubOutline>();
             outline.effectColor = new Color(Gold.r, Gold.g, Gold.b, 0.45f);
             outline.effectDistance = new Vector2(1, 1);
             Label(_panel, "КОМБИНАЦИИ ПОКЕРА", 34, new Vector2(-115, 365), new Vector2(1160, 48), Gold, TextAnchor.MiddleLeft);

@@ -10,16 +10,20 @@ namespace CardGameClient
     /// Здания изнутри — этажи с номера <see cref="FirstInterior"/> (картинки — в FloorArt): вход — нырок
     /// в двери здания, выход — нажать на дверь изнутри, «Выйти», «Назад», Esc или S/↓. Первый — зал
     /// Клуба (`UI/Hub/club-hall`, 21:9): четыре стола в пятнах света — четыре игры зала, названия на ковре
-    /// перед столами, на афише у входа — «ИГРЫ» (все игры). Второй зал и проход соединены в ленту:
-    /// свайп, A/D и стрелки ведут по обоим залам. Четыре стола второго зала пока свободны:
-    /// подсвечиваются, но не открывают игру. Доска «ИГРЫ» справа во втором зале открывает список игр.
+    /// перед столами, на афише у входа — «ИГРЫ» (все игры). Второй зал и проход временно выключены
+    /// через ClubSecondHallEnabled: их фон, столы и настройки сохранены для возвращения позже.
+    /// Свайп, A/D и стрелки пока ограничены стенами первого зала.
     /// </summary>
     public sealed partial class PlayerHubController
     {
         // Этажи с этого номера — здания изнутри, а не части города.
         private const int FirstInterior = 2;
+        private const int FortuneLevel = 5;
         private const string ClubHall = "club-hall";
         private const string ClubHall2 = "club-hall-2", ClubBridge = "club-bridge-1-2";
+        // Временно убран по просьбе автора (2026-10-05). Вернуть второй зал и проход можно одним
+        // флагом: код панорамы, места, вывески и исходные картинки остаются в проекте.
+        private static readonly bool ClubSecondHallEnabled = false;
         // Совпадающие края готовых картинок: мост начинается в x=1105 первого зала,
         // второй зал — в x=1342 моста. Всё измерено в общей системе 1916×821.
         private const float ClubPictureWidth = 1916, ClubPictureHeight = 821, ClubBridgeX = 1105, ClubHall2X = 2447;
@@ -44,6 +48,8 @@ namespace CardGameClient
         /// <summary>Клуб — один этаж, три картинки и отдельный верхний слой мебели и вывесок.</summary>
         private bool BuildClubPanorama(RectTransform floor, Sprite first)
         {
+            // EnsureFloor соберёт только первый зал с его обычной шириной и границами камеры.
+            if (!ClubSecondHallEnabled) return false;
             var bridge = Resources.Load<Sprite>("UI/Hub/" + ClubBridge);
             var second = Resources.Load<Sprite>("UI/Hub/" + ClubHall2);
             if (bridge == null || second == null) return false;
@@ -85,7 +91,7 @@ namespace CardGameClient
         /// <summary>Нажатие на арку — плавно пройти в другой зал, оставаясь внутри клуба.</summary>
         private void CrossClubHall()
         {
-            if (_cityLevel != FirstInterior || _visitPhase != 0 || _diveTarget >= 0
+            if (!ClubSecondHallEnabled || _cityLevel != FirstInterior || _visitPhase != 0 || _diveTarget >= 0
                 || !_placePages.TryGetValue(ClubHall, out var first) || !_placePages.TryGetValue(ClubHall2, out var second)) return;
             var middle = _floorWidths[FirstInterior] / 2;
             var a = first.X + first.Width / 2 - middle;
@@ -97,7 +103,7 @@ namespace CardGameClient
 
         private void TrackClubHall()
         {
-            if (_cityLevel != FirstInterior || !_placePages.ContainsKey(ClubHall2)) return;
+            if (!ClubSecondHallEnabled || _cityLevel != FirstInterior || !_placePages.ContainsKey(ClubHall2)) return;
             var center = (_floorPan + _floorWidths[FirstInterior] / 2) * ClubPictureHeight / CityHeight;
             if (center <= ClubPictureWidth) _clubHallSide = 0;
             else if (center >= ClubHall2X) _clubHallSide = 1;
@@ -109,7 +115,8 @@ namespace CardGameClient
         /// <summary>Насколько вид этажа может уйти от середины в каждую сторону (в пикселях картинки).</summary>
         private float FloorPanLimit(int level)
         {
-            if (level == 0 || Floor(level) == null) return 0;
+            // Шатёр гадалки всегда по центру: стол с картами совпадает со страницей расклада.
+            if (level == 0 || level == FortuneLevel || Floor(level) == null) return 0;
             return Mathf.Max(0, (_floorWidths[level] * FloorScale(level) - _cityArea.rect.width) / 2 / FloorScale(level));
         }
 
@@ -134,6 +141,27 @@ namespace CardGameClient
         /// Кнопка в городе — в стиле вывесок: тёмная доска в золотой рамке (`UI/Hub/sign-plaque`) и золотые
         /// буквы узким шрифтом вывесок. Для «Выйти» в зданиях и «Отойти» у фонтана.
         /// </summary>
+        // Кнопки в верхних углах (ВЫЙТИ, НАЗАД, ОТОЙТИ, ЗАКРЫТЬ, счёт подарка; решение автора, 2026-10-07): на вытянутом
+        // экране — у краёв экрана, а не у краёв сцены 1600×900 посередине. Сторона: −1 — левый угол, 1 — правый.
+        private readonly List<(RectTransform Rect, Vector2 Home, int Side)> _cornerPins = new List<(RectTransform, Vector2, int)>();
+
+        private RectTransform PinToCorner(RectTransform rect, int side)
+        {
+            _cornerPins.Add((rect, rect.anchoredPosition, side));
+            PinCorners();
+            return rect;
+        }
+
+        /// <summary>Сдвинуть кнопки углов на запас экрана за сценой (после смены размера окна).</summary>
+        private void PinCorners()
+        {
+            if (_stage == null) return;
+            var size = ((RectTransform)transform).rect.size / Mathf.Max(.01f, _stage.localScale.x);
+            var spare = new Vector2(Mathf.Max(0, size.x - 1600) / 2, Mathf.Max(0, size.y - 900) / 2);
+            foreach (var pin in _cornerPins)
+                if (pin.Rect != null) pin.Rect.anchoredPosition = pin.Home + new Vector2(pin.Side * spare.x, spare.y);
+        }
+
         private Button CityButton(Transform parent, string text, float x, float y, float w, float h, System.Action action)
         {
             var plaque = s_signPlaque != null ? s_signPlaque : s_signPlaque = Resources.Load<Sprite>("UI/Hub/sign-plaque");
@@ -318,7 +346,8 @@ namespace CardGameClient
 
         /// <summary>Размер исходной картинки, в пикселях которой заданы места и вывески.</summary>
         private static Vector2 PictureSize(string art) =>
-            IsClubArt(art) ? new Vector2(ClubPictureWidth, ClubPictureHeight) : new Vector2(SignPictureWidth, SignPictureHeight);
+            IsClubArt(art) ? new Vector2(ClubPictureWidth, ClubPictureHeight)
+            : art == SixRoom || art == BankHall || art == TavernHall ? new Vector2(SixPictureWidth, SignPictureHeight) : new Vector2(SignPictureWidth, SignPictureHeight);
 
         // Стол в зале Клуба (пиксели картинки зала): ширина со стульями; середина того, чем он стоит на полу
         // (ножки стульев и подножие), — в середине пятна света на полу. У всех четырёх пятен общая
@@ -424,9 +453,11 @@ namespace CardGameClient
             var x = ClubTableX(game);
             var half = FloorNameWidth / 2;
             var bottom = FloorNameBottom(text);
-            return SignDefinition.Painted(ClubHall, text, SignLook.Board, false,
+            var sign = SignDefinition.Painted(ClubHall, text, SignLook.Board, false,
                 new Vector2(x - half, FloorNameTop), new Vector2(x + half, FloorNameTop),
                 new Vector2(x - half, bottom), new Vector2(x + half, bottom));
+            sign.Game = game;
+            return sign;
         }
 
         // Первый зал — «живой» (2026-09-30): столы, бармен, пианист и жители уже нарисованы в самой
@@ -440,11 +471,14 @@ namespace CardGameClient
 
         // Ролики жителей первого зала (2026-10-01): место-житель, ролики `UI/Hub/Video/club-<житель>-<вид>`
         // (play, idle, stop, start — есть хотя бы play) с общей маской `club-<житель>-mask` и их прямоугольник
-        // в единицах зала 1916×821 (печатает scripts/club-live/video_clip.py). Пианистка играет, пока включена
-        // музыка; нажатие на неё — перестаёт и сидит, сложив руки, второе — снова играет.
+        // в единицах зала 1916×821 (печатает scripts/club-live/video_clip.py; бармена —
+        // prepare_bartender_clips.py, у него ещё редкий жест `club-bartender-action` — наливает себе и пробует).
+        // Пианистка играет, пока включена музыка; нажатие на неё — перестаёт и сидит, сложив руки, второе — снова играет.
         private static readonly (string Place, string Clip, float X, float Y, float W, float H)[] ClubVideos =
         {
             ("club-pianist", "pianist", 1330f, 275f, 196.2f, 200f),
+            // Бармен заново (2026-10-04): поставлен по листу в фартуке на пустой бар, ролики сняты с этого кадра.
+            ("club-bartender", "bartender", 643.75f, 274.375f, 225f, 128.75f),
         };
         private readonly Dictionary<string, HubClubVideo> _clubVideos = new Dictionary<string, HubClubVideo>();
 
@@ -454,28 +488,59 @@ namespace CardGameClient
             if (_clubVideos.TryGetValue(id, out var video) && video != null) video.Stopped = !video.Stopped;
         }
 
+        // Жесты жителей за столами (2026-10-06): игра, прямоугольник в единицах зала (печатает
+        // scripts/club-live/prepare_table_clips.py); ролик лежит над живым слоем своего стола.
+        // Решение автора (2026-10-07): живыми в зале остаются только бармен и пианистка — ролики столов отняли
+        // слишком много времени и выходили неровно; вернуться после выхода игры. Готовые ролики «Дурака»
+        // (433.75, 375, 227.5, 250.625) и «Сундучков» (1025.125, 381.875, 221.875, 249.375) отложены в
+        // `screens/qa/table-videos-shelved/` вместе с .meta: вернуть файлы в Resources/UI/Hub/Video и строки сюда.
+        private static readonly (string Game, float X, float Y, float W, float H)[] TableVideos =
+        {
+        };
+
         /// <summary>Ролики жителей поверх нарисованного зала — под живыми слоями столов, те ближе к нам.</summary>
         private void AddClubVideos(RectTransform floor, Func<float, float, Vector2> at, Vector2 unit)
         {
             foreach (var item in ClubVideos)
             {
-                VideoClip Clip(string kind) => Resources.Load<VideoClip>("UI/Hub/Video/club-" + item.Clip + "-" + kind);
-                var play = Clip("play");
-                var mask = Resources.Load<Texture2D>("UI/Hub/Video/club-" + item.Clip + "-mask");
-                if (play == null || mask == null) continue;
-                var rect = MakeRect(floor, "Video " + item.Place, 0, 0, 0, 0);
-                rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
-                rect.pivot = new Vector2(0, 1);
-                rect.anchoredPosition = at(item.X, item.Y);
-                rect.sizeDelta = new Vector2(item.W * unit.x, item.H * unit.y);
-                var video = rect.gameObject.AddComponent<HubClubVideo>();
-                video.Setup(mask, play, Clip("idle"), Clip("stop"), Clip("start"),
-                    Resources.Load<TextAsset>("UI/Hub/Video/club-" + item.Clip + "-entry")?.text);
-                video.Viewport = _cityArea;
+                var video = AddClubVideo(floor, at, unit, item.Place, item.Clip, item.X, item.Y, item.W, item.H);
+                if (video == null) continue;
                 // Пианистка играет под музыку: музыку выключили — она перестаёт.
                 if (item.Place == "club-pianist") video.Allowed = () => PlayerHubRuntime.Current?.Settings.Music ?? true;
-                _clubVideos[item.Place] = video;
             }
+        }
+
+        /// <summary>Жест жителей стола — над его живым слоем (зовётся сразу после <see cref="AddLiveTable"/>).</summary>
+        private void AddTableVideo(RectTransform floor, CityPlace place, Func<float, float, Vector2> at, Vector2 unit)
+        {
+            foreach (var item in TableVideos)
+                if (place.Route == "game:" + item.Game)
+                    AddClubVideo(floor, at, unit, place.Id, item.Game, item.X, item.Y, item.W, item.H);
+        }
+
+        /// <summary>Ролик `UI/Hub/Video/club-<paramref name="clip"/>-*` по маске на месте (x, y, w, h) в единицах зала.</summary>
+        private HubClubVideo AddClubVideo(RectTransform floor, Func<float, float, Vector2> at, Vector2 unit,
+            string place, string clip, float x, float y, float w, float h)
+        {
+            VideoClip Clip(string kind) => Resources.Load<VideoClip>("UI/Hub/Video/club-" + clip + "-" + kind);
+            var play = Clip("play");
+            var mask = Resources.Load<Texture2D>("UI/Hub/Video/club-" + clip + "-mask");
+            if (play == null || mask == null) return null;
+            var rect = MakeRect(floor, "Video " + place, 0, 0, 0, 0);
+            rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
+            rect.pivot = new Vector2(0, 1);
+            rect.anchoredPosition = at(x, y);
+            rect.sizeDelta = new Vector2(w * unit.x, h * unit.y);
+            var video = rect.gameObject.AddComponent<HubClubVideo>();
+            video.Setup(mask, play, Clip("idle"), Clip("stop"), Clip("start"),
+                Resources.Load<TextAsset>("UI/Hub/Video/club-" + clip + "-entry")?.text);
+            video.Viewport = _cityArea;
+            // Редкий жест между петлями (бармен наливает себе и пробует, жители стола): ждёт случайные 8–28 видимых
+            // секунд и начинается в конце петли; стык — 0,31 с: при 24 к/с это 8 одинаковых кадров в петле и в жесте.
+            var action = Clip("action");
+            if (action != null && !video.HasIdle) video.SetupVariation(action, 8, 28, 15f / 48f);
+            _clubVideos[place] = video;
+            return video;
         }
 
         /// <summary>
@@ -488,6 +553,8 @@ namespace CardGameClient
         /// </summary>
         private void AddInteriorFurniture(RectTransform floor, string art, float width)
         {
+            if (art == SixRoom) AddSixRoom(floor, width);
+            if (art == TavernHall) AddTavernHall(floor, width);
             if (art != ClubHall && art != ClubHall2) return;
             var table = Resources.Load<Sprite>("UI/Hub/club-table");
             var felt = Resources.Load<Sprite>("UI/Hub/club-table-felt");
@@ -519,6 +586,7 @@ namespace CardGameClient
                 if (!painted)
                     Glow("Shadow under " + place.Title, x, floorY, TableWidth * .95f, TableWidth * .22f, new Color(0, 0, 0, .75f));
                 var live = painted && AddLiveTable(floor, place, At, unit);
+                if (live) AddTableVideo(floor, place, At, unit);
                 // Тёмный ковёр под названием — буквы видны сразу, а не теряются в узоре.
                 if (!place.HoverOnly)
                     Glow("Name shade " + place.Title, x, FloorNameTop + FloorNameCap * .55f,
@@ -574,24 +642,45 @@ namespace CardGameClient
             return true;
         }
 
-        /// <summary>«Выйти» в зале — на главной, пока никуда не едем.</summary>
+        /// <summary>«Выйти» в зале — на главной, пока никуда не едем и карта полностью закрыта.</summary>
         private void UpdateInteriorControls()
         {
-            var show = _page == "home" && IsInterior(_cityLevel) && _diveTarget < 0 && _visitPhase == 0;
+            // External home routes may return here without a new entrance animation.
+            // Keep the usable card table visible, but never interrupt an outbound trip.
+            if (_page == "home" && _cityLevel == FortuneLevel && !_busy && _state != null
+                && _diveTarget < 0 && !_diveQueued && _visitPhase == 0 && !_gliding && !_floorPanning
+                && !_cityDragging && !_floorDragging && !_mapOpen && _mapFade <= 0
+                && _mapTripPlace < 0 && _mapTripDistrict < 0 && _tableTrip < 0
+                && !GiftShown && !QuestsShown && !BankShown)
+                Navigate("fortune");
+            var show = _page == "home" && IsInterior(_cityLevel) && _diveTarget < 0 && _visitPhase == 0
+                && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown;
             if (_interiorControls == null)
             {
                 if (!show) return;
                 _interiorControls = StageLayer("Interior controls");
-                CityButton(_interiorControls, "ВЫЙТИ", 24, 24, 170, 56, () => LeaveInterior());
+                PinToCorner((RectTransform)CityButton(_interiorControls, "ВЫЙТИ", 24, 24, 170, 56, () => LeaveInterior()).transform, -1);
             }
             if (show) _interiorControls.SetAsLastSibling();
             if (_interiorControls.gameObject.activeSelf != show) _interiorControls.gameObject.SetActive(show);
         }
 
+        /// <summary>После чтения карты «Назад» выводит из шатра тем же переходом, что и из других зданий.</summary>
+        private bool TryLeaveFortuneInterior()
+        {
+            if (_page != "fortune" || _cityLevel != FortuneLevel) return false;
+            // Во время перехода не открываем историю поверх закрывающегося шатра.
+            if (_diveTarget >= 0) return true;
+            GoHome();
+            MatchFortuneInteriorDim();
+            StartDive(0);
+            return true;
+        }
+
         /// <summary>Из здания — на улицу, к его двери. Не в здании — ничего не делает.</summary>
         private bool LeaveInterior()
         {
-            if (!IsInterior(_cityLevel) || _diveTarget >= 0 || _visitPhase != 0) return false;
+            if (!IsInterior(_cityLevel) || _diveTarget >= 0 || _visitPhase != 0 || _mapOpen || _mapFade > 0 || GiftShown || QuestsShown || BankShown) return false;
             StartDive(0);
             return true;
         }

@@ -86,7 +86,7 @@ namespace CardGameClient
             view.SetArt(UiTextures.RoundedRect(128, 180, 16f, Color.white), Image.Type.Sliced, FaceColor);
             view._group = go.GetComponent<CanvasGroup>();
 
-            view._outline = view._background.gameObject.AddComponent<Outline>();
+            view._outline = view._background.gameObject.AddComponent<HubOutline>();
             view._outline.effectColor = TrumpGlow;
             view._outline.effectDistance = new Vector2(3f, 3f);
             view._outline.enabled = false;

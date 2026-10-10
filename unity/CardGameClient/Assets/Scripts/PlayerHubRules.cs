@@ -172,9 +172,10 @@ namespace CardGameClient
             scroll.content = content;
             scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Elastic;
-            scroll.elasticity = .12f;
-            scroll.decelerationRate = .12f;
-            scroll.scrollSensitivity = 28;
+            scroll.elasticity = .15f;
+            // Отпущенный пальцем список катится и плавно замедляется, а не встаёт сразу.
+            scroll.decelerationRate = .3f;
+            scroll.scrollSensitivity = 36;
             var limit = Mathf.Max(0, height - h);
             _scrollMemory.TryGetValue(key, out var saved);
             content.anchoredPosition = new Vector2(0, Mathf.Clamp(saved, 0, limit));

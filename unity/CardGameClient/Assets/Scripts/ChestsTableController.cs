@@ -1827,6 +1827,7 @@ namespace CardGameClient
             feltImage.type = Image.Type.Sliced;
 
             _status = CreateText(root, string.Empty, 34, TextAnchor.MiddleCenter);
+            HubQuestResultLine.Attach(_status, () => _game != null && _game.IsFinished);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -56f), new Vector2(1200f, 44f));
 
             _progress = CreateText(root, string.Empty, 25, TextAnchor.MiddleCenter);
@@ -1920,7 +1921,7 @@ namespace CardGameClient
 
         private Button CreateChip(Transform parent, string label, Vector2 position, Vector2 size, Action onClick)
         {
-            var go = new GameObject("Chip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
+            var go = new GameObject("Chip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(HubOutline), typeof(Button));
             go.transform.SetParent(parent, false);
 
             var rect = (RectTransform)go.transform;

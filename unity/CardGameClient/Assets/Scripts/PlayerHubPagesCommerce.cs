@@ -125,7 +125,7 @@ namespace CardGameClient
         private void BuildHubBank()
         {
             var bank = _state.Bank;
-            Title("Банк Тузяры", "Кабинет хозяина банка · локальные заявки и долг в виртуальных коинах");
+            Title("Банк Тузяры", "Кабинет хозяина банка · долг и погашение");
             var office = Panel("Tuzyara office", 0, 0, 322, 648);
             office.GetComponent<UnityEngine.UI.Image>().color = Color.Lerp(Accent("bank"), HubNight, .72f);
             Label("ТУЗЯРА", 25, 24, 270, 43, 31).color = HubPageGold;
@@ -136,15 +136,17 @@ namespace CardGameClient
             Label("«Добро пожаловать.\nСначала посмотрим,\nчто у тебя на счету». ", 25, 294, 272, 130, 23);
             Label("Два валета бубен\nзанимаются долгами\nпо его поручению.", 25, 477, 272, 102, 21).color = HubPageMuted;
 
-            HubPanelText("Wallet", "На счету", HubMoney(_state.Profile.Coins) + " коинов", 350, 0, 260, 119);
-            HubPanelText("Debt", "Долг", HubMoney(bank.Debt) + " коинов" + (bank.Debt > 0 ? "\nк возврату" : "\nвсё погашено"), 625, 0, 260, 119);
-            HubPanelText("Limit", "Лимит заявки", HubMoney(bank.CreditLimit) + " коинов · " + bank.InterestPercent + "%", 900, 0, 260, 119);
+            HubPanelText("Wallet", "На счету", HubMoney(_state.Profile.Coins) + " тун-тун коинов", 350, 0, 260, 119);
+            HubPanelText("Debt", "Долг", HubMoney(bank.Debt) + " тун-тун коинов" + (bank.Debt > 0 ? "\nк возврату" : "\nвсё погашено"), 625, 0, 260, 119);
+            HubPanelText("Limit", "Лимит кредита", HubMoney(bank.CreditLimit) + " тун-тун коинов · " + (bank.Debt > 0 ? bank.InterestPercent : HubLoans.HonestInterestPercent) + "%", 900, 0, 260, 119);
             Panel("Bank decision", 350, 137, 810, 132);
             Label(HubBankStatus(bank.Status), 369, 151, 772, 35, 25).color = HubPageGold;
             Label(bank.Decision, 369, 195, 772, 60, 20).color = HubPageMuted;
             if (bank.Debt > 0)
             {
-                Label("Срок: " + HubDate(bank.DueAt) + "\nПогашено: " + HubMoney(bank.Repaid), 350, 290, 800, 67, 22);
+                var fineTerms = bank.Trick == "daily" ? (bank.TermsVersion >= 2 ? "20% в день" : "10% в день") : bank.Trick == "short" ? "срок 2 дня" : bank.Trick == "double" ? "при просрочке долг удваивается" : "";
+                Label("Срок: " + HubDate(bank.DueAt) + "\nПогашено: " + HubMoney(bank.Repaid)
+                    + (fineTerms.Length > 0 ? "\nУсловия по сноске: " + fineTerms : ""), 350, 282, 800, 82, 20);
                 Button("Погасить доступную сумму", 350, 370, 810, 49, () => Send("bank_repay"), _state.Profile.Coins > 0);
                 if (bank.CollectorPending)
                 {
@@ -153,9 +155,9 @@ namespace CardGameClient
                     Label("Игра: " + HubGameName(bank.CollectorGame) + ". Долг решится за игровым столом.", 370, 492, 770, 28, 19).color = HubPageMuted;
                     Button("Сыграть с коллекторами", 370, 535, 770, 46, () => Send("play_collectors"), bank.CollectorPending);
                 }
-                else Label(bank.CollectionActive
-                    ? "Коллекторы ушли. Пока долг не погашен, 50% новых поступлений автоматически идут в банк, остальные остаются тебе."
-                    : "Верни долг до указанного срока. Пока коллекторы не приходили, погашение выполняется вручную.",
+                else Label(bank.TermsVersion < 2 || bank.CollectionActive
+                    ? "50% поступлений направляется в погашение долга. Доступна и добровольная оплата."
+                    : "До срока возврата ставки свободны, удержаний нет. Полное погашение в первые сутки — по ставке 10%. Квитанция доступна за столом Тузяры.",
                     350, 449, 810, 114, 22).color = HubPageMuted;
             }
             else if (bank.Status == "pending")
@@ -165,12 +167,8 @@ namespace CardGameClient
             }
             else
             {
-                Label("Сумма новой заявки", 350, 292, 800, 34, 23);
-                var amount = Input(Math.Min(500, bank.CreditLimit).ToString(), 350, 338, 355);
-                amount.contentType = UnityEngine.UI.InputField.ContentType.IntegerNumber;
-                Button("Подать заявку", 725, 338, 435, 44,
-                    () => { int.TryParse(amount.text, out var value); Send("bank_request", amount: value); }, bank.CreditLimit > 0);
-                Label("Лимит зависит от прогресса. Заявка может быть отклонена; коины появятся после одобрения.", 350, 411, 810, 90, 22).color = HubPageMuted;
+                Label("Новый договор оформляется за столом Тузяры. Условия и решение — сразу при подписи.", 350, 292, 810, 88, 23);
+                Button("К столу Тузяры", 350, 402, 810, 49, GoToBankDesk);
             }
             Label("Долг хранится отдельно от баланса. Реальных кредитов здесь нет.", 350, 619, 810, 29, 18).color = HubPageMuted;
         }
@@ -185,6 +183,7 @@ namespace CardGameClient
                 case "overdue": return "Срок погашения прошёл";
                 case "collection": return "Дело у коллекторов";
                 case "repaying": return "Погашение долга";
+                case "extended": return "Срок продлён на сутки";
                 case "paid": return "Долг погашен";
                 default: return "Банк открыт";
             }

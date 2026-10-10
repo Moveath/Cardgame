@@ -185,9 +185,17 @@ namespace CardGameClient
             if (_cityDragging && pointer != null && !pointer.press.isPressed) EndCityDrag(null);
             if (_floorDragging && pointer != null && !pointer.press.isPressed) EndFloorDrag();
             PrepareFloors();
-            if (_page == "home" && !typing && !_cityDragging) CityKeys(Keyboard.current);
+            // Под открытой картой город стоит: клавиши — карте (PlayerHubMap.cs).
+            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown) CityKeys(Keyboard.current);
             ClubKeys(typing);
+            UpdateMap(Time.unscaledDeltaTime, typing);
+            UpdateSixHouse(Time.unscaledDeltaTime);
+            UpdateTavern(Time.unscaledDeltaTime);
+            UpdateSixGift(Time.unscaledDeltaTime, typing);
+            UpdateSixQuests(Time.unscaledDeltaTime, typing);
+            UpdateBankLoan(Time.unscaledDeltaTime, typing);
             ContinueTableTrip();
+            ContinueMapTrip();
             MoveCity(Time.unscaledDeltaTime);
             MoveDive(Time.unscaledDeltaTime);
             MoveFloorPan(Time.unscaledDeltaTime);

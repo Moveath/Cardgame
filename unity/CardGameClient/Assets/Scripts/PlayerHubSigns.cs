@@ -28,7 +28,7 @@ namespace CardGameClient
         private const float SignPictureWidth = 1672, SignPictureHeight = 941;
         private sealed class SignDefinition
         {
-            public string Art, Text;
+            public string Art, Text, Game;
             public float X, Y, Width, Height;
             public SignLook Look;
             public bool Grand, Surface;
@@ -72,9 +72,20 @@ namespace CardGameClient
             // у полиции своего здания нет — девятки пик ходят патрулём.
             SignDefinition.Painted("card-city-old-town", "АРХИВ", SignLook.Board, false,
                 new Vector2(392, 348), new Vector2(475, 360), new Vector2(392, 373), new Vector2(474, 385)),
-            SignDefinition.Plaque("card-city-old-town", "ДОМ ШЕСТЁРКИ", 650, 420, 50),
-            SignDefinition.Plaque("card-city-old-town", "ТАВЕРНА", 1090, 336, 50),
-            SignDefinition.Plaque("card-city-old-town", "ГАДАЛКА", 1405, 430, 50),
+            // Таблички Дома Шестёрки, Таверны, Гадалки, Банка Тузяры и Подполья дорисованы в саму картинку района
+            // (решение автора, 2026-10-07: плашки поверх — «как будто просто поверх»; scripts/six-house/sign_spots.py).
+            // У Шестёрки — на кованом кронштейне с правого угла домика, над проулком: домик мал для длинного названия,
+            // поэтому в две строки.
+            SignDefinition.Painted("card-city-old-town", "ДОМ", SignLook.Board, false,
+                new Vector2(742, 416), new Vector2(834, 416), new Vector2(742, 433), new Vector2(834, 433)),
+            SignDefinition.Painted("card-city-old-town", "ШЕСТЁРКИ", SignLook.Board, false,
+                new Vector2(742, 441), new Vector2(834, 441), new Vector2(742, 461), new Vector2(834, 461)),
+            // Доска на балке над полосатым козырьком, между болтами по углам.
+            SignDefinition.Painted("card-city-old-town", "ТАВЕРНА", SignLook.Board, true,
+                new Vector2(986, 330), new Vector2(1145, 329), new Vector2(986, 351), new Vector2(1145, 350)),
+            // На цепях с края шатра, между звёздочками по углам.
+            SignDefinition.Painted("card-city-old-town", "ГАДАЛКА", SignLook.Board, false,
+                new Vector2(1368, 456), new Vector2(1438, 456), new Vector2(1368, 474), new Vector2(1438, 474)),
             SignDefinition.Painted("card-city", "ЛАВКА", SignLook.Board, true,
                 new Vector2(333, 309), new Vector2(487, 330), new Vector2(333, 339), new Vector2(487, 359)),
             SignDefinition.Painted("card-city", "ПОДПОЛЬЕ", SignLook.Board, false,
@@ -87,15 +98,22 @@ namespace CardGameClient
             // просто вид, не место — ни обводки, ни перехода. Поле щита чуть выгнуто дугой сверху и снизу.
             SignDefinition.Painted("card-city", "CARD CITY", SignLook.Marquee, false,
                 new Vector2(787, 67), new Vector2(889, 67), new Vector2(787, 89), new Vector2(889, 89), 5, 4),
-            SignDefinition.Plaque("card-city-tuzyara", "БАНК ТУЗЯРЫ", 428, 410, 50),
+            // Мраморная панель над входом, под трефой, с наклоном фасада; между заклёпками.
+            SignDefinition.Painted("card-city-tuzyara", "БАНК ТУЗЯРЫ", SignLook.Board, true,
+                new Vector2(258, 334), new Vector2(584, 393), new Vector2(258, 359), new Vector2(584, 418)),
             SignDefinition.Painted("card-city-tuzyara", "КАЗИНО", SignLook.Marquee, true,
                 new Vector2(778, 344), new Vector2(1056, 305), new Vector2(778, 371), new Vector2(1056, 340), 24, 13),
             SignDefinition.Painted("card-city-port", "РЫНОК", SignLook.Marquee, true,
                 new Vector2(457, 256), new Vector2(667, 278), new Vector2(457, 292), new Vector2(667, 314), 15, 5),
-            SignDefinition.Plaque("card-city-underground", "ЧЁРНЫЙ РЫНОК", 445, 300, 50),
-            SignDefinition.Plaque("card-city-underground", "ПОДПОЛЬНЫЙ КЛУБ", 768, 284, 46),
-            // Табличка у трибуны ведущего для надписи мала — плашка над самой Ямой.
-            SignDefinition.Plaque("card-city-underground", "АРЕНА", 1335, 440, 50),
+            // Кривая доска на краю навеса лавки — ниже крючков цепей.
+            SignDefinition.Painted("card-city-underground", "ЧЁРНЫЙ РЫНОК", SignLook.Board, false,
+                new Vector2(413, 332), new Vector2(539, 362), new Vector2(413, 356), new Vector2(539, 382)),
+            // На цепях под гербом-трефой, над аркой двери.
+            SignDefinition.Painted("card-city-underground", "ПОДПОЛЬНЫЙ КЛУБ", SignLook.Board, false,
+                new Vector2(692, 285), new Vector2(843, 285), new Vector2(692, 305), new Vector2(843, 305)),
+            // На перилах балкона над Ямой, между накладками с болтами.
+            SignDefinition.Painted("card-city-underground", "АРЕНА", SignLook.Board, true,
+                new Vector2(1190, 252), new Vector2(1404, 270), new Vector2(1190, 275), new Vector2(1404, 292)),
             // Афиша у входа в зал Клуба (картинка 1916×821): одно слово, нажатие открывает все игры
             // (решение автора, 2026-09-29), по центру чёрного поля, как на доске второго зала.
             // Названия игр — крупно на ковре перед столами (решение автора): фон зала открыт.
@@ -123,9 +141,11 @@ namespace CardGameClient
         private static Font s_signDisplay, s_signNarrow;
         private static Sprite s_signPlaque;
         private static bool s_signsLoaded;
+        private readonly System.Collections.Generic.Dictionary<string, CanvasGroup> _tableSigns =
+            new System.Collections.Generic.Dictionary<string, CanvasGroup>();
 
         /// <summary>Вывески картинки <paramref name="art"/> — детьми её куска или этажа шириной <paramref name="width"/>.</summary>
-        private void AddSigns(RectTransform page, string art, float width)
+        private void AddSigns(RectTransform page, string art, float width, bool registerTableSigns = true, bool paintedOnly = false)
         {
             if (!s_signsLoaded)
             {
@@ -139,7 +159,10 @@ namespace CardGameClient
             foreach (var sign in CitySigns)
             {
                 if (sign.Art != art) continue;
+                if (paintedOnly && sign.Look == SignLook.Plaque) continue;
                 var holder = MakeRect(page, "Sign " + sign.Text, 0, 0, 0, 0);
+                if (registerTableSigns && sign.Game != null)
+                    _tableSigns[sign.Game] = holder.gameObject.AddComponent<CanvasGroup>();
                 holder.pivot = new Vector2(.5f, .5f);
                 holder.anchoredPosition = new Vector2(sign.X * unit.x, -sign.Y * unit.y);
                 var height = sign.Height * unit.y;
@@ -217,7 +240,7 @@ namespace CardGameClient
             if (!marquee)
             {
                 // Золото чуть светится в темноте.
-                var glow = label.gameObject.AddComponent<Outline>();
+                var glow = label.gameObject.AddComponent<HubOutline>();
                 glow.effectColor = SignGlow;
                 glow.effectDistance = new Vector2(.035f, -.035f) * depth;
             }

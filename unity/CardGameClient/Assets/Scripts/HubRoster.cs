@@ -45,6 +45,17 @@ namespace CardGameClient
             _current = new Roster(room.GameId, names, portraits);
         }
 
+        public static void ConfigureBankJob(HubSnapshot snapshot, HubBankJob job)
+        {
+            Clear();
+            if (snapshot == null || job == null) return;
+            var match = snapshot.Matches.Find(entry => entry.Id == snapshot.ActiveMatchId && entry.BankJobId == job.Id);
+            if (match == null) return;
+            _current = new Roster(match.Game,
+                new List<string> { snapshot.Profile.DisplayName, match.OpponentName },
+                new List<Sprite> { AvatarCatalog.Find(snapshot.Profile.AvatarName), AvatarCatalog.Find(match.OpponentAvatarId) });
+        }
+
         public static void Clear() => _current = null;
 
         public static bool TryApply(string gameId, IList<string> names, Sprite[] portraits)

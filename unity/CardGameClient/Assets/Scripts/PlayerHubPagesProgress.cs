@@ -28,8 +28,8 @@ namespace CardGameClient
 
         private void BuildHubQuests()
         {
-            Title("Задания Шестёрки", "Прогресс записывается за реальные партии и действия в локальном профиле");
-            HubTabs(new[] { "Все задания", "На сегодня", "На неделю" }, new[] { "all", "daily", "weekly" }, _hubQuestKind,
+            Title("Поручения Шестёрки", "Прогресс записывается за реальные партии и действия в локальном профиле");
+            HubTabs(new[] { "Все задания", "Дневные", "На неделю" }, new[] { "all", "daily", "weekly" }, _hubQuestKind,
                 key => { _hubQuestKind = key; _hubListPages["quests"] = 0; Navigate("quests"); });
             var entries = _state.Quests.Where(entry => _hubQuestKind == "all" || entry.Period == _hubQuestKind).OrderBy(entry => entry.Claimed).ToArray();
             var start = HubPageStart("quests", entries.Length, 4);
@@ -39,7 +39,7 @@ namespace CardGameClient
                 var entry = entries[i]; var y = 61 + (i - start) * 128;
                 Panel("Quest " + entry.Id, 0, y, 1160, 114);
                 Label(entry.Name, 18, y + 10, 770, 35, 24).color = HubPageGold;
-                Label((entry.Period == "weekly" ? "На неделю" : "На сегодня") + " · до " + HubDate(entry.ExpiresAt), 18, y + 49, 770, 29, 18).color = HubPageMuted;
+                Label(CardGame.Core.Meta.HubQuests.TierName(entry.Tier) + " · " + (entry.Claimed ? "Новое через " : entry.Progress >= entry.Goal ? "Награда ждёт" : "Осталось ") + (entry.Progress >= entry.Goal && !entry.Claimed ? "" : QuestDuration(Math.Max(0, entry.ExpiresAt - GiftNow))), 18, y + 49, 770, 29, 18).color = HubPageMuted;
                 Progress(entry.Progress, Math.Max(1, entry.Goal), 18, y + 91, 650, 10);
                 Label(Math.Min(entry.Progress, entry.Goal) + " / " + entry.Goal, 690, y + 80, 110, 28, 17).color = HubPageMuted;
                 Label("+" + entry.RewardCoins + " коинов · +" + entry.RewardXP + " XP", 815, y + 14, 325, 30, 18).color = HubPageMuted;

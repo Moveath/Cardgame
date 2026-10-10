@@ -1728,6 +1728,7 @@ namespace CardGameClient
 
             // Обе строки внутри сукна; ниже оставлено место для шапок соперников.
             _status = CreateText(root, string.Empty, 34, TextAnchor.MiddleCenter);
+            HubQuestResultLine.Attach(_status, () => _game != null && _game.IsFinished);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -56f), new Vector2(1200f, 44f));
 
             _lastAction = CreateText(root, string.Empty, 25, TextAnchor.MiddleCenter);
@@ -1796,7 +1797,7 @@ namespace CardGameClient
             _shootoutButton = CreateButton(root, "Перестрелка", new Vector2(1f, 0f), new Vector2(-190f, 310f),
                 new Vector2(260f, 76f), new Color(0.58f, 0.3f, 0.14f), ToggleShootout);
 
-            _shootoutGlow = _shootoutButton.gameObject.AddComponent<Outline>();
+            _shootoutGlow = _shootoutButton.gameObject.AddComponent<HubOutline>();
             _shootoutGlow.effectColor = ShootoutColor;
             _shootoutGlow.effectDistance = new Vector2(5f, 5f);
             _shootoutGlow.enabled = false;
@@ -1873,7 +1874,7 @@ namespace CardGameClient
 
         private Button CreateChip(Transform parent, string label, Vector2 position, Vector2 size, Action onClick)
         {
-            var go = new GameObject("Chip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
+            var go = new GameObject("Chip", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(HubOutline), typeof(Button));
             go.transform.SetParent(parent, false);
 
             var rect = (RectTransform)go.transform;

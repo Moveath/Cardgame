@@ -56,8 +56,9 @@ namespace CardGame.Core.Meta
             s.Inventory.Add(new HubOwnedItem { ItemId = "tomato_pack", Quantity = 3 });
             s.Friends.Add("bot-yegor");
             s.Friends.Add("bot-ali");
+            AddMailContacts(s, now);
             s.FriendRequests.Add(new HubFriendRequest { Id = "request-danil", FromId = "bot-danil", ToId = s.Profile.Id, CreatedAt = now });
-            s.Chats.Add(new HubChatMessage { Id = "welcome-chat", ConversationId = "bot-yegor", FromId = "bot-yegor", Text = "Привет! Это локальный демо-чат. Сыграем?", CreatedAt = now, IsLocalMock = true });
+            s.Chats.Add(new HubChatMessage { Id = "welcome-chat", ConversationId = "bot-yegor", FromId = "bot-yegor", Text = "Привет! Это локальный демо-чат. Сыграем?", CreatedAt = now, IsLocalMock = true, Unread = true });
             s.Rooms.Add(new HubRoom { Id = "room-demo-durak", Code = "DURAK1", Name = "Вечерний стол", GameId = "durak", HostId = "bot-yegor", MaxPlayers = 4,
                 Members = { new HubRoomMember { PlayerId = "bot-yegor", IsBot = true, Ready = true }, new HubRoomMember { PlayerId = "bot-ali", IsBot = true, Ready = true } } });
             s.Rooms.Add(new HubRoom { Id = "room-demo-poker", Code = "POKER1", Name = "Покер с ботами", GameId = "poker", HostId = "bot-aslan", MaxPlayers = 6,
@@ -69,6 +70,7 @@ namespace CardGame.Core.Meta
             Achievement(s, "pendalist", "Пендалист", "Закончи партию в «Сундучки», не собрав ни одного сундучка", 1, 30, 15);
             Achievement(s, "gardener", "Садовник", "Получи пачку помидоров или брось помидор", 1, 25, 10);
             Achievement(s, "arachnophobe", "Арахнофоб", "Поймай паучка в пустом сундуке", 1, 30, 15);
+            Achievement(s, "fine_print", "Мелкий шрифт", "Найди и оспорь подвох в договоре Тузяры", 1, 50, 30);
             Achievement(s, "first_win", "Первая победа", "Выиграй партию", 1, 50, 25);
             Achievement(s, "ten_matches", "Свой за столом", "Закончи 10 партий", 10, 150, 50);
             for (var level = 1; level <= 10; level++)
@@ -82,10 +84,12 @@ namespace CardGame.Core.Meta
         }
 
         // Version1 remains readable when a client update adds catalog slots. Never replace owned
-        // quantities, purchases, wallet, equipment choices, or social/progression state.
+        // quantities, purchases, wallet, equipment choices, or existing progression.
+        // New local mail contacts are merged once; removed friendships stay removed.
         internal static void MergeCatalog(HubSnapshot existing, long now)
         {
             var defaults = Create(now);
+            AddMailContacts(existing, now);
             foreach (var item in defaults.Catalog)
             {
                 if (!existing.Catalog.Any(i => i.Id == item.Id)) existing.Catalog.Add(item);
@@ -97,7 +101,39 @@ namespace CardGame.Core.Meta
                     existing.Equipped.Add(new HubEquipment { Slot = slot.Slot, ItemId = slot.Slot == "avatar" ? existing.Profile.AvatarName : slot.ItemId });
             // Достижения, добавленные после сохранения профиля, появляются с нулевым прогрессом.
             foreach (var achievement in defaults.Achievements)
-                if (!existing.Achievements.Any(a => a.Id == achievement.Id)) existing.Achievements.Add(achievement);
+            {
+                var saved = existing.Achievements.FirstOrDefault(a => a.Id == achievement.Id);
+                if (saved == null) existing.Achievements.Add(achievement);
+                else if (achievement.Id == "fine_print") saved.Description = achievement.Description;
+            }
+        }
+
+        // Each person is added once: removed friends stay removed after a reload.
+        private static void AddMailContacts(HubSnapshot s, long now)
+        {
+            var names = new[] { "Лера", "Тимур", "Соня", "Артур", "Ника", "Марк" };
+            var ids = new[] { "lera", "timur", "sonya", "artur", "nika", "mark" };
+            var avatars = new[] { 2, 1, 4, 3, 6, 5 };
+            var greetings = new[] { "Привет! Заглядывай в таверну — сыграем вместе.", "Будет место за столом — зови!",
+                "Люблю сундучки. А какая игра нравится тебе?", "Готов к новой партии. Выбирай игру!",
+                "Хорошая компания уже есть, осталось раздать карты.", "После партии можно договориться о реванше." };
+            for (var i = 0; i < ids.Length; i++)
+            {
+                var id = "bot-mail-" + ids[i];
+                var avatar = "avatar_" + avatars[i].ToString("00");
+                var existing = s.People.FirstOrDefault(person => person.Id == id);
+                if (existing != null)
+                {
+                    if (existing.IsBot) existing.AvatarId = avatar;
+                    continue;
+                }
+                s.People.Add(new HubPerson { Id = id, Name = names[i], AvatarId = avatar,
+                    Level = 4 + i, Rating = 1050 + i * 45, IsBot = true, Status = "Локальный бот" });
+                if (!s.Friends.Contains(id)) s.Friends.Add(id);
+                if (!s.Chats.Any(message => message.Id == "welcome-" + id))
+                    s.Chats.Add(new HubChatMessage { Id = "welcome-" + id, ConversationId = id, FromId = id,
+                        Text = greetings[i], CreatedAt = now - 60 * (i + 1), IsLocalMock = true, Unread = false });
+            }
         }
 
         private static void Item(HubSnapshot s, string id, string name, string category, string description, string color, bool basic = false, string resource = "")

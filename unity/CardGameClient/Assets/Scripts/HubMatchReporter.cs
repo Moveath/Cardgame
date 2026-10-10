@@ -11,6 +11,18 @@ namespace CardGameClient
     {
         public static event Action<string, bool, int, bool> MatchCompleted;
         public static event Action SpiderKilled;
+        public static event Action<int, int, int> DurakEvidence;
+
+        public static void ReportDurakEvidence(int caughtCheats, int cheatsPlayed, int timesCaught)
+        {
+            var listeners = DurakEvidence;
+            if (listeners == null) return;
+            foreach (Action<int, int, int> listener in listeners.GetInvocationList())
+            {
+                try { listener(caughtCheats, cheatsPlayed, timesCaught); }
+                catch (Exception error) { Debug.LogException(error); }
+            }
+        }
 
         public static void ReportMatchCompleted(string gameId, bool won, int chestsThisMatch = 0, bool draw = false)
         {

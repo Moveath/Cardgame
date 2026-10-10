@@ -3,7 +3,7 @@ using CardGame.Core.Meta;
 
 namespace CardGame.Core.Tests;
 
-public sealed class MetaHubTests
+public sealed partial class MetaHubTests
 {
     [Fact]
     public async Task FreshProfileIsSerializableAndReturnedSnapshotsCannotMutateService()
@@ -117,18 +117,15 @@ public sealed class MetaHubTests
     }
 
     [Fact]
-    public async Task LoanReallyWaitsAndCanBeRejectedWithoutPayingOut()
+    public async Task LegacyLoanRequestDecidesImmediatelyAndCanBeRejectedWithoutPayingOut()
     {
-        var f = new Fixture(); var pending = await f.Ok("bank_request", amount: 1000);
-        Assert.Equal("pending", pending.Bank.Status); Assert.Equal(300, pending.Profile.Coins);
-        Assert.Equal("pending", (await f.Service.ExecuteAsync(Cmd("bank_review"))).Error);
-        f.Clock.Now += 30;
-        var rejected = await f.Ok("bank_review");
-        Assert.Equal("rejected", rejected.Bank.Status); Assert.Equal(300, rejected.Profile.Coins); Assert.Equal(0, rejected.Bank.Debt);
-        var next = await f.Ok("bank_request", amount: 100); Assert.Equal("pending", next.Bank.Status);
-        f.Clock.Now += 30;
-        var approved = await f.Ok("bank_review");
-        Assert.Equal(400, approved.Profile.Coins); Assert.Equal(110, approved.Bank.Debt); Assert.Equal(300, approved.Profile.CoinsEarned);
+        var f = new Fixture(); var rejected = await f.Ok("bank_request", amount: 1000);
+        Assert.Equal("rejected", rejected.Bank.Status); Assert.Equal("limit", rejected.Bank.DecisionCode);
+        Assert.Equal(300, rejected.Profile.Coins); Assert.Equal(0, rejected.Bank.Debt);
+        Assert.Equal("limit", (await f.Ok("bank_review")).Bank.DecisionCode);
+        var approved = await f.Ok("bank_request", amount: 100);
+        Assert.Equal("approved", approved.Bank.Status);
+        Assert.Equal(400, approved.Profile.Coins); Assert.Equal(120, approved.Bank.Debt); Assert.Equal(300, approved.Profile.CoinsEarned);
         var paid = await f.Ok("bank_repay", amount: 110);
         Assert.Equal(290, paid.Profile.Coins); Assert.Equal(0, paid.Bank.Debt); Assert.Equal("paid", paid.Bank.Status);
         Assert.False((await f.Service.ExecuteAsync(Cmd("bank_repay", amount: 1))).Success);
@@ -174,18 +171,85 @@ public sealed class MetaHubTests
     [Fact]
     public async Task ChestsEventsQuestsAndPeriodsUseClockAndDoNotLeakPreviousDayClaims()
     {
-        var f = new Fixture(); var one = await f.Ok("report_match", "chests", value: 5);
+        var f = await QuestFixture(); var one = await f.Ok("report_match", "chests", value: 5);
         Assert.True(one.Achievements.Single(a => a.Id == "mentalist").Unlocked);
         Assert.Equal(5, one.Quests.Single(q => q.Event == "chests").Progress);
         await f.Ok("report_match", "durak"); var three = await f.Ok("report_match", "durak");
-        var daily = three.Quests.Single(q => q.Id.StartsWith("daily-matches-"));
-        Assert.Equal(3, daily.Progress);
+        var daily = three.Quests.Single(q => q.Tier == "easy");
+        Assert.Equal(daily.Goal, daily.Progress);
         var claimed = await f.Ok("quest_claim", daily.Id); Assert.True(claimed.Quests.Single(q => q.Id == daily.Id).Claimed);
-        f.Clock.Now = (f.Clock.Now / 86400 + 1) * 86400;
+        f.Clock.Now = daily.ExpiresAt;
         var next = (await f.Service.LoadAsync()).Snapshot;
         Assert.DoesNotContain(next.Quests, q => q.Id == daily.Id);
-        Assert.Equal(0, next.Quests.Single(q => q.Id.StartsWith("daily-matches-")).Progress);
+        Assert.Equal(0, next.Quests.Single(q => q.Tier == "easy").Progress);
         Assert.False((await f.Service.ExecuteAsync(Cmd("quest_claim", daily.Id))).Success);
+    }
+
+    [Fact]
+    public async Task SixGiftOpensRightAwayThenEveryTwelveHours()
+    {
+        var f = new Fixture();
+        Assert.Equal(0, (await f.Service.LoadAsync()).Snapshot.Gift.ReadyAt);
+        var opened = await f.Ok("gift_open");
+        Assert.Equal(300 + HubGift.Coins, opened.Profile.Coins);
+        Assert.Equal(300 + HubGift.Coins, opened.Profile.CoinsEarned);
+        Assert.Equal(f.Clock.Now + HubGift.Cooldown, opened.Gift.ReadyAt);
+        Assert.Equal(1, opened.Gift.Opened); Assert.Equal(HubGift.Coins, opened.Gift.LastCoins);
+        var early = await f.Service.ExecuteAsync(Cmd("gift_open"));
+        Assert.False(early.Success); Assert.Equal("gift", early.Error);
+        Assert.Equal(300 + HubGift.Coins, early.Snapshot.Profile.Coins);
+        f.Clock.Now += HubGift.Cooldown - 1;
+        Assert.False((await f.Service.ExecuteAsync(Cmd("gift_open"))).Success);
+        f.Clock.Now += 1;
+        var again = await f.Ok("gift_open");
+        Assert.Equal(300 + 2 * HubGift.Coins, again.Profile.Coins); Assert.Equal(2, again.Gift.Opened);
+    }
+
+    [Fact]
+    public async Task NewsKeepsTheNewestReadIssue()
+    {
+        var f = new Fixture();
+        Assert.Equal(0, (await f.Service.LoadAsync()).Snapshot.NewsSeen);
+        Assert.Equal(3, (await f.Ok("news_read", amount: 3)).NewsSeen);
+        Assert.Equal(3, (await f.Ok("news_read", amount: 2)).NewsSeen);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("news_read"))).Success);
+    }
+
+    [Fact]
+    public async Task FriendLettersStayUnreadUntilTheConversationIsOpened()
+    {
+        var f = new Fixture();
+        Assert.True((await f.Service.LoadAsync()).Snapshot.Chats.Single(m => m.Id == "welcome-chat").Unread);
+        var sent = await f.Ok("chat_send", "bot-yegor", "Привет");
+        Assert.False(sent.Chats.Single(m => m.FromId == sent.Profile.Id).Unread);
+        Assert.Equal(2, sent.Chats.Count(m => m.ConversationId == "bot-yegor" && m.Unread));
+        var again = await f.Ok("chat_send", "bot-yegor", "Ещё");
+        var replies = again.Chats.Where(m => m.FromId == "bot-yegor" && m.Id.StartsWith("reply-")).Select(m => m.Text).ToArray();
+        Assert.Equal(2, replies.Distinct().Count());
+        Assert.DoesNotContain(replies, text => text.Contains("[Локальный бот]"));
+        var read = await f.Ok("chat_read", "bot-yegor");
+        Assert.DoesNotContain(read.Chats, m => m.Unread);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("chat_read"))).Success);
+    }
+
+    [Fact]
+    public async Task TestCommandMakesTheOpenedGiftReadyAgain()
+    {
+        var f = new Fixture(); await f.Ok("gift_open");
+        Assert.False((await f.Service.ExecuteAsync(Cmd("gift_open"))).Success);
+        await f.Ok("gift_debug_ready");
+        Assert.Equal(300 + 2 * HubGift.Coins, (await f.Ok("gift_open")).Profile.Coins);
+    }
+
+    [Fact]
+    public async Task SaveFromBeforeTheGiftLoadsWithTheGiftReady()
+    {
+        var f = new Fixture(); await f.Service.LoadAsync();
+        var old = System.Text.Json.Nodes.JsonNode.Parse(f.Store.Json!)!.AsObject();
+        Assert.True(old.Remove("Gift"));
+        f.Store.Json = old.ToJsonString();
+        var loaded = await new LocalPlayerHubService(f.Store, f.Clock).LoadAsync();
+        Assert.True(loaded.Success); Assert.NotNull(loaded.Snapshot.Gift); Assert.Equal(0, loaded.Snapshot.Gift.ReadyAt);
     }
 
     [Fact]
@@ -224,18 +288,74 @@ public sealed class MetaHubTests
     public async Task LocalSocialRequestsInvitesChatAndConsumablesAreFunctional()
     {
         var f = new Fixture(); var accepted = await f.Ok("friend_accept", "request-danil"); Assert.Contains("bot-danil", accepted.Friends);
-        await f.Ok("friend_request", "bot-aslan", id: "request-aslan");
-        var response = await f.Ok("friend_mock_reply", "friend-request-aslan", flag: true); Assert.Contains("bot-aslan", response.Friends);
+        // Местный бот принимает заявку сразу — живых игроков пока нет.
+        var response = await f.Ok("friend_request", "bot-aslan", id: "request-aslan");
+        Assert.Contains("bot-aslan", response.Friends);
+        Assert.Equal("accepted", response.FriendRequests.Single(r => r.Id == "friend-request-aslan").Status);
         var chat = await f.Ok("chat_send", "bot-aslan", "Привет");
         Assert.Equal(2, chat.Chats.Count(m => m.ConversationId == "bot-aslan"));
         Assert.All(chat.Chats, m => Assert.True(m.IsLocalMock));
         await f.Ok("create_room", "poker", amount: 6);
-        await f.Ok("invite_friend", "bot-aslan", id: "invite-aslan");
-        var joined = await f.Ok("invite_accept", "invite-invite-aslan");
+        // Приглашённый бот-друг садится за стол сразу, готовым.
+        var joined = await f.Ok("invite_friend", "bot-aslan", id: "invite-aslan");
         Assert.Contains(joined.Rooms.Single(r => r.Id == joined.CurrentRoomId).Members, m => m.PlayerId == "bot-aslan" && m.Ready);
+        Assert.Equal("accepted", joined.Invites.Single(i => i.Id == "invite-invite-aslan").Status);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("invite_friend", "bot-aslan"))).Success);
         var thrown = await f.Ok("tomato_throw", "bot-aslan"); Assert.Equal(2, thrown.Inventory.Single(i => i.ItemId == "tomato_pack").Quantity);
         Assert.Equal("cooldown", (await f.Service.ExecuteAsync(Cmd("tomato_throw", "bot-aslan"))).Error);
         f.Clock.Now += 2; var second = await f.Ok("tomato_throw", "bot-aslan"); Assert.Equal(1, second.Inventory.Single(i => i.ItemId == "tomato_pack").Quantity);
+    }
+
+    [Fact]
+    public async Task PlayingWithAFriendSeatsThemAtANewTableAndTablemateAsksForFriendship()
+    {
+        var f = new Fixture();
+        await f.Ok("create_room", "durak", amount: 4, id: "old");
+        // «Позвать играть»: свой закрытый стол выбранной игры, друг садится сразу; прежний стол покинут.
+        var durak = await f.Ok("friend_play", "bot-yegor", "durak", id: "play");
+        var table = durak.Rooms.Single(r => r.Id == durak.CurrentRoomId);
+        Assert.Equal("room-play", table.Id);
+        Assert.True(table.Private && table.Stake == 0 && table.GameId == "durak" && table.HostId == durak.Profile.Id);
+        Assert.Equal(new[] { durak.Profile.Id, "bot-yegor" }, table.Members.Select(m => m.PlayerId));
+        Assert.DoesNotContain(durak.Rooms, r => r.Id == "room-old");
+        // В играх от трёх свободное место до минимума занимает местный бот, лучше — ещё не друг.
+        var chests = await f.Ok("friend_play", "bot-ali", "chests", id: "chests");
+        var chestsTable = chests.Rooms.Single(r => r.Id == chests.CurrentRoomId);
+        Assert.Equal(3, chestsTable.Members.Count);
+        var stranger = chestsTable.Members.Last().PlayerId;
+        Assert.DoesNotContain(stranger, chests.Friends);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("friend_play", "bot-aslan", "durak"))).Success);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("friend_play", "bot-ali", "checkers"))).Success);
+        // Сыграли — сосед по столу, ещё не друг, просится в друзья; один раз за партию.
+        await f.Ok("room_ready", flag: true);
+        var started = await f.Ok("start_room", id: "chests-game");
+        var finished = await f.Ok("report_match", "chests", text: started.ActiveMatchId, value: 2);
+        var request = finished.FriendRequests.Single(r => r.FromId == stranger && r.Status == "pending");
+        Assert.Equal("chests", request.Game);
+        Assert.Equal(1, finished.FriendRequests.Count(r => r.FromId == stranger));
+        await f.Ok("friend_decline", request.Id);
+        // Отказал — после следующей партии не просится снова.
+        await f.Ok("room_ready", flag: true);
+        var again = await f.Ok("start_room", id: "chests-again");
+        var after = await f.Ok("report_match", "chests", text: again.ActiveMatchId, value: 1);
+        Assert.Equal(1, after.FriendRequests.Count(r => r.FromId == stranger));
+    }
+
+    [Fact]
+    public async Task OutgoingFriendRequestCanBeCancelled()
+    {
+        var f = new Fixture(); await f.Service.LoadAsync();
+        var saved = f.Store.Read();
+        saved.People.Single(p => p.Id == "bot-marat").IsBot = false;
+        f.Store.Write(saved);
+        f.Service = new LocalPlayerHubService(f.Store, f.Clock);
+        // Живой игрок (позже, по сети) отвечает не сразу: заявка ждёт, её можно отменить.
+        var sent = await f.Ok("friend_request", "bot-marat", id: "marat");
+        Assert.Equal("pending", sent.FriendRequests.Single(r => r.Id == "friend-marat").Status);
+        Assert.DoesNotContain("bot-marat", sent.Friends);
+        var cancelled = await f.Ok("friend_cancel", "friend-marat");
+        Assert.Equal("cancelled", cancelled.FriendRequests.Single(r => r.Id == "friend-marat").Status);
+        Assert.False((await f.Service.ExecuteAsync(Cmd("friend_cancel", "request-danil"))).Success);
     }
 
     [Fact]
@@ -263,7 +383,7 @@ public sealed class MetaHubTests
         f.Clock.Now += 4 * 86400;
         var overdue = (await f.Service.LoadAsync()).Snapshot;
         Assert.Equal(request.Bank.ReviewAt + 3 * 86400, overdue.Bank.DueAt);
-        Assert.True(overdue.Bank.CollectorPending); Assert.Equal(110, overdue.Bank.Debt);
+        Assert.True(overdue.Bank.CollectorPending); Assert.Equal(120, overdue.Bank.Debt);
     }
 
     [Fact]
@@ -333,18 +453,18 @@ public sealed class MetaHubTests
         Assert.Equal(320, draw.Profile.Coins); Assert.Equal(1, draw.Profile.Matches);
         Assert.Equal(0, draw.Profile.Wins); Assert.Equal(0, draw.Profile.Losses); Assert.Equal(1000, draw.Profile.Rating);
         Assert.Equal(20, draw.Profile.XP); Assert.Empty(draw.ActiveMatchId);
-        Assert.Equal(0, draw.Quests.Single(q => q.Event == "win").Progress);
+        Assert.All(draw.Quests.Where(q => q.Event == "win" || q.Event == "different_wins" || q.Event == "streak"), q => Assert.Equal(0, q.Progress));
         var retry = await f.Ok("report_match", "durak", text: started.ActiveMatchId, amount: 1);
         Assert.Equal(320, retry.Profile.Coins); Assert.Equal(1, retry.Profile.Matches);
     }
 
     [Fact]
-    public async Task CollectorDrawLeavesDebtAndGameUnchangedForRematch()
+    public async Task CollectorDrawKeepsRematchAndWithholdsOnlyNormalParticipationIncome()
     {
         var f = new Fixture(); await SetCollector(f, 15, 100);
         var started = await f.Ok("play_collectors");
         var draw = await f.Ok("report_match", started.Bank.CollectorGame, text: started.ActiveMatchId, amount: 1);
-        Assert.Equal(100, draw.Bank.Debt); Assert.Equal(35, draw.Profile.Coins);
+        Assert.Equal(90, draw.Bank.Debt); Assert.Equal(25, draw.Profile.Coins); // Half of the ordinary 20-coin participation payout repays debt.
         Assert.True(draw.Bank.CollectorPending); Assert.False(draw.Bank.CollectionActive); Assert.Empty(draw.ActiveMatchId);
         Assert.Equal(0, draw.Profile.Wins); Assert.Equal(0, draw.Profile.Losses);
         var refreshed = (await f.Service.LoadAsync()).Snapshot;

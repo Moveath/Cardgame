@@ -21,6 +21,8 @@ namespace CardGameClient
 
         private static string HumanName => PlayerProfile.DisplayName;
         private bool _hubMatchReported;
+        private bool _hubBankJobMatch;
+        private int _hubCaughtCheats, _hubCheatsPlayed, _hubTimesCaught;
 
         // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
         private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
@@ -185,6 +187,8 @@ namespace CardGameClient
         {
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             _bot = new SimpleDurakBot();
+            var hub = PlayerHubRuntime.Current;
+            _hubBankJobMatch = hub != null && hub.Matches.Any(entry => entry.Id == hub.ActiveMatchId && !string.IsNullOrEmpty(entry.BankJobId));
 
             BuildUi();
             StartNewGame();
@@ -193,6 +197,7 @@ namespace CardGameClient
         private void StartNewGame()
         {
             _hubMatchReported = false;
+            _hubCaughtCheats = _hubCheatsPlayed = _hubTimesCaught = 0;
             var seed = UnityEngine.Random.Range(0, int.MaxValue);
 
             // Сначала лица, потом имена: бот с лицом реального человека называется так же,
@@ -305,8 +310,11 @@ namespace CardGameClient
                     _waitingForHuman = false;
                     _pendingMove = null;
 
+                    var wasActualCheat = _game.GetCheatMoves(HumanIndex).Any(candidate => candidate.Type == move.Type
+                        && candidate.Card == move.Card && candidate.TargetSlot == move.TargetSlot);
                     if (_game.TryApplyMove(HumanIndex, move, out var error))
                     {
+                        if (wasActualCheat) _hubCheatsPlayed++;
                         _lastActorIndex = HumanIndex;
                         RememberLastDefense(move);
                         SetLastAction(_game.Players[HumanIndex].Name + ": " + move);
@@ -628,6 +636,7 @@ namespace CardGameClient
 
             if (_game.TryChallenge(HumanIndex, slot, isAttackCard, out var error))
             {
+                if (cheaterIndex.HasValue && cheaterIndex.Value != HumanIndex) _hubCaughtCheats++;
                 var cheaterName = cheaterIndex.HasValue ? _game.Players[cheaterIndex.Value].Name : "?";
                 SetLastAction("Обман! " + cheaterName + " забирает карту обратно.");
             }
@@ -660,6 +669,7 @@ namespace CardGameClient
 
                 if (_bot.TryChallenge(_game, player.Index, BotCheatNoticeChance, out _))
                 {
+                    if (actedPlayer.HasValue && actedPlayer.Value == HumanIndex) _hubTimesCaught++;
                     SetLastAction(player.Name + ": поймал на обмане!");
                     ClearChallengeableCardView();
                     return true;
@@ -683,6 +693,7 @@ namespace CardGameClient
             if (!_hubMatchReported && _game.IsFinished)
             {
                 _hubMatchReported = true;
+                HubMatchReporter.ReportDurakEvidence(_hubCaughtCheats, _hubCheatsPlayed, _hubTimesCaught);
                 HubMatchReporter.ReportMatchCompleted("durak",
                     _game.LoserIndex.HasValue && _game.LoserIndex.Value != HumanIndex,draw:!_game.LoserIndex.HasValue);
             }
@@ -1701,6 +1712,7 @@ namespace CardGameClient
             CreateCenterEmblem(root, new Color(0.08f, 0.32f, 0.20f));
 
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
+            HubQuestResultLine.Attach(_status, () => _game != null && _game.IsFinished);
             Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(1100f, 66f));
 
             // Соперники рассаживаются по дуге вокруг стола (см. SeatPosition), поэтому здесь
@@ -1767,8 +1779,12 @@ namespace CardGameClient
             _takeButton = CreateButton(root, "Забрать", new Vector2(1f, 0f), new Vector2(-190f, 150f),
                 new Color(0.55f, 0.28f, 0.18f), () => _pendingMove = DurakMove.Take());
 
-            _restartButton = CreateButton(root, "Новая партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -190f),
-                new Color(0.22f, 0.32f, 0.55f), StartNewGame);
+            _restartButton = CreateButton(root, _hubBankJobMatch ? "К Тузяре" : "Новая партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -190f),
+                new Color(0.22f, 0.32f, 0.55f), () =>
+                {
+                    if (_hubBankJobMatch) _onExit?.Invoke();
+                    else StartNewGame();
+                });
 
             // Выход посреди партии: без него любую проверку настроек приходилось бы доигрывать до конца.
             var exitButton = CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(150f, -70f),

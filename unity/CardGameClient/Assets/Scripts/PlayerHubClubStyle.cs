@@ -25,9 +25,25 @@ namespace CardGameClient
         // чтобы строки влезали в прежние рамки.
         private const float ClubTextScale = .8f;
         // Стол при подходе — левее середины на эту долю ширины экрана: справа встаёт табличка.
-        private const float TableAside = .26f;
+        private const float TableAside = .30f;
+        private const float TableVisitZoom = 1.9f, TableLift = 24f / 900;
         // Табличка: ширина, отступ от края сцены 1600×900 и верх.
-        private const float PlaqueWidth = 800, PlaqueMargin = 24, PlaqueTop = 40;
+        private const float PlaqueWidth = 944, PlaqueMargin = 0, PlaqueTop = 40;
+
+        private float TablePanelWidth => PlaqueWidth + Mathf.Max(0, (_size.x / Mathf.Max(.01f, _stage.localScale.x) - 1600) / 2);
+
+        private void FrameTableSigns(float depth)
+        {
+            var selected = _visit >= 0 && IsGameTable(CityPlaces[_visit]) ? CityPlaces[_visit].Route.Substring(5) : null;
+            foreach (var pair in _tableSigns)
+            {
+                if (pair.Value == null) continue;
+                pair.Value.alpha = selected == null || pair.Key == selected ? 1 : 1 - depth;
+                // Длинное название остаётся целиком под своим столом, слева от панели.
+                var scale = pair.Key == selected && pair.Key == "bluff" ? Mathf.Lerp(1, .8f, depth) : 1;
+                pair.Value.transform.localScale = Vector3.one * scale;
+            }
+        }
 
         private static Sprite s_signPlaqueGold;
         // Страница строится в стиле клуба: доски, золото, шрифт вывесок.
@@ -215,7 +231,7 @@ namespace CardGameClient
         private void BuildClubHeader()
         {
             _clubHeader = StageLayer("Club header");
-            CityButton(_clubHeader, "НАЗАД", 24, 24, 170, 56, Back);
+            PinToCorner((RectTransform)CityButton(_clubHeader, "НАЗАД", 24, 24, 170, 56, Back).transform, -1);
             // Заголовок — на своей доске, как вывеска: город за ним пёстрый, без доски буквы теряются.
             var board = ClubBoard(_clubHeader, "Club title board", 290, 10, 1020, 120, 22);
             board.gameObject.AddComponent<Shadow>().effectDistance = new Vector2(2, -4);
@@ -270,14 +286,14 @@ namespace CardGameClient
         }
 
         /// <summary>
-        /// Каждый кадр, пока открыта страница игры: из другого здания или этажа — через улицу, по улице —
+        /// Каждый кадр, пока открыта страница игры или комната: из другого здания или этажа — через улицу, по улице —
         /// до района, в зале — к столу, и подход. Всё по готовым движениям города: нырок, проезд, подход.
         /// </summary>
         private void ContinueTableTrip()
         {
             if (_tableTrip < 0) return;
             var place = CityPlaces[_tableTrip];
-            if (_page != place.Route || _diveTarget >= 0 || _diveQueued || _gliding || _floorPanning || _cityDragging
+            if (!TripPage(place) || _diveTarget >= 0 || _diveQueued || _gliding || _floorPanning || _cityDragging
                 || _floorDragging || _visitPhase == 3 || _diveShade == null) return;
             // У другого места — сразу обычный вид, дальше подход к столу.
             if (_visitPhase != 0) EndVisitNow();
@@ -314,10 +330,15 @@ namespace CardGameClient
             StartVisit(index);
         }
 
+        /// <summary>Едем, пока открыта страница стола или комната этой игры (комната тоже у стола).</summary>
+        private bool TripPage(CityPlace place) =>
+            _page == place.Route || _page == "room" && CurrentRoom() != null && place.Route == "game:" + CurrentRoom().GameId;
+
         /// <summary>Сразу закончить подход к месту: город в обычном виде, без затемнения.</summary>
         private void EndVisitNow()
         {
             if (_visitPhase == 0) return;
+            FrameTableSigns(0);
             _cityRig.localScale = Vector3.one;
             _cityRig.anchoredPosition = Vector2.zero;
             _diveShade.gameObject.SetActive(false);

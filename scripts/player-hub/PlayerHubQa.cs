@@ -15,14 +15,19 @@ using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.UI;
 
-public static class PlayerHubQa
+public static partial class PlayerHubQa
 {
     private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static readonly string Output = FindOutput();
+    private static readonly bool MailOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "mail", StringComparison.OrdinalIgnoreCase);
+    private static readonly bool FortuneOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "fortune", StringComparison.OrdinalIgnoreCase);
+    private static readonly bool BankOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "bank", StringComparison.OrdinalIgnoreCase);
+    private static readonly bool QuestsOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "quests", StringComparison.OrdinalIgnoreCase);
     private static readonly bool PlacesOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "places", StringComparison.OrdinalIgnoreCase);
     private static readonly bool ClubOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "club", StringComparison.OrdinalIgnoreCase);
     private static readonly bool GamesOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "games", StringComparison.OrdinalIgnoreCase);
     private static readonly bool EntranceOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "entrance", StringComparison.OrdinalIgnoreCase);
+    private static readonly bool MapOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "map", StringComparison.OrdinalIgnoreCase);
     private static readonly HashSet<string> LayoutIssues = new HashSet<string>();
     private static readonly List<string> RuntimeErrors = new List<string>();
     private static readonly string[] Routes = { "home", "games", "game:durak", "game:bluff", "game:chests", "game:govno", "game:poker",
@@ -66,7 +71,7 @@ public static class PlayerHubQa
         Application.logMessageReceived += OnLog;
         // This is deliberately the FIRST call involving any hub/profile/app-flow object.
         store = new MemoryStore(); clock = new FixedClock();
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock), clock);
         EditorApplication.update += FinishWhenReady;
         // -executeMethod can run before the renderer has completed its first editor update.
         EditorApplication.delayCall += () => operation = RunChecks();
@@ -76,7 +81,7 @@ public static class PlayerHubQa
     {
         var loaded = await PlayerHubRuntime.LoadAsync();
         Check(loaded.Success && store.Writes > 0, "profile initializes through the injected memory store");
-        if (!PlacesOnly && !ClubOnly && !GamesOnly && !EntranceOnly) CheckCanvasDensity();
+        if (!PlacesOnly && !ClubOnly && !GamesOnly && !EntranceOnly && !MapOnly && !QuestsOnly && !BankOnly && !FortuneOnly && !MailOnly) CheckCanvasDensity();
         Begin(1600, 900);
         var root = new GameObject("Player hub QA", typeof(RectTransform));
         root.transform.SetParent(canvasObject.transform, false);
@@ -87,6 +92,40 @@ public static class PlayerHubQa
         Call(hub, "Start");
         await WaitFor(() => Get<HubSnapshot>(hub, "_state") != null && !Get<bool>(hub, "_busy"), "initial async hub load");
         Check(Get<string>(hub, "_page") == "home", "new profile opens the uncluttered main menu");
+        if (MailOnly)
+        {
+            await CheckMailVisual();
+            Check(RuntimeErrors.Count == 0, "no mail runtime exceptions");
+            return;
+        }
+        if (FortuneOnly)
+        {
+            await CheckFortune();
+            Check(RuntimeErrors.Count == 0, "no fortune runtime exceptions: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
+        if (BankOnly)
+        {
+            await CheckBankHall();
+            await CheckBankLoan();
+            await CheckBankJobs();
+            Check(RuntimeErrors.Count == 0, "no bank loan runtime exceptions: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
+        if (QuestsOnly)
+        {
+            await CheckSixQuests();
+            Check(RuntimeErrors.Count == 0, "no quest runtime exceptions: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
+        if (MapOnly)
+        {
+            await CheckCityMap();
+            await CheckCityMapLayout();
+            Check(LayoutIssues.Count == 0, "map controls and labels fit the tested viewports");
+            Check(RuntimeErrors.Count == 0, "no runtime exceptions: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
         if (EntranceOnly)
         {
             await CheckTableEntrance();
@@ -126,6 +165,8 @@ public static class PlayerHubQa
             hub.Navigate(route); await NextFrame();
             Check(Get<string>(hub, "_page") == route, "route resolves: " + route);
             Check(!string.IsNullOrWhiteSpace(Get<Text>(hub, "_pageTitle").text), "page title: " + route);
+            if (route == "chats") Call(hub, "UpdateTavernMail", 1f, false);
+            if (route == "friends") Call(hub, "UpdateTavernFriends", 1f, false);
             InspectLayout(route); Save("hub-" + route.Replace(':', '-') + ".png");
             if (route == "achievements") Save("hub-progress.png");
             if (route == "progress") Save("hub-progress-section.png");
@@ -135,10 +176,15 @@ public static class PlayerHubQa
         await CheckUnderground();
         await CheckNoHill();
         await CheckClubHall();
+        await CheckSixHouse();
+        await CheckBankHall();
+        await CheckTavern();
+        await CheckSixQuests();
         await CheckTablePlaques();
         await CheckGameRules();
         await CheckCitySigns();
         await CheckCityPlaces();
+        await CheckCityMap();
         await CheckSectionNavigation();
         await CheckGameSetupDrafts();
         hub.Navigate("profile"); await NextFrame();
@@ -150,17 +196,7 @@ public static class PlayerHubQa
         await Click("Выбрать аватар"); Check(avatarCalls == 1, "avatar button reaches callback");
         Save("hub-profile.png");
 
-        Set(hub, "_hubFriendsTab", "requests"); hub.Navigate("friends"); await NextFrame();
-        await Click("Принять");
-        Check(PlayerHubRuntime.Current.Friends.Contains("bot-danil"), "accept incoming friend from visible UI");
-        Set(hub, "_hubFriendsTab", "friends"); hub.Navigate("friends"); await NextFrame(); Save("hub-friends.png");
-        Set(hub, "_hubFriendsTab", "invites"); hub.Navigate("friends"); await NextFrame();
-        InspectLayout("incoming-invitations"); Save("hub-invitations.png");
-        await Click("Принять");
-        Check(CurrentRoom() != null && CurrentRoom().Id == "room-demo-durak"
-            && PlayerHubRuntime.Current.Invites.Single(invite => invite.Id == "invite-yegor").Status == "accepted",
-            "incoming invitation button joins the advertised room");
-        await Dispatch("leave_room");
+        await CheckTavernFriends();
         await CheckLongFriendChat();
         await Dispatch("cosmetic_unlock", "frame_gold");
         await Dispatch("equip", "frame_gold");
@@ -172,11 +208,10 @@ public static class PlayerHubQa
         hub.Navigate("create-room"); await NextFrame(); await Click("Создать");
         var room = CurrentRoom();
         Check(room != null && room.GameId == "poker" && room.MaxPlayers == 4, "created room stores game and capacity");
+        // Приглашённый друг — местный бот — садится сразу, готовым.
         await Dispatch("invite_friend", "bot-danil", room.Id);
-        Set(hub, "_hubFriendsTab", "invites"); hub.Navigate("friends"); await NextFrame();
-        await Click("Демо: принял");
         Check(CurrentRoom().Members.Any(member => member.PlayerId == "bot-danil" && member.Ready && member.IsBot),
-            "outgoing invitation local acceptance adds a ready bot");
+            "an invited local friend takes a seat at once, ready");
         while (CurrentRoom().Members.Count < 4) await Click("Добавить бота");
         var longRoomMessage = LongMessage();
         for (var i = 0; i < 3; i++)
@@ -231,11 +266,10 @@ public static class PlayerHubQa
         if (limit > 0)
         {
             await Dispatch("bank_request", amount: Math.Min(100, limit));
-            Check(PlayerHubRuntime.Current.Bank.Status == "pending", "loan enters pending state");
-            clock.Now = Math.Max(clock.Now + 60, PlayerHubRuntime.Current.Bank.ReviewAt + 1);
+            Check(PlayerHubRuntime.Current.Bank.Status != "pending", "legacy loan request is decided immediately");
             await PlayerHubRuntime.RefreshAsync();
             hub.Navigate("bank"); await NextFrame(); InspectLayout("bank-reviewed"); Save("hub-bank.png");
-            Check(PlayerHubRuntime.Current.Bank.Status != "pending", "bank review responds to fake clock");
+            Check(PlayerHubRuntime.Current.Bank.Status != "pending", "bank keeps the immediate loan decision");
         }
 
         foreach (var size in new[] { new Vector2Int(2040, 900), new Vector2Int(1280, 720) })
@@ -306,8 +340,8 @@ public static class PlayerHubQa
             "the bridge makes the walk from the square to Tuzyara about 1.4 screens");
         Check(Mathf.Abs(stops[1] - stops[0] - 1.4f * view) < .1f * view,
             "the bridge makes the walk from the Old Town to the square about 1.4 screens");
-        // Автор работает над фоном: на главной только город, ни одной кнопки.
-        Check(!ActiveButtons().Any(), "lobby shows only the city");
+        // Автор работает над фоном: на главной только город и кнопка карты (PlayerHubMap.cs).
+        Check(ActiveButtons().All(button => ButtonLabel(button) == "КАРТА"), "lobby shows only the city and the map button");
         CheckCityCovers("square");
         // Проезды: ShowDistrict едет плавно, SettleCity сразу ставит в цель. Update у хаба в проверке
         // выключен — кадры проезда проверка крутит сама (Ride).
@@ -399,6 +433,291 @@ public static class PlayerHubQa
         Swipe(area, -.9f);
         Check(Get<int>(hub, "_district") == 1 && Get<float>(hub, "_cityCamera") == still, "section pages do not scroll the city");
         hub.GoHome(); await NextFrame();
+    }
+
+    /// <summary>
+    /// Карта города (2026-10-05): кнопка «КАРТА» на главной; пять карт-районов в порядке улицы и подполье,
+    /// «ты здесь» — на площади; карта Старого города переворачивается — на обороте «Весь район» и места с
+    /// кнопками в палец; кнопка места закрывает карту, камера едет и подходит к двери (таверна), ныряет в
+    /// подполье и подходит к арене, ныряет в зал Клуба.
+    /// </summary>
+    private static async Task CheckCityMap()
+    {
+        hub.GoHome(); await NextFrame();
+        if (Get<int>(hub, "_cityLevel") != 0) { Call(hub, "StartDive", 0); Call(hub, "MoveDive", 10f); }
+        SettleOn(1);
+        Call(hub, "UpdateMap", 1 / 60f, false);
+        var mapButton = MapIconButton();
+        Check(mapButton != null, "the main screen has a map button in the corner");
+        if (mapButton == null) return;
+        Check(mapButton.GetComponent<Image>().sprite != null && mapButton.GetComponent<Image>().sprite.name == "map-icon",
+            "the map button is the painted map icon");
+        Save("hub-home-map-button.png");
+        mapButton.onClick.Invoke();
+        Call(hub, "UpdateMap", 1f, false);
+        var layer = Get<RectTransform>(hub, "_mapLayer");
+        var cards = layer.GetComponentsInChildren<RectTransform>()
+            .Where(rect => rect.name.StartsWith("Map card ", StringComparison.Ordinal) && rect.name != "Map card back")
+            .Select(rect => rect.name.Substring("Map card ".Length)).ToArray();
+        Check(cards.SequenceEqual(new[] { "Старый город", "Главная площадь", "Район Тузяры", "Порт", "Подполье" }),
+            "the map shows the districts as cards in street order and the underground: " + string.Join(", ", cards));
+        var dim = layer.Find("Map dim")?.GetComponent<Image>();
+        var dimCorners = new Vector3[4];
+        dim?.rectTransform.GetWorldCorners(dimCorners);
+        var areaCorners = new Vector3[4];
+        Get<RectTransform>(hub, "_cityArea").GetWorldCorners(areaCorners);
+        Check(dim != null && dim.isActiveAndEnabled && dim.color.a > .5f && dim.canvasRenderer.GetAlpha() > .5f
+              && dimCorners[0].x <= areaCorners[0].x && dimCorners[0].y <= areaCorners[0].y
+              && dimCorners[2].x >= areaCorners[2].x && dimCorners[2].y >= areaCorners[2].y,
+            "the map dims the whole city behind it: " + (dim == null ? "none" : dim.isActiveAndEnabled + " " + dim.color + " cr " + dim.canvasRenderer.GetAlpha()
+                + " " + dimCorners[0] + ".." + dimCorners[2] + " vs " + areaCorners[0] + ".." + areaCorners[2] + " group " + layer.GetComponent<CanvasGroup>().alpha));
+        var pin = Get<RectTransform>(hub, "_mapPin");
+        Check(pin.gameObject.activeInHierarchy && pin.parent.name == "Map card Главная площадь", "the you-are-here pin sits on the square");
+        Check(layer.GetComponentsInChildren<Image>().Where(image => image.name == "District art").All(image => image.sprite != null),
+            "every district card shows a piece of its real picture");
+        Save("hub-city-map.png");
+        Call(hub, "ShowMapBack", 0);
+        Call(hub, "UpdateMap", 1f, false);
+        var back = Get<RectTransform>(hub, "_mapBack");
+        var rows = back.GetComponentsInChildren<Button>().Where(button => button.enabled).ToArray();
+        var labels = rows.Select(ButtonLabel).ToArray();
+        Check(labels.SequenceEqual(new[] { "Весь район", "Архив", "Дом Шестёрки", "Таверна", "Шатёр гадалки" }),
+            "the Old Town card turns over to its places, left to right: " + string.Join(", ", labels));
+        Check(rows.All(button => ((RectTransform)button.transform).rect.height >= 80), "place buttons on the card back are finger-sized");
+        Save("hub-city-map-old-town.png");
+        // Таверна: карта закрывается, город едет к Старому городу, у двери — нырок в зал (2026-10-10).
+        rows.First(button => ButtonLabel(button).StartsWith("Таверна", StringComparison.Ordinal)).onClick.Invoke();
+        Check(!Get<bool>(hub, "_mapOpen") && Get<int>(hub, "_mapTripPlace") >= 0, "a place button closes the map and starts the trip");
+        DriveMapTrip(() => Get<int>(hub, "_cityLevel") == 6 && Get<int>(hub, "_diveTarget") < 0);
+        Check(Get<int>(hub, "_cityLevel") == 6 && Get<string>(hub, "_page") == "home", "the map takes the player into the tavern hall in the Old Town");
+        DiveNow(0); Call(hub, "UpdateInteriorControls");
+        hub.GoHome(); await NextFrame();
+        for (var frame = 0; frame < 200 && Get<int>(hub, "_visitPhase") != 0; frame++) Call(hub, "MoveVisit", 1 / 60f);
+        // Арена: с улицы — до площади, нырок в подполье и подход к арене.
+        await MapGo(4, "Арена");
+        DriveMapTrip(() => Get<string>(hub, "_page") == "place:arena");
+        Check(Get<int>(hub, "_cityLevel") == 1 && Get<string>(hub, "_page") == "place:arena", "the map dives into the underground and walks to the arena");
+        hub.GoHome(); await NextFrame();
+        for (var frame = 0; frame < 200 && Get<int>(hub, "_visitPhase") != 0; frame++) Call(hub, "MoveVisit", 1 / 60f);
+        // Клуб: из подполья — на улицу, к Клубу и внутрь, в зал.
+        await MapGo(1, "Клуб");
+        DriveMapTrip(() => Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_diveTarget") < 0);
+        Check(Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_mapTripPlace") < 0, "from the underground the map goes up and into the Club hall");
+        // Дом Шестёрки: из Клуба — на улицу, в Старый город и в дверь домика, в его комнату.
+        await MapGo(0, "Дом Шестёрки");
+        DriveMapTrip(() => Get<int>(hub, "_cityLevel") == 3 && Get<int>(hub, "_diveTarget") < 0);
+        Check(Get<int>(hub, "_cityLevel") == 3 && Get<int>(hub, "_mapTripPlace") < 0, "the map takes the player into the Six's house");
+        // Обратно на улицу, к площади: дальше проверки ждут главную.
+        Call(hub, "StartDive", 0); Call(hub, "MoveDive", 10f);
+        SettleOn(1);
+        Call(hub, "UpdateMap", 1f, false);
+    }
+
+    /// <summary>Focused visual layout coverage: viewport corner, readable fronts, centered backs and location badge.</summary>
+    private static async Task CheckCityMapLayout()
+    {
+        foreach (var size in new[] { new Vector2Int(1600, 900), new Vector2Int(2100, 900), new Vector2Int(1280, 720) })
+        {
+            ResizeCanvas(size.x, size.y);
+            ((RectTransform)hub.transform).sizeDelta = new Vector2(size.x, size.y);
+            Call(hub, "Resize"); await NextFrame();
+            foreach (var level in new[] { 0, 2 })
+            {
+                if (Get<int>(hub, "_cityLevel") != level) DiveNow(level);
+                if (level == 0) SettleOn(1);
+                else LookAtArtX("club-hall", ArtPictureSize("club-hall").x / 2);
+                Call(hub, "UpdateMap", 1f, false);
+                Call(hub, "UpdateInteriorControls");
+                var context = (level == 0 ? "street" : "club") + "-" + size.x + "x" + size.y;
+                var button = MapIconButton();
+                Check(button != null && button.gameObject.activeInHierarchy, "painted map icon is available: " + context);
+                var iconRect = (RectTransform)button.transform;
+                Check(Mathf.Approximately(iconRect.rect.width, 192) && Mathf.Approximately(iconRect.rect.height, 192)
+                    && button.GetComponentsInChildren<Text>(true).Length == 0,
+                    "map icon is enlarged and carries no overlaid caption: " + context);
+                if (level == 2) Check(InteriorExitVisible(), "Club exit is available before opening the map: " + context);
+                var corners = new Vector3[4]; ((RectTransform)button.transform).GetWorldCorners(corners);
+                var low = camera.WorldToViewportPoint(corners[0]);
+                var high = camera.WorldToViewportPoint(corners[2]);
+                Check(low.x >= 0 && low.y >= 0 && high.x < .23f && high.y < .25f,
+                    "map icon is wholly inside the bottom-left viewport corner: " + context);
+                var hit = Hit((RectTransform)button.transform);
+                Check(hit.gameObject != null && (hit.gameObject == button.gameObject || hit.gameObject.transform.IsChildOf(button.transform)),
+                    "map icon receives clicks: " + context);
+                Save("hub-map-button-" + context + ".png");
+                button.onClick.Invoke();
+                Call(hub, "UpdateInteriorControls");
+                Check(!InteriorExitVisible(), "Club exit is hidden as soon as the map opens: " + context);
+                var hiddenThroughout = true;
+                for (var frame = 0; frame < 24; frame++)
+                {
+                    Call(hub, "UpdateMap", 1 / 60f, false);
+                    Call(hub, "UpdateInteriorControls");
+                    hiddenThroughout &= !InteriorExitVisible();
+                }
+                Check(hiddenThroughout, "interior updates cannot raise the exit above the map: " + context);
+                var layer = Get<RectTransform>(hub, "_mapLayer");
+                var pin = Get<RectTransform>(hub, "_mapPin");
+                Check(pin.gameObject.activeInHierarchy && pin.parent.name == "Map card Главная площадь",
+                    "location badge tracks the square from street and Club: " + context);
+                Check(!pin.GetComponentsInChildren<Text>().Any(text => text.text.Equals("ты здесь", StringComparison.OrdinalIgnoreCase)),
+                    "location marker replaces the old red you-are-here tag: " + context);
+                Check(pin.GetComponentsInChildren<Text>().Any(text => text.text == "Сейчас здесь"),
+                    "current district badge has its replacement caption: " + context);
+                var art = layer.GetComponentsInChildren<Image>().Where(image => image.name == "District art").ToArray();
+                Check(art.Length == 5 && art.All(image => image.sprite != null), "all five map fronts retain their artwork: " + context);
+                Canvas.ForceUpdateCanvases(); camera.Render();
+                var hint = layer.GetComponentsInChildren<Text>().Single(text => text.text == "Нажми на район");
+                Check(hint.font != null && hint.font.name == "SignNarrow" && hint.GetComponent<HubSignText>() != null,
+                    "map hint uses the same gold sign style as the interface: " + context);
+                var previewLabels = art.SelectMany(image => image.GetComponentsInChildren<Text>()).Select(text => text.text).ToArray();
+                // Плашек поверх города больше нет (2026-10-07): у всех мест таблички нарисованы, и превью показывает их надписи.
+                Check(new[] { "АРЕНА", "БАНК ТУЗЯРЫ", "ТАВЕРНА", "ДОМ", "ШЕСТЁРКИ", "ГАДАЛКА", "ЧЁРНЫЙ РЫНОК", "ПОДПОЛЬНЫЙ КЛУБ" }
+                        .All(text => previewLabels.Contains(text)) && !previewLabels.Contains("ДОМ ШЕСТЁРКИ"),
+                    "map previews show the names on the painted boards of every place: " + context);
+                foreach (var caption in new[] { "КЛУБ", "КАЗИНО", "РЫНОК" })
+                {
+                    var sign = art.SelectMany(image => image.GetComponentsInChildren<Text>()).FirstOrDefault(text => text.text == caption);
+                    var mesh = sign == null ? null : sign.canvasRenderer.GetMesh();
+                    Check(sign != null && sign.GetComponent<HubSignText>() != null && mesh != null && mesh.vertexCount > 0,
+                        "map preview renders its real building sign: " + caption + " " + context);
+                }
+                foreach (var card in art.Select(image => image.GetComponentInParent<Button>()).Distinct())
+                {
+                    var face = card.transform.Find("Face")?.GetComponent<Image>();
+                    Check(face != null && face.color.maxColorComponent < .3f, "card border uses dark material instead of a cream field: " + card.name);
+                    var rect = (RectTransform)card.transform; rect.GetWorldCorners(corners);
+                    Check(corners.Select(camera.WorldToViewportPoint).All(point => point.x >= -.002f && point.x <= 1.002f
+                        && point.y >= -.002f && point.y <= 1.002f), "district card stays inside the viewport: " + card.name + " " + context);
+                    hit = Hit(rect);
+                    Check(hit.gameObject != null && (hit.gameObject == card.gameObject || hit.gameObject.transform.IsChildOf(card.transform)),
+                        "district card receives its own click: " + card.name + " " + context);
+                }
+                Save("hub-map-front-" + context + ".png");
+                if (level == 2 && size.x == 1600) CheckMapKeyboardIsolation();
+                if (level == 0)
+                {
+                    for (var district = 0; district < 5; district++)
+                    {
+                        Call(hub, "ShowMapBack", district); Call(hub, "UpdateMap", 1f, false);
+                        var back = Get<RectTransform>(hub, "_mapBack");
+                        var rows = back.GetComponentsInChildren<Button>().Where(row => row.enabled).Select(row => (RectTransform)row.transform).ToArray();
+                        Check(rows.Length >= 2 && rows.Length <= 5, "map back has a compact set of destinations: " + district);
+                        var bounds = new List<Rect>();
+                        foreach (var row in rows)
+                        {
+                            row.GetWorldCorners(corners);
+                            var lower = back.InverseTransformPoint(corners[0]); var upper = back.InverseTransformPoint(corners[2]);
+                            bounds.Add(Rect.MinMaxRect(lower.x, lower.y, upper.x, upper.y));
+                        }
+                        Check(bounds.All(rect => rect.xMin >= back.rect.xMin && rect.xMax <= back.rect.xMax
+                            && rect.yMin >= back.rect.yMin && rect.yMax <= back.rect.yMax),
+                            "destination buttons stay inside the card: " + district + " " + context);
+                        Check(bounds.All(rect => Mathf.Abs(rect.center.x - back.rect.center.x) < 1),
+                            "destination buttons are horizontally centered: " + district + " " + context);
+                        var groupCenter = (bounds.Min(rect => rect.yMin) + bounds.Max(rect => rect.yMax)) / 2;
+                        Check(Mathf.Abs(groupCenter - back.rect.center.y) < 80,
+                            "destination group is vertically balanced rather than packed at the top: " + district + " " + context);
+                        var gaps = bounds.Zip(bounds.Skip(1), (upper, lower) => upper.yMin - lower.yMax).ToArray();
+                        Check(gaps.All(gap => gap > 0) && gaps.Max() - gaps.Min() < 2,
+                            "destination rows have consistent spacing: " + district + " " + context);
+                        foreach (var row in rows)
+                        {
+                            hit = Hit(row);
+                            Check(hit.gameObject != null && (hit.gameObject == row.gameObject || hit.gameObject.transform.IsChildOf(row)),
+                                "destination receives its own click: " + row.name + " " + context);
+                        }
+                        Save("hub-map-back-" + district + "-" + context + ".png");
+                    }
+                }
+                var close = layer.GetComponentsInChildren<Button>().Single(item => item.enabled && ButtonLabel(item) == "ЗАКРЫТЬ");
+                hit = Hit((RectTransform)close.transform);
+                Check(hit.gameObject != null && (hit.gameObject == close.gameObject || hit.gameObject.transform.IsChildOf(close.transform)),
+                    "map close button receives its own click: " + context);
+                close.onClick.Invoke();
+                Check(!Get<bool>(hub, "_mapOpen"), "map close button closes the map: " + context);
+                Call(hub, "UpdateMap", 1 / 60f, false); Call(hub, "UpdateInteriorControls");
+                Check(Get<float>(hub, "_mapFade") > 0 && !InteriorExitVisible(),
+                    "Club exit stays hidden while the map fades out: " + context);
+                Call(hub, "UpdateMap", 1f, false); Call(hub, "UpdateInteriorControls");
+                Check(InteriorExitVisible() == (level == 2), "Club exit restores only after the map is fully closed: " + context);
+            }
+        }
+        DiveNow(0); SettleOn(3);
+        Call(hub, "OpenMap"); Call(hub, "UpdateMap", 1f, false);
+        Check(Get<RectTransform>(hub, "_mapPin").parent.name == "Map card Порт", "location badge follows movement to another district");
+        Call(hub, "CloseMap"); Call(hub, "UpdateMap", 1f, false); SettleOn(1);
+        ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900);
+        Call(hub, "Resize"); Call(hub, "UpdateMap", 1f, false);
+        await NextFrame();
+    }
+
+    private static Button MapIconButton() => Get<RectTransform>(hub, "_mapButtonLayer")?.GetComponentsInChildren<Button>()
+        .FirstOrDefault(button => button.GetComponent<Image>()?.sprite?.name == "map-icon" || button.name == "КАРТА");
+
+    private static bool InteriorExitVisible() => Get<RectTransform>(hub, "_interiorControls") is RectTransform controls
+        && controls.gameObject.activeInHierarchy;
+
+    private static void CheckMapKeyboardIsolation()
+    {
+        var keyboard = InputSystem.AddDevice<Keyboard>("QA map keyboard");
+        try
+        {
+            keyboard.MakeCurrent();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S)); InputSystem.Update();
+            Call(hub, "UpdateCity", false);
+            Check(Get<bool>(hub, "_mapOpen") && Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_diveTarget") < 0,
+                "S cannot leave the Club while the map is open");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState()); InputSystem.Update(); Call(hub, "UpdateCity", false);
+            Call(hub, "ShowMapBack", 1); Call(hub, "UpdateMap", 1f, false);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape)); InputSystem.Update(); Call(hub, "UpdateCity", false);
+            Check(Get<bool>(hub, "_mapOpen") && Get<int>(hub, "_mapBackFor") < 0 && Get<int>(hub, "_diveTarget") < 0,
+                "first Escape returns from the district back without leaving the Club");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState()); InputSystem.Update(); Call(hub, "UpdateMap", 1f, false);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape)); InputSystem.Update(); Call(hub, "UpdateCity", false);
+            Check(!Get<bool>(hub, "_mapOpen") && Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_diveTarget") < 0,
+                "second Escape closes the map without leaving the Club");
+            var stayedInClub = true;
+            for (var frame = 0; frame < 24; frame++)
+            {
+                Call(hub, "UpdateMap", 1 / 60f, false);
+                Call(hub, "UpdateCity", false);
+                stayedInClub &= Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_diveTarget") < 0;
+            }
+            Check(stayedInClub && Get<float>(hub, "_mapFade") <= 0,
+                "holding Escape through and beyond map fade-out cannot trigger a Club exit");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState()); InputSystem.Update(); Call(hub, "UpdateMap", 1f, false);
+            Call(hub, "OpenMap"); Call(hub, "UpdateMap", 1f, false); Call(hub, "UpdateInteriorControls");
+        }
+        finally { InputSystem.RemoveDevice(keyboard); }
+    }
+
+    /// <summary>Открыть карту, перевернуть карту района и нажать кнопку места.</summary>
+    private static async Task MapGo(int district, string place)
+    {
+        Call(hub, "OpenMap");
+        Call(hub, "UpdateMap", 1f, false);
+        Call(hub, "ShowMapBack", district);
+        Call(hub, "UpdateMap", 1f, false);
+        var button = Get<RectTransform>(hub, "_mapBack").GetComponentsInChildren<Button>()
+            .FirstOrDefault(item => item.enabled && ButtonLabel(item) == place);
+        Check(button != null, "the map card back has " + place);
+        button?.onClick.Invoke();
+        await NextFrame();
+    }
+
+    /// <summary>Кадры поездки с карты: проезд, нырки, подход — пока не выполнится условие.</summary>
+    private static void DriveMapTrip(Func<bool> arrived)
+    {
+        for (var frame = 0; frame < 1500 && !arrived(); frame++)
+        {
+            Call(hub, "UpdateMap", 1 / 30f, false);
+            Call(hub, "ContinueMapTrip");
+            Call(hub, "MoveCity", 1 / 30f);
+            Call(hub, "MoveDive", 1 / 30f);
+            Call(hub, "MoveFloorPan", 1 / 30f);
+            Call(hub, "MoveVisit", 1 / 30f);
+        }
     }
 
     /// <summary>
@@ -522,6 +841,508 @@ public static class PlayerHubQa
     }
 
     /// <summary>
+    /// Дом Шестёрки (2026-10-07): дверь домика в Старом городе ведёт в его комнату, как двери Клуба — в зал. Там стоит
+    /// Шестёрка, при входе он здоровается и говорит, что где, на нажатие отвечает советом, в углу доски «Заданий» —
+    /// кружок с числом наград, которые ждут; табличек у предметов нет и сундук не нажимается (решение автора,
+    /// 2026-10-07); облачко не лезет под «ВЫЙТИ» и на 20:9; выйти — «Назад», как из Клуба.
+    /// </summary>
+    /// <summary>
+    /// Банк Тузяры изнутри (2026-10-08): дверь банка в районе Тузяры ведёт в его зал, зал закрывает экран,
+    /// Тузяра за столом на экране и открывает крупный план стола; «Назад» — снова в зал.
+    /// </summary>
+    private static async Task CheckBankHall()
+    {
+        hub.GoHome(); await NextFrame();
+        var area = Get<RectTransform>(hub, "_cityArea");
+        var places = ((Array)typeof(PlayerHubController).GetField("CityPlaces", BindingFlags.Static | BindingFlags.NonPublic)
+            .GetValue(null)).Cast<object>().ToArray();
+        object PlaceById(string id) => places.Single(place => (string)Item(place, "Id") == id);
+        Vector2 ScreenOf(object place) => RectTransformUtility.WorldToScreenPoint(camera,
+            area.TransformPoint(area.rect.center + (Vector2)Call(hub, "PlaceScreenPoint", place, Item(place, "Door"))));
+        var view = new Vector3[4];
+        area.GetWorldCorners(view);
+        var bank = PlaceById("bank");
+        Check((int)Item(bank, "Floor") == 4, "the bank in Tuzyara's district is a door into its hall, not a stub screen");
+        DiveNow(0); SettleOn(2);
+        TapScreen(area, ScreenOf(bank), "the bank door");
+        Check(Get<int>(hub, "_diveTarget") == 4, "a tap on the bank door dives into the bank hall");
+        CheckDive(4, "into the bank");
+        Check(FloorRect(4).gameObject.activeSelf && !Get<RectTransform>(hub, "_cityStrip").gameObject.activeSelf,
+            "inside the bank only its hall is drawn");
+        CheckCityCovers("bank hall");
+        var boss = PlaceById("bank-boss");
+        var bossScreen = ScreenOf(boss);
+        var low = RectTransformUtility.WorldToScreenPoint(camera, view[0]);
+        var high = RectTransformUtility.WorldToScreenPoint(camera, view[2]);
+        Check(bossScreen.x > low.x && bossScreen.x < high.x && bossScreen.y > low.y && bossScreen.y < high.y,
+            "Tuzyara at his desk is on screen when entering the bank");
+        Call(hub, "UpdateInteriorControls");
+        Save("hub-bank-hall.png");
+        // Зал 21:9 (дорисован по бокам, 2026-10-08): на 20:9 виден по высоте целиком, не приближен; Тузяра на экране.
+        ResizeCanvas(2000, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(2000, 900); Call(hub, "Resize");
+        area.GetWorldCorners(view);
+        var floorCorners = new Vector3[4];
+        FloorRect(4).GetWorldCorners(floorCorners);
+        Check(Mathf.Abs((floorCorners[1].y - floorCorners[0].y) - (view[1].y - view[0].y)) < 1,
+            "at 20:9 the whole height of the bank hall is on screen, nothing cut at the top or bottom");
+        Save("hub-bank-hall-2000x900.png");
+        ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900); Call(hub, "Resize");
+        area.GetWorldCorners(view);
+        bossScreen = ScreenOf(boss);
+        TapScreen(area, bossScreen, "Tuzyara at his desk");
+        Call(hub, "UpdateBankLoan", 1f, false);
+        Check(Get<bool>(hub, "_bankLoanShown") && Get<string>(hub, "_page") == "home", "a tap on Tuzyara opens his desk over the hall");
+        hub.Back(); Call(hub, "UpdateBankLoan", 1f, false);
+        Check(!Get<bool>(hub, "_bankLoanShown") && Get<string>(hub, "_page") == "home" && Get<int>(hub, "_cityLevel") == 4, "Back from the desk stays in the bank hall");
+        DiveNow(0); Call(hub, "UpdateInteriorControls");
+    }
+
+    /// <summary>
+    /// Таверна «Червовая дама» (2026-10-10): дверь в Старом городе — нырок в зал; зал 21:9 на 20:9 виден по высоте;
+    /// Дама здоровается, на нажатие — совет, угол кланов — «скоро» её голосом, Пятёрка — своя реплика; стол ведёт
+    /// к друзьям, почтовые ячейки — к чатам, «Назад» возвращает в зал.
+    /// </summary>
+    private static async Task CheckTavern()
+    {
+        hub.GoHome(); await NextFrame();
+        var area = Get<RectTransform>(hub, "_cityArea");
+        var places = ((Array)typeof(PlayerHubController).GetField("CityPlaces", BindingFlags.Static | BindingFlags.NonPublic)
+            .GetValue(null)).Cast<object>().ToArray();
+        object PlaceById(string id) => places.Single(place => (string)Item(place, "Id") == id);
+        Vector2 ScreenOf(object place) => RectTransformUtility.WorldToScreenPoint(camera,
+            area.TransformPoint(area.rect.center + (Vector2)Call(hub, "PlaceScreenPoint", place, Item(place, "Door"))));
+        var view = new Vector3[4];
+        area.GetWorldCorners(view);
+        var low = RectTransformUtility.WorldToScreenPoint(camera, view[0]);
+        var high = RectTransformUtility.WorldToScreenPoint(camera, view[2]);
+        bool OnScreen(Vector2 point) => point.x > low.x && point.x < high.x && point.y > low.y && point.y < high.y;
+        var tavern = PlaceById("tavern");
+        Check((int)Item(tavern, "Floor") == 6, "the tavern in the Old Town is a door into its hall, not the friends page");
+        DiveNow(0); SettleOn(0);
+        TapScreen(area, ScreenOf(tavern), "the tavern door");
+        Check(Get<int>(hub, "_diveTarget") == 6, "a tap on the tavern door dives into the hall");
+        CheckDive(6, "into the tavern");
+        Check(FloorRect(6).gameObject.activeSelf && !Get<RectTransform>(hub, "_cityStrip").gameObject.activeSelf,
+            "inside the tavern only its hall is drawn");
+        CheckCityCovers("tavern hall");
+        Call(hub, "UpdateTavern", .1f);
+        // Письмо Али ждёт (новый ответ бота — непрочитанный): в почтовых ячейках — несколько конвертов.
+        await Dispatch("chat_send", "bot-ali", "Заходи в таверну!");
+        var lettersFew = Get<Image>(hub, "_tavernMailFew");
+        var lettersMany = Get<Image>(hub, "_tavernMailMany");
+        Check(lettersFew != null && lettersFew.sprite != null && lettersFew.gameObject.activeInHierarchy && !lettersMany.gameObject.activeInHierarchy,
+            "a new letter puts a few envelopes into the mail pigeonholes");
+        var queenLine = (Text)Call(hub, "TalkLine", "tavern-queen");
+        Check(queenLine != null && queenLine.gameObject.activeInHierarchy && queenLine.text.Contains("Червовую даму"),
+            "the Queen of Hearts greets the first visit and says where everything is: " + queenLine?.text);
+        var greeting = (string)Call(hub, "TavernGreeting");
+        Check(greeting.Contains("письмо от Али"), "on later visits the Queen tells who sent a new letter: " + greeting);
+        foreach (var id in new[] { "tavern-queen", "tavern-five", "tavern-mail", "tavern-table-1", "tavern-table-2", "tavern-table-3", "tavern-table-4",
+            "tavern-builders", "tavern-postmen", "tavern-king", "tavern-sweethearts" })
+            Check(OnScreen(ScreenOf(PlaceById(id))), "the tavern place is on screen at 16:9: " + id);
+        Call(hub, "UpdateInteriorControls");
+        Save("hub-tavern-hall.png");
+        ResizeCanvas(2000, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(2000, 900); Call(hub, "Resize");
+        area.GetWorldCorners(view);
+        var floorCorners = new Vector3[4];
+        FloorRect(6).GetWorldCorners(floorCorners);
+        Check(Mathf.Abs((floorCorners[1].y - floorCorners[0].y) - (view[1].y - view[0].y)) < 1,
+            "at 20:9 the whole height of the tavern hall is on screen, nothing cut at the top or bottom");
+        Save("hub-tavern-hall-2000x900.png");
+        ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900); Call(hub, "Resize");
+        // Ещё два письма — ячейки забиты; Дама называет, сколько их.
+        await Dispatch("chat_send", "bot-ali", "Ты где?");
+        await Dispatch("chat_send", "bot-ali", "Жду за столом!");
+        Check(lettersMany.sprite != null && lettersMany.gameObject.activeInHierarchy && !lettersFew.gameObject.activeInHierarchy,
+            "many unread letters stuff the pigeonholes full");
+        greeting = (string)Call(hub, "TavernGreeting");
+        Check(greeting.Contains("письма от Али: 3"), "the Queen counts the letters from one friend: " + greeting);
+        Save("hub-tavern-mail-letters-many.png");
+        area.GetWorldCorners(view);
+        // Реплики жителей выключены (автор, 2026-10-10): девятки у угла кланов — просто зал, жители за столами — часть стола.
+        Check(!places.Any(place => (string)Item(place, "Id") == "tavern-police"), "the Nines of Spades at the clans corner are only part of the hall now");
+        foreach (var id in new[] { "tavern-builders", "tavern-postmen", "tavern-king", "tavern-sweethearts" })
+            Check(!(bool)Item(PlaceById(id), "Talk") && (string)Item(PlaceById(id), "Route") == "friends" && (bool)Item(PlaceById(id), "Direct"),
+                "the residents at a table are part of it and lead to the friends: " + id);
+        TapScreen(area, ScreenOf(PlaceById("tavern-five")), "the Five of Hearts");
+        var fiveLine = (Text)Call(hub, "TalkLine", "tavern-five");
+        Check(fiveLine.gameObject.activeInHierarchy && fiveLine.text.Length > 0, "the Five of Hearts answers with his own line");
+        Check(!((Text)Call(hub, "TalkLine", "tavern-queen")).gameObject.activeInHierarchy, "only one resident speaks at a time");
+        Save("hub-tavern-talk.png");
+        // Тишина: облачко Пятёрки гаснет, а жители сами не заговаривают — их реплики выключены.
+        var residents = new[] { "tavern-builders", "tavern-postmen", "tavern-king", "tavern-sweethearts" }
+            .Select(id => (Text)Call(hub, "TalkLine", id)).ToArray();
+        Call(hub, "UpdateTavern", 10f);
+        Check(!fiveLine.gameObject.activeInHierarchy, "the Five's line fades away");
+        for (var i = 0; i < 4; i++) Call(hub, "UpdateTavern", 12f);
+        Check(residents.All(line => !line.gameObject.activeInHierarchy), "in a quiet hall the residents keep silent");
+        Save("hub-tavern-patrons.png");
+        // Дверь первого стола на 16:9 — под значком карты в углу: подход проверяется со второго.
+        foreach (var (id, route) in new[] { ("tavern-table-2", "friends"), ("tavern-builders", "friends"), ("tavern-mail", "chats") })
+        {
+            TapScreen(area, ScreenOf(PlaceById(id)), id);
+            for (var frame = 0; frame < 200 && Get<int>(hub, "_visitPhase") == 1; frame++) Call(hub, "MoveVisit", 1 / 60f);
+            Check(Get<string>(hub, "_page") == route, "the tavern " + id + " leads to " + route);
+            if (route == "chats")
+            {
+                Call(hub, "UpdateTavernMail", 1f, false);
+                for (var frame = 0; frame < 20 && PlayerHubRuntime.Current.Chats.Any(entry => entry.Unread); frame++) await NextFrame();
+                Check(Call(hub, "MailFriendId") as string == "bot-ali" && !PlayerHubRuntime.Current.Chats.Any(entry => entry.Unread),
+                    "the pigeonholes open the freshest letters, and they are read");
+                var aliCard = (RectTransform)Get<RectTransform>(hub, "_mailFriends").Find("Letter bot-ali");
+                var aliCorners = new Vector3[4]; aliCard.GetWorldCorners(aliCorners);
+                Check(InsideMask(aliCorners, Get<RectTransform>(hub, "_mailFriendsView").GetComponent<RectMask2D>()),
+                    "the mail opens with the freshest letter's card in view, not the list scrolled to its end");
+                // «ВЫЙТИ» зала прячется каждый кадр на любой странице кроме главной; в QA кадров нет.
+                Call(hub, "UpdateInteriorControls");
+                InspectLayout("tavern-mail-from-hall"); Save("hub-tavern-mail-from-hall.png");
+            }
+            if (route == "friends")
+            {
+                Call(hub, "UpdateTavernFriends", 1f, false);
+                Call(hub, "UpdateInteriorControls");
+                Check(residents.All(line => !line.gameObject.activeInHierarchy), "a tap on the residents opens the friends, no line: " + id);
+                InspectLayout("tavern-friends-from-" + id); Save("hub-tavern-friends-from-" + id + ".png");
+            }
+            hub.Back(); await NextFrame();
+            for (var frame = 0; frame < 200 && Get<int>(hub, "_visitPhase") != 0; frame++) Call(hub, "MoveVisit", 1 / 60f);
+            Check(Get<string>(hub, "_page") == "home" && Get<int>(hub, "_cityLevel") == 6, "Back from " + route + " returns to the tavern hall");
+        }
+        Check(!lettersFew.gameObject.activeInHierarchy && !lettersMany.gameObject.activeInHierarchy,
+            "the pigeonholes are empty again once the letters are read");
+        Call(hub, "UpdateTavern", 10f);
+        DiveNow(0); Call(hub, "UpdateInteriorControls");
+    }
+
+    /// <summary>
+    /// Киоск «Карточный вестник» (2026-10-09): крупный план окошка с табличкой, газета во весь экран — выпуск, главная
+    /// новость с картинкой и «Посмотреть», хроника и слух; чтение отмечает выпуск (кружок у вывески гаснет);
+    /// «Назад» сперва закрывает газету.
+    /// </summary>
+    private static async Task CheckNewsKiosk()
+    {
+        Call(hub, "RefreshNewsPresentation");
+        var badge = Get<RectTransform>(hub, "_newsStreetBadge");
+        var state = Get<HubSnapshot>(hub, "_state");
+        Check(badge != null && badge.gameObject.activeSelf == (state.NewsSeen < 1), "the kiosk sign shows a red dot while the issue is unread");
+        var layer = Get<RectTransform>(hub, "_newsLayer");
+        Check(layer.gameObject.activeInHierarchy && layer.GetComponentsInChildren<Text>().Any(t => t.text == "КАРТОЧНЫЙ ВЕСТНИК"),
+            "the kiosk opens its close-up window with the name on its sign");
+        Check(Get<CanvasGroup>(hub, "_newsGroup").alpha < .5f, "the kiosk close-up fades in over the street instead of a hard cut");
+        Call(hub, "UpdateNews", .5f, false);
+        Check(Get<CanvasGroup>(hub, "_newsGroup").alpha > .99f, "the kiosk close-up finishes fully opaque");
+        Save("hub-news-kiosk.png");
+        var read = ActiveButtons().Single(button => ButtonLabel(button) == "ЧИТАТЬ");
+        read.onClick.Invoke();
+        await WaitFor(() => !Get<bool>(hub, "_busy"), "news issue read");
+        Call(hub, "UpdateNews", .15f, false);
+        Check(Get<RectTransform>(hub, "_newsPaper").localScale.x < .9f * 860f / 979f, "the newspaper flies out of the newsboy's hand instead of popping up");
+        Call(hub, "UpdateNews", .5f, false);
+        Canvas.ForceUpdateCanvases(); camera.Render();
+        var paper = Get<RectTransform>(hub, "_newsPaper");
+        var view = new Vector3[4]; Get<RectTransform>(hub, "_cityArea").GetWorldCorners(view);
+        var corners = new Vector3[4]; paper.GetWorldCorners(corners);
+        Check(paper.gameObject.activeInHierarchy && corners[0].y >= view[0].y - 1 && corners[2].y <= view[2].y + 1,
+            "the newspaper opens over the kiosk and fits the screen height");
+        Check(Get<Text>(hub, "_newsHeadline").text.Length > 0 && Get<Text>(hub, "_newsStory").text.Length > 0
+              && Get<Text>(hub, "_newsChronicle").text.Length > 0 && Get<Text>(hub, "_newsRumor").text.Length > 0
+              && Get<Image>(hub, "_newsPicture").sprite != null,
+            "the paper has the main story with its picture, the player's chronicle and a rumor");
+        Check(Get<HubSnapshot>(hub, "_state").NewsSeen >= 1, "reading the paper marks the issue as read");
+        Call(hub, "RefreshNewsPresentation");
+        Check(!badge.gameObject.activeSelf, "after reading, the kiosk sign has no red dot");
+        Save("hub-news-paper.png");
+        hub.Back(); Call(hub, "UpdateNews", .5f, false);
+        Check(Get<string>(hub, "_page") == "news" && !Get<RectTransform>(hub, "_newsPaperLayer").gameObject.activeSelf,
+            "Back closes the paper first and stays at the kiosk");
+    }
+
+    private static async Task CheckSixHouse()
+    {
+        hub.GoHome(); await NextFrame();
+        var area = Get<RectTransform>(hub, "_cityArea");
+        var places = ((Array)typeof(PlayerHubController).GetField("CityPlaces", BindingFlags.Static | BindingFlags.NonPublic)
+            .GetValue(null)).Cast<object>().ToArray();
+        object PlaceById(string id) => places.Single(place => (string)Item(place, "Id") == id);
+        Vector2 ScreenOf(object place) => RectTransformUtility.WorldToScreenPoint(camera,
+            area.TransformPoint(area.rect.center + (Vector2)Call(hub, "PlaceScreenPoint", place, Item(place, "Door"))));
+        var view = new Vector3[4];
+        area.GetWorldCorners(view);
+        bool Inside(RectTransform rect)
+        {
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return corners[0].x >= view[0].x - 1 && corners[0].y >= view[0].y - 1 && corners[2].x <= view[2].x + 1 && corners[2].y <= view[2].y + 1;
+        }
+        var house = PlaceById("six");
+        Check((int)Item(house, "Floor") == 3 && (string)Item(house, "Title") == "Дом Шестёрки",
+            "the Six's house in the Old Town is a door into his room, not a stub screen");
+        SettleOn(0);
+        // На улице у таблички дома — кружок: подарок готов (новый профиль открывает сразу) и награды заданий.
+        Call(hub, "UpdateSixGift", 0f, false);
+        var streetBadge = Get<RectTransform>(hub, "_giftStreetBadge");
+        var readyQuests = HubQuests.Notifications(Get<HubSnapshot>(hub, "_state"));
+        Check(streetBadge != null && streetBadge.gameObject.activeInHierarchy && Inside(streetBadge)
+              && streetBadge.GetComponentInChildren<Text>().text == (1 + readyQuests).ToString(),
+            "on the street the Six's house plaque shows what waits inside: the gift and quest rewards");
+        // Табличка — нарисованная, на кованом кронштейне справа от домика, над проулком (решение автора, 2026-10-07):
+        // не на доме и не над крышей; нажатие по ней тоже ведёт в дом.
+        var houseSign = Get<RectTransform>(hub, "_giftStreetBadge").parent as RectTransform;
+        var houseCorner = RectTransformUtility.WorldToScreenPoint(camera,
+            area.TransformPoint(area.rect.center + (Vector2)Call(hub, "PlaceScreenPoint", house, new Vector2(735, 430))));
+        var signCorners = new Vector3[4];
+        houseSign.GetWorldCorners(signCorners);
+        Check(houseSign.name == "Sign ДОМ" && RectTransformUtility.WorldToScreenPoint(camera, signCorners[0]).x > houseCorner.x,
+            "the house sign hangs on its bracket right of the house, not over the house");
+        var insidePlace = typeof(PlayerHubController).GetMethod("Contains", BindingFlags.Static | BindingFlags.NonPublic);
+        Check((bool)insidePlace.Invoke(null, new object[] { Item(house, "Points"), new Vector2(790, 450) })
+              && !(bool)insidePlace.Invoke(null, new object[] { Item(house, "Outline"), new Vector2(790, 450) }),
+            "a tap on the house sign enters the house, while the hover outline stays on the house itself");
+        Save("hub-six-house-street.png");
+        TapScreen(area, ScreenOf(house), "the Six's door");
+        Check(Get<int>(hub, "_diveTarget") == 3, "a tap on the Six's door dives into his house");
+        CheckDive(3, "into the Six house");
+        Check(FloorRect(3).gameObject.activeSelf && !Get<RectTransform>(hub, "_cityStrip").gameObject.activeSelf,
+            "inside the Six's house only his room is drawn");
+        CheckCityCovers("six house");
+        // Комната 21:9 (дорисована по бокам, 2026-10-07): вход — с середины, все предметы-разделы и дверь на экране;
+        // на 16:9 края (скамейка, шкаф) — свайпом.
+        bool OnScreen(Vector2 point)
+        {
+            var low = RectTransformUtility.WorldToScreenPoint(camera, view[0]);
+            var high = RectTransformUtility.WorldToScreenPoint(camera, view[2]);
+            return point.x > low.x && point.x < high.x && point.y > low.y && point.y < high.y;
+        }
+        Check(Mathf.Abs(Get<float>(hub, "_floorPan")) < .5f && (float)Call(hub, "FloorPanLimit", 3) > 200,
+            "the wide room opens at its middle and its edges pan on 16:9");
+        foreach (var id in new[] { "six-exit", "six-guide", "six-quests", "six-lessons", "six-gift" })
+            Check(OnScreen(ScreenOf(PlaceById(id))), "on entering, the room object is on screen: " + id);
+        var room = PlacePage("six-room");
+        var six = room.GetComponentsInChildren<Image>().SingleOrDefault(image => image.name == "Six guide");
+        Check(six != null && six.sprite != null && six.sprite.name == "six-guide" && !six.raycastTarget && Inside(six.rectTransform),
+            "the Six stands in his room, cut out from his sheet and fully on screen");
+        Check(room.GetComponentsInChildren<RectTransform>(true).All(child => !child.name.StartsWith("Sign ")),
+            "no plaques at the room objects for now");
+        Check(places.All(place => (string)Item(place, "Id") != "six-trunk"), "the trunk is only background");
+        // «Тренировку» автор убрал (2026-10-07): столик с колодой — только интерьер.
+        Check(places.All(place => (string)Item(place, "Id") != "six-practice"), "the card table is only background");
+        Call(hub, "UpdateSixHouse", 0f);
+        var bubble = Get<RectTransform>(hub, "_sixBubble");
+        var line = Get<Text>(hub, "_sixBubbleText");
+        var greeting = line.text;
+        Check(bubble.gameObject.activeInHierarchy && greeting.Contains("поручения") && Inside(bubble),
+            "on the first visit the Six greets the player and says what is where");
+        Save("hub-six-house.png");
+        // Мел — «Обучение» (решение автора, 2026-10-07): Шестёрка спрашивает, показать ли город, — «Сначала»,
+        // «С того места», «Не сейчас»; самой экскурсии пока нет.
+        Call(hub, "SixTalk", "six-lessons");
+        var choices = Get<RectTransform>(hub, "_sixChoices");
+        var choiceButtons = choices.GetComponentsInChildren<Button>();
+        Check(choices.gameObject.activeInHierarchy && Inside(choices) && line.text.Contains("город")
+              && choiceButtons.Select(ButtonLabel).SequenceEqual(new[] { "СНАЧАЛА", "С ТОГО МЕСТА", "НЕ СЕЙЧАС" }),
+            "a tap on the chalk board makes the Six ask whether to show the city: from the start, from where we stopped, or not now");
+        Call(hub, "UpdateSixHouse", 10f);
+        Check(bubble.gameObject.activeInHierarchy && choices.gameObject.activeInHierarchy, "the question waits for an answer instead of fading");
+        Save("hub-six-tour-ask.png");
+        choiceButtons[2].onClick.Invoke();
+        Check(!choices.gameObject.activeSelf && bubble.gameObject.activeInHierarchy && !line.text.Contains("город?"),
+            "«not now» closes the choice and the Six answers");
+        // Телефон 20:9: комната 21:9 влезает по высоте целиком; облачко на экране и не под кнопкой «ВЫЙТИ»,
+        // Шестёрка виден до ботинок.
+        Call(hub, "UpdateInteriorControls");
+        Rect WorldRect(RectTransform rect)
+        {
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return Rect.MinMaxRect(corners[0].x, corners[0].y, corners[2].x, corners[2].y);
+        }
+        ResizeCanvas(2000, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(2000, 900); Call(hub, "Resize");
+        area.GetWorldCorners(view);
+        var leave = ActiveButtons().Single(button => ButtonLabel(button).Contains("ВЫЙТИ"));
+        var floorCorners = new Vector3[4];
+        FloorRect(3).GetWorldCorners(floorCorners);
+        Check(Mathf.Abs((floorCorners[1].y - floorCorners[0].y) - (view[1].y - view[0].y)) < 1,
+            "at 20:9 the whole height of the room is on screen, nothing cut at the top or bottom");
+        Check(Inside(bubble) && Inside(six.rectTransform) && !WorldRect(bubble).Overlaps(WorldRect((RectTransform)leave.transform)),
+            "at 20:9 the bubble and the whole Six are on screen and the bubble is clear of the leave button");
+        Check(WorldRect((RectTransform)leave.transform).xMin - view[0].x < 40 && Inside((RectTransform)leave.transform),
+            "at 20:9 the leave button sits at the screen's left edge, not at the 16:9 stage edge");
+        Save("hub-six-house-2000x900.png");
+        ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900); Call(hub, "Resize");
+        area.GetWorldCorners(view);
+        Call(hub, "UpdateSixHouse", 6f);
+        Check(!bubble.gameObject.activeSelf, "the speech bubble fades after a few seconds");
+        var guide = PlaceById("six-guide");
+        TapScreen(area, ScreenOf(guide), "the Six");
+        var tip = line.text;
+        Check(bubble.gameObject.activeSelf && tip != greeting && Get<string>(hub, "_page") == "home"
+              && Get<int>(hub, "_visitPhase") == 0 && Get<int>(hub, "_diveTarget") == -1,
+            "a tap on the Six gives a tip and leads nowhere");
+        TapScreen(area, ScreenOf(guide), "the Six again");
+        Check(line.text != tip, "the next tap on the Six gives another tip");
+        Save("hub-six-house-tip.png");
+        // Кружок на доске «Заданий»: одно задание выполнено, но награда не забрана — «1»; забрана — кружка нет.
+        var quests = Get<HubSnapshot>(hub, "_state").Quests;
+        var ready = HubQuests.Notifications(Get<HubSnapshot>(hub, "_state"));
+        Call(hub, "RefreshSixQuestBadge");
+        var badge = room.GetComponentsInChildren<RectTransform>(true).SingleOrDefault(child => child.name == "Six quest badge");
+        Check(badge != null && badge.gameObject.activeSelf == ready > 0 && Inside(badge),
+            "the Quests board shows a badge only when rewards wait: " + ready);
+        var open = quests.FirstOrDefault(quest => !quest.Claimed && quest.Progress < quest.Goal);
+        if (open != null && ready == 0)
+        {
+            var progress = open.Progress;
+            open.Progress = open.Goal;
+            Call(hub, "RefreshSixQuestBadge");
+            Check(badge.gameObject.activeSelf && badge.GetComponentInChildren<Text>().text == "1",
+                "a finished quest lights a red 1 on the Quests board");
+            Save("hub-six-house-badge.png");
+            open.Progress = progress;
+            Call(hub, "RefreshSixQuestBadge");
+            Check(!badge.gameObject.activeSelf, "with no rewards waiting the badge disappears");
+        }
+        await CheckSixGift(area, Inside, () => ScreenOf(PlaceById("six-gift")));
+        Call(hub, "UpdateInteriorControls");
+        Check(ActiveButtons().Count(button => ButtonLabel(button).Contains("ВЫЙТИ")) == 1, "the Six's house has the same leave button as the Club");
+        hub.Back();
+        Check(Get<int>(hub, "_diveTarget") == 0, "Back leaves the Six's house for the street");
+        Call(hub, "MoveDive", 10f);
+        Call(hub, "UpdateSixHouse", 1 / 60f);
+        Check(Get<int>(hub, "_cityLevel") == 0 && Get<int>(hub, "_district") == 0 && !bubble.gameObject.activeSelf,
+            "out of the house the player stands in the Old Town at his door");
+        Call(hub, "UpdateInteriorControls");
+        Check(!ActiveButtons().Any(button => ButtonLabel(button).Contains("ВЫЙТИ")), "no leave button remains on the street after the Six's house");
+        SettleOn(1);
+    }
+
+    /// <summary>
+    /// Подарок Шестёрки (2026-10-07): готов — сияние и «1» на полке; нажатие — крупный план без «Выйти» и карты;
+    /// «ОТКРЫТЬ» — +50 коинов один раз, крышка слетает, монеты летят в счёт в углу и он растёт; потом таймер
+    /// до следующего через 12 часов, кружки гаснут; «Назад» и Esc закрывают подарок, а не дом.
+    /// </summary>
+    private static async Task CheckSixGift(RectTransform area, Func<RectTransform, bool> inside, Func<Vector2> giftOnScreen)
+    {
+        string Money(int value) => value.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"));
+        Call(hub, "UpdateSixGift", 0f, false);
+        var shelfBadge = Get<RectTransform>(hub, "_giftShelfBadge");
+        Check(shelfBadge != null && shelfBadge.gameObject.activeInHierarchy && inside(shelfBadge)
+              && Get<Image>(hub, "_giftShelfGlow").color.a > .04f && Get<Image>(hub, "_giftShelfGlow").color.a < .15f,
+            "a ready gift glows softly on the shelf with a red 1 at the box, no outline");
+        // Готовый — нарисованная коробка, её ничто не закрывает; открытая — заплатка той же комнаты (если уже есть).
+        var shelfOpen = Get<Image>(hub, "_giftShelfOpen");
+        Check(shelfOpen == null || !shelfOpen.gameObject.activeSelf, "a ready gift is the closed box painted in the room");
+        var writesBefore = store.Writes;
+        TapScreen(area, giftOnScreen(), "the gift");
+        Call(hub, "UpdateSixGift", 1f, false);
+        var layer = Get<RectTransform>(hub, "_giftLayer");
+        var openButton = Get<Button>(hub, "_giftOpenButton");
+        var status = Get<Text>(hub, "_giftStatus");
+        Check(Get<bool>(hub, "_giftShown") && layer.gameObject.activeInHierarchy && openButton.gameObject.activeInHierarchy
+              && !status.gameObject.activeInHierarchy && store.Writes == writesBefore
+              && Get<int>(hub, "_cityLevel") == 3 && Get<string>(hub, "_page") == "home",
+            "a tap on the ready gift shows it close up with an Open button and changes nothing yet");
+        var closeUpClosed = Get<Image>(hub, "_giftClosed");
+        var closeUpOpen = Get<Image>(hub, "_giftOpen");
+        Check(closeUpClosed.gameObject.activeInHierarchy && !closeUpOpen.gameObject.activeSelf
+              && closeUpClosed.sprite.name == "six-gift-closed" && inside(closeUpClosed.rectTransform),
+            "close up the ready gift is the closed box");
+        Call(hub, "UpdateInteriorControls");
+        Call(hub, "RefreshMapButton");
+        Check(!ActiveButtons().Any(button => ButtonLabel(button).Contains("ВЫЙТИ"))
+              && !Get<RectTransform>(hub, "_mapButtonLayer").gameObject.activeSelf,
+            "over the gift close-up there is no leave button and no map");
+        Check(inside(Get<RectTransform>(hub, "_giftWallet")) && inside((RectTransform)openButton.transform),
+            "the wallet and the Open button are on screen");
+        Save("hub-six-gift-ready.png");
+        var coinsBefore = Get<HubSnapshot>(hub, "_state").Profile.Coins;
+        await (Task)Call(hub, "OpenSixGiftAsync");
+        var opened = Get<HubSnapshot>(hub, "_state");
+        Check(opened.Profile.Coins == coinsBefore + HubGift.Coins && opened.Gift.Opened == 1 && store.Writes == writesBefore + 1
+              && opened.Gift.ReadyAt == clock.Now + HubGift.Cooldown && Get<float>(hub, "_giftTime") >= 0,
+            "Open credits " + HubGift.Coins + " silver coins once, starts the 12-hour wait and the opening animation");
+        var wallet = Get<Text>(hub, "_giftWalletText");
+        var shown = new List<string>();
+        bool burst = false, flight = false, lidFlew = false;
+        for (var frame = 0; frame < 400 && Get<float>(hub, "_giftTime") >= 0; frame++)
+        {
+            Call(hub, "UpdateSixGift", 1 / 60f, false);
+            var time = Get<float>(hub, "_giftTime");
+            lidFlew |= Get<RectTransform>(hub, "_giftLid").gameObject.activeSelf && closeUpOpen.gameObject.activeSelf
+                && !closeUpClosed.gameObject.activeSelf;
+            if (!burst && time >= .85f) { Save("hub-six-gift-burst.png"); burst = true; }
+            if (!flight && time >= 1.45f) { Save("hub-six-gift-flight.png"); flight = true; }
+            if (shown.Count == 0 || shown[shown.Count - 1] != wallet.text) shown.Add(wallet.text);
+        }
+        Check(Get<float>(hub, "_giftTime") < 0 && burst && flight && lidFlew,
+            "the opening animation plays through: the closed box turns open as its lid flies off");
+        Check(shown.Count >= 5 && shown[0] == Money(coinsBefore) && shown[shown.Count - 1] == Money(coinsBefore + HubGift.Coins),
+            "the wallet in the corner counts up as the coins land: " + string.Join(" > ", shown));
+        Check(status.gameObject.activeInHierarchy && status.text == "Следующий подарок через 12:00:00"
+              && !openButton.gameObject.activeInHierarchy
+              && Get<RectTransform[]>(hub, "_giftCoins").All(coin => !coin.gameObject.activeSelf),
+            "after the coins land the box stays open with the timer to the next gift: " + status.text);
+        Check(closeUpOpen.gameObject.activeInHierarchy && !closeUpClosed.gameObject.activeSelf
+              && !Get<RectTransform>(hub, "_giftLid").gameObject.activeSelf, "the opened gift is the open box without its lid");
+        Save("hub-six-gift-opened.png");
+        clock.Now += 3 * 3600 + 25 * 60 + 7;
+        Call(hub, "UpdateSixGift", 0f, false);
+        Check(status.text == "Следующий подарок через 08:34:53", "the timer runs down: " + status.text);
+        var writesAfter = store.Writes;
+        await (Task)Call(hub, "OpenSixGiftAsync");
+        Check(store.Writes == writesAfter && Get<HubSnapshot>(hub, "_state").Profile.Coins == coinsBefore + HubGift.Coins,
+            "an opened gift cannot be opened again before the timer ends");
+        Check(!shelfBadge.gameObject.activeSelf && Get<Image>(hub, "_giftShelfGlow").color.a < .01f
+              && (shelfOpen == null || shelfOpen.gameObject.activeInHierarchy),
+            "after opening the box on the shelf stands open, with no glow and no badge");
+        hub.Back();
+        Call(hub, "UpdateSixGift", 1f, false);
+        Check(!Get<bool>(hub, "_giftShown") && !layer.gameObject.activeSelf && Get<int>(hub, "_cityLevel") == 3
+              && Get<int>(hub, "_diveTarget") < 0, "Back closes the gift and keeps the player in the Six's house");
+        Save("hub-six-house-gift-opened.png");
+        var keyboard = InputSystem.AddDevice<Keyboard>("QA gift keyboard");
+        try
+        {
+            keyboard.MakeCurrent();
+            TapScreen(area, giftOnScreen(), "the opened gift");
+            Call(hub, "UpdateSixGift", 1f, false);
+            Check(Get<bool>(hub, "_giftShown") && status.gameObject.activeInHierarchy, "the opened gift shows its timer close up");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape)); InputSystem.Update();
+            Call(hub, "UpdateCity", false);
+            var stayed = true;
+            for (var frame = 0; frame < 24; frame++)
+            {
+                Call(hub, "UpdateSixGift", 1 / 60f, false);
+                Call(hub, "UpdateCity", false);
+                stayed &= Get<int>(hub, "_cityLevel") == 3 && Get<int>(hub, "_diveTarget") < 0;
+            }
+            Check(!Get<bool>(hub, "_giftShown") && stayed, "Escape closes the gift, and holding it does not leave the house");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState()); InputSystem.Update(); Call(hub, "UpdateCity", false);
+        }
+        finally { InputSystem.RemoveDevice(keyboard); }
+        // Через 12 часов подарок снова готов — сияние и «1» возвращаются; часы QA — обратно.
+        clock.Now += HubGift.Cooldown;
+        Call(hub, "UpdateSixGift", 0f, false);
+        Check(shelfBadge.gameObject.activeSelf, "twelve hours after opening the gift is ready again");
+        clock.Now -= HubGift.Cooldown + 3 * 3600 + 25 * 60 + 7;
+        Call(hub, "UpdateSixGift", 0f, false);
+        // ТЕСТ (по просьбе автора, убрать вместе с кнопкой): в редакторе у открытого подарка — «Тест: подарок сейчас»,
+        // она делает его готовым сразу.
+        TapScreen(area, giftOnScreen(), "the opened gift for the test reset");
+        Call(hub, "UpdateSixGift", 1f, false);
+        var test = Get<Button>(hub, "_giftTestButton");
+        Check(test.gameObject.activeInHierarchy && status.gameObject.activeInHierarchy, "in the editor the opened gift has a test button");
+        var writesTest = store.Writes;
+        test.onClick.Invoke();
+        await WaitFor(() => !Get<bool>(hub, "_busy") && (bool)Call(hub, "GiftReady"), "the test reset of the gift");
+        Call(hub, "UpdateSixGift", 0f, false);
+        Check(store.Writes == writesTest + 1 && openButton.gameObject.activeInHierarchy && !test.gameObject.activeSelf
+              && Get<HubSnapshot>(hub, "_state").Profile.Coins == coinsBefore + HubGift.Coins,
+            "the test button makes the gift ready to open again without giving coins itself");
+        Call(hub, "CloseSixGift");
+        Call(hub, "UpdateSixGift", 1f, false);
+    }
+
+    /// <summary>
     /// Прокрутить нырок кадрами по 1/60 с и проверить: склейка — в полной темноте, в конце камера
     /// на месте и затемнение снято, весь переход около полутора секунд.
     /// </summary>
@@ -590,6 +1411,7 @@ public static class PlayerHubQa
     {
         hub.GoHome(); await NextFrame();
         var table = ((Array)typeof(PlayerHubController).GetField("CitySigns", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null)).Cast<object>()
+            .Where(row => Get<Dictionary<string, (RectTransform Page, float X, float Width)>>(hub, "_placePages").ContainsKey((string)Item(row, "Art")))
             .Select(row => (Art: (string)Item(row, "Art"), Text: (string)Item(row, "Text"), Width: (float)Item(row, "Width"),
                 Height: (float)Item(row, "Height"), Look: Item(row, "Look").ToString(), Grand: (bool)Item(row, "Grand"),
                 X: (float)Item(row, "X")))
@@ -606,6 +1428,7 @@ public static class PlayerHubQa
                      ("card-city-underground", 1, 1, "underground"),
                      ("club-hall", 1, 2, "club-hall"), ("club-bridge-1-2", 1, 2, "club-bridge"), ("club-hall-2", 1, 2, "club-hall-2") })
         {
+            if (!Get<Dictionary<string, (RectTransform Page, float X, float Width)>>(hub, "_placePages").ContainsKey(art)) continue;
             // Этажи связаны только через улицу: сперва наверх, потом куда надо.
             DiveNow(0);
             if (level == 0) SettleOn(district); else DiveNow(level);
@@ -663,8 +1486,10 @@ public static class PlayerHubQa
         var placeLevel = typeof(PlayerHubController).GetMethod("PlaceLevel", BindingFlags.Static | BindingFlags.NonPublic);
         var ids = places.Select(place => (string)Item(place, "Id")).ToArray();
         // Без холма (2026-09-30): замка, Турнирного зала, аллеи славы и лестницы холма нет, пост полиции стал Архивом;
-        // пианистка в зале Клуба — место-житель (2026-10-01).
-        Check(places.Length == 29 && ids.Distinct().Count() == ids.Length, "twenty-nine city places with unique ids: " + string.Join(", ", ids));
+        // пианистка в зале Клуба — место-житель (2026-10-01); Дом Шестёрки изнутри — дверь, сам Шестёрка и три предмета
+        // (2026-10-07; сундук и столик — просто фон).
+        // Банк изнутри (2026-10-08): Тузяра за столом — место зала банка.
+        Check(places.Length == 46 && ids.Distinct().Count() == ids.Length, "forty-six city places with unique ids: " + string.Join(", ", ids));
         Check(places.Count(place => (bool)Item(place, "Outdoors")) == 1
               && (bool)Item(places.Single(place => (string)Item(place, "Id") == "fountain"), "Outdoors"),
             "the fountain is the city's outdoor interaction");
@@ -683,6 +1508,7 @@ public static class PlayerHubQa
                 var id = ids[index];
                 if (selectedIds.Length > 0 && !selectedIds.Contains(id)) continue;
                 var art = (string)Item(place, "Art");
+                if (!Get<Dictionary<string, (RectTransform Page, float X, float Width)>>(hub, "_placePages").ContainsKey(art)) continue;
                 var floor = (int)Item(place, "Floor");
                 var outdoors = (bool)Item(place, "Outdoors");
                 var door = (Vector2)Item(place, "Door");
@@ -729,6 +1555,39 @@ public static class PlayerHubQa
                           && Get<int>(hub, "_diveTarget") == -1 && video.Stopped && store.Writes == writesBeforeVisit,
                         "a tap on a resident stops it and leads nowhere: " + id);
                     Call(hub, "ToggleResident", id);
+                    continue;
+                }
+                if (id == "bank-boss")
+                {
+                    Check(Get<bool>(hub, "_bankLoanShown") && Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0, "Tuzyara opens his desk close-up");
+                    Call(hub, "CloseBankLoan"); Call(hub, "UpdateBankLoan", 1f, false);
+                    continue;
+                }
+                if (id == "six-quests")
+                {
+                    Check(Get<bool>(hub, "_questsShown") && Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0,
+                        "the cork board opens its close-up without leaving the room");
+                    Call(hub, "CloseSixQuests"); Call(hub, "UpdateSixQuests", 1f, false);
+                    continue;
+                }
+                if (id == "six-gift")
+                {
+                    // Подарок Шестёрки — крупный план поверх комнаты (CheckSixGift), никуда не ведёт и ничего не пишет.
+                    Check(Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0
+                          && Get<int>(hub, "_diveTarget") == -1 && Get<bool>(hub, "_giftShown") && store.Writes == writesBeforeVisit,
+                        "a tap on the gift shows it close up and leads nowhere: " + id);
+                    Call(hub, "CloseSixGift");
+                    Call(hub, "UpdateSixGift", 1f, false);
+                    continue;
+                }
+                if ((bool)Item(place, "Talk"))
+                {
+                    // Дом Шестёрки и таверна: житель — реплика в облачке, никуда не ведёт.
+                    var line = (Text)Call(hub, "TalkLine", id);
+                    Check(Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0
+                          && Get<int>(hub, "_diveTarget") == -1 && line != null && line.gameObject.activeInHierarchy
+                          && !string.IsNullOrEmpty(line.text) && store.Writes == writesBeforeVisit,
+                        "a tap makes the resident say a line and leads nowhere: " + id);
                     continue;
                 }
                 if ((bool)Item(place, "HallPassage"))
@@ -796,6 +1655,8 @@ public static class PlayerHubQa
                 {
                     InspectLayout("place-" + id);
                     if (id == "table-durak") Save("hub-place-table.png");
+                    if (id == "fortune") Save("hub-place-fortune.png");
+                    if (id == "news") await CheckNewsKiosk();
                     hub.Back();
                     Check(Get<string>(hub, "_page") == "home", "back from the game goes out to the hall or the street: " + id);
                 }
@@ -808,7 +1669,6 @@ public static class PlayerHubQa
                     if (route != null)
                         Check(Get<RectTransform>(hub, "_content").GetComponentsInChildren<Button>().Count(button => button.interactable && ButtonLabel(button) == (string)Item(place, "RouteTitle")) == 1,
                             "the place screen leads to its section: " + id);
-                    if (id == "fortune") Save("hub-place-soon.png");
                     hub.Back();
                     Check(Get<string>(hub, "_page") == "home", "back from the place goes to the street: " + id);
                 }
@@ -874,8 +1734,8 @@ public static class PlayerHubQa
     }
 
     /// <summary>
-    /// Одна панорама Клуба: первый зал, проход со стендом и второй зал. Проверяем перемещение,
-    /// активные и незанятые столы, наведение, переходы в игры и возврат на улицу.
+    /// Первый зал Клуба и его четыре игры. Второй зал сохранён под флагом:
+    /// при включении дополнительно проверяются свободные столы и двусторонний переход.
     /// </summary>
     private static async Task CheckClubHall()
     {
@@ -893,17 +1753,26 @@ public static class PlayerHubQa
             .GetValue(null)).Cast<object>().ToArray();
         var placeLevel = typeof(PlayerHubController).GetMethod("PlaceLevel", BindingFlags.Static | BindingFlags.NonPublic);
         var clubPlaces = places.Where(place => (int)placeLevel.Invoke(null, new[] { place }) == 2).ToArray();
+        var secondHall = (bool)typeof(PlayerHubController).GetField("ClubSecondHallEnabled", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+        var placePages = Get<Dictionary<string, (RectTransform Page, float X, float Width)>>(hub, "_placePages");
+        Check(placePages.ContainsKey("club-hall") && placePages.ContainsKey("club-hall-2") == secondHall
+              && placePages.ContainsKey("club-bridge-1-2") == secondHall,
+            "the optional second hall and bridge are built only when enabled");
+        if (!secondHall)
+            Check(!FloorRect(2).GetComponentsInChildren<HubCityArt>(true)
+                .Any(art => art.Art != null && (art.Art.name == "club-hall-2" || art.Art.name == "club-bridge-1-2")),
+                "the disabled second hall and bridge have no rendered layers");
         var passive = clubPlaces.Where(place => (bool)Item(place, "HoverOnly")).ToArray();
         Check(passive.Length == 4 && passive.All(place => ((string)Item(place, "Id")).StartsWith("table-club-2-")),
             "the four unassigned tables belong to the second hall");
         Check(passive.All(place => Item(place, "Route") == null && !(bool)Item(place, "Direct") && (int)Item(place, "Floor") == -1),
             "unassigned tables have no game or floor navigation");
         var tables = FloorRect(2).GetComponentsInChildren<Image>().Where(image => image.name.StartsWith("Table ")).ToArray();
-        Check(tables.Length == 8 && tables.All(table => table.sprite != null && table.sprite.name == "club-table"),
-            "both halls keep all eight Club table places");
+        Check(tables.Length == (secondHall ? 8 : 4) && tables.All(table => table.sprite != null && table.sprite.name == "club-table"),
+            "only enabled halls build their table furniture");
         var firstTables = PlacePage("club-hall").GetComponentsInChildren<Image>().Where(image => image.name.StartsWith("Table ")).ToArray();
-        var nextTables = PlacePage("club-hall-2").GetComponentsInChildren<Image>().Where(image => image.name.StartsWith("Table ")).ToArray();
-        Check(firstTables.Length == 4 && nextTables.Length == 4, "each hall owns its four table images");
+        var nextTables = secondHall ? PlacePage("club-hall-2").GetComponentsInChildren<Image>().Where(image => image.name.StartsWith("Table ")).ToArray() : Array.Empty<Image>();
+        Check(firstTables.Length == 4 && nextTables.Length == (secondHall ? 4 : 0), "each enabled hall owns four table images");
         // Первый зал живой: у всех четырёх его столов живой слой, картинка стола только держит место мебели;
         // столы второго зала рисуются кодом.
         var liveTables = new[] { "Дурак", "Верю — не верю", "Сундучки", "Говно" };
@@ -940,25 +1809,43 @@ public static class PlayerHubQa
             Check(!pianist.Wanted, "with the music off the pianist does not play");
             PlayerHubRuntime.Current.Settings.Music = music;
         }
+        // Бармен (2026-10-04) — петля «протирает» поверх зала, по маске и без звука, изредка наливает себе и пробует.
+        var bartender = PlacePage("club-hall").GetComponentsInChildren<HubClubVideo>(true).SingleOrDefault(video => video.name == "Video club-bartender");
+        Check(bartender != null && bartender.Player != null && !bartender.HasIdle && bartender.HasVariation
+              && bartender.GetComponentsInChildren<UnityEngine.Video.VideoPlayer>(true).All(player =>
+                  player.audioOutputMode == UnityEngine.Video.VideoAudioOutputMode.None)
+              && bartender.Material.GetTexture("_MaskTex") != null
+              && bartender.transform.GetSiblingIndex() < PlacePage("club-hall").GetComponentsInChildren<Image>()
+                  .First(image => image.name.StartsWith("Live ")).transform.GetSiblingIndex(),
+            "the bartender polishes a glass as a silent masked video loop under the live table layers, with a rare pour");
+        // Ролики жителей за столами отложены (решение автора, 2026-10-07): живые в зале — только бармен и пианистка.
+        Check(PlacePage("club-hall").GetComponentsInChildren<HubClubVideo>(true).All(video =>
+                  video.name == "Video club-pianist" || video.name == "Video club-bartender"),
+            "only the bartender and the pianist are animated in the hall; the tables stay still for now");
         Check(firstTables.Select(table => table.transform.Find("Felt").GetComponent<Image>().color).Distinct().Count() == 4,
             "the first hall retains its four game colours");
         var nextFelts = nextTables.Select(table => table.transform.Find("Felt").GetComponent<Image>().color).ToArray();
-        Check(nextFelts.Distinct().Count() == 1 && nextFelts[0].b > nextFelts[0].r,
+        if (secondHall) Check(nextFelts.Distinct().Count() == 1 && nextFelts[0].b > nextFelts[0].r,
             "all four unassigned tables share blue felt");
         Call(hub, "UpdateInteriorControls");
         var leave = ActiveButtons().Where(button => ButtonLabel(button).Contains("ВЫЙТИ")).ToArray();
         Check(leave.Length == 1 && leave[0].GetComponent<Image>().sprite != null && leave[0].GetComponent<Image>().sprite.name == "sign-plaque",
             "the hall has one leave button in the city sign style");
         var limit = (float)Call(hub, "FloorPanLimit", 2);
-        Check(limit > area.rect.width * .5f && Get<float>(hub, "_floorPan") <= -limit + .5f,
-            "the joined halls open at the first hall's entrance and extend beyond one screen");
+        if (secondHall)
+            Check(limit > area.rect.width * .5f && Get<float>(hub, "_floorPan") <= -limit + .5f,
+                "the joined halls open at the first hall's entrance and extend beyond one screen");
+        else
+            Check(Mathf.Abs(Get<float[]>(hub, "_floorWidths")[2] - PlacePage("club-hall").rect.width) < .5f
+                  && Mathf.Abs(Get<float>(hub, "_floorPan")) <= limit + .5f,
+                "the Club width and initial camera bounds contain only the first hall");
         InspectLayout("club-hall-1"); Save("hub-club-hall-1.png");
         Swipe(area, -.6f);
         Check(!Get<bool>(hub, "_cityDragging") && Get<int>(hub, "_cityLevel") == 2 && Get<float>(hub, "_floorPan") > -limit + 50,
             "a drag pans the hall, not the street");
         Swipe(area, -10f);
-        Check(Mathf.Abs(Get<float>(hub, "_floorPan") - limit) < .5f && CityCovered(), "a long swipe reaches the second hall's far wall");
-        InspectLayout("club-hall-2"); Save("hub-club-hall-2.png");
+        Check(Mathf.Abs(Get<float>(hub, "_floorPan") - limit) < .5f && CityCovered(), "a long swipe stops at the last enabled hall's far wall");
+        InspectLayout("club-far-wall"); Save(secondHall ? "hub-club-hall-2.png" : "hub-club-first-hall-right-wall.png");
         var streetCamera = Get<float>(hub, "_cityCamera");
         var keyboard = InputSystem.AddDevice<Keyboard>("QA hall keyboard");
         var mouse = InputSystem.AddDevice<Mouse>("QA club hover mouse");
@@ -966,7 +1853,7 @@ public static class PlayerHubQa
         {
             keyboard.MakeCurrent(); mouse.MakeCurrent();
             area.GetComponentInChildren<HubCitySwipe>().OnPointerEnter(new PointerEventData(events));
-            foreach (var place in clubPlaces.Where(item => ((string)Item(item, "Id")).StartsWith("table-")))
+            foreach (var place in clubPlaces.Where(item => ((string)Item(item, "Id")).StartsWith("table-") && placePages.ContainsKey((string)Item(item, "Art"))))
                 CheckTableFurnitureOutline(place);
             foreach (var place in clubPlaces.Where(item => (string)Item(item, "Art") == "club-hall"
                          && ((string)Item(item, "Id")).StartsWith("table-")))
@@ -980,7 +1867,7 @@ public static class PlayerHubQa
                 CheckRenderedFurnitureOutline(place);
                 if ((string)Item(place, "Id") == "table-durak") Save("hub-club-table-furniture-hover.png");
             }
-            foreach (var place in passive)
+            foreach (var place in passive.Where(place => placePages.ContainsKey((string)Item(place, "Art"))))
             {
                 var id = (string)Item(place, "Id");
                 var screen = HoverClubPlace(place, places, mouse);
@@ -998,37 +1885,53 @@ public static class PlayerHubQa
                 if (id == "table-club-2-2") Save("hub-club-empty-table-hover.png");
             }
 
-            // Return by moving through the same panorama, then travel to the second hall with keys.
+            // Sweep the enabled Club width in both directions; the hidden hall must not extend these bounds.
             Swipe(area, 10f);
             Check(Mathf.Abs(Get<float>(hub, "_floorPan") + limit) < .5f && Get<int>(hub, "_cityLevel") == 2,
                 "swiping back returns to the first hall without a floor transition");
             for (var step = 0; step < 20 && Get<float>(hub, "_floorPan") < limit - .5f; step++)
             { Press(keyboard, Key.D); FinishClubPan("D through club"); }
             Check(Mathf.Abs(Get<float>(hub, "_floorPan") - limit) < .5f && Get<float>(hub, "_cityCamera") == streetCamera,
-                "D reaches the second hall without moving the street camera");
+                "D stops at the last enabled hall without moving the street camera");
             for (var step = 0; step < 20 && Get<float>(hub, "_floorPan") > -limit + .5f; step++)
             { Press(keyboard, Key.A); FinishClubPan("A through club"); }
             Check(Mathf.Abs(Get<float>(hub, "_floorPan") + limit) < .5f, "A returns all the way to the first hall");
 
-            var passage = clubPlaces.Single(place => (string)Item(place, "Id") == "club-passage");
-            var passageScreen = HoverClubPlace(passage, places, mouse);
-            var passagePan = Get<float>(hub, "_floorPan");
-            var writesBeforePassage = store.Writes;
-            Save("hub-club-bridge-hover.png");
-            TapScreen(area, passageScreen, "club-passage");
-            Check((bool)Item(passage, "HallPassage") && Get<bool>(hub, "_floorPanning")
-                  && Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0 && Get<int>(hub, "_diveTarget") == -1,
-                "the arch starts a pan between halls, not a page or a visit");
-            FinishClubPan("arch crossing");
-            Check(Get<float>(hub, "_floorPan") > 0 && Mathf.Abs(Get<float>(hub, "_floorPan") - passagePan) > 100 && store.Writes == writesBeforePassage,
-                "crossing the arch moves within the panorama without changing the profile");
-            passageScreen = HoverClubPlace(passage, places, mouse);
-            TapScreen(area, passageScreen, "club-passage return");
-            FinishClubPan("arch crossing back");
-            Check(Get<float>(hub, "_floorPan") < 0 && store.Writes == writesBeforePassage,
-                "the same arch returns from the second hall to the first");
+            if (secondHall)
+            {
+                var passage = clubPlaces.Single(place => (string)Item(place, "Id") == "club-passage");
+                var passageScreen = HoverClubPlace(passage, places, mouse);
+                var passagePan = Get<float>(hub, "_floorPan");
+                var writesBeforePassage = store.Writes;
+                Save("hub-club-bridge-hover.png");
+                TapScreen(area, passageScreen, "club-passage");
+                Check((bool)Item(passage, "HallPassage") && Get<bool>(hub, "_floorPanning")
+                      && Get<string>(hub, "_page") == "home" && Get<int>(hub, "_visitPhase") == 0 && Get<int>(hub, "_diveTarget") == -1,
+                    "the arch starts a pan between halls, not a page or a visit");
+                FinishClubPan("arch crossing");
+                Check(Get<float>(hub, "_floorPan") > 0 && Mathf.Abs(Get<float>(hub, "_floorPan") - passagePan) > 100 && store.Writes == writesBeforePassage,
+                    "crossing the arch moves within the panorama without changing the profile");
+                passageScreen = HoverClubPlace(passage, places, mouse);
+                TapScreen(area, passageScreen, "club-passage return");
+                FinishClubPan("arch crossing back");
+                Check(Get<float>(hub, "_floorPan") < 0 && store.Writes == writesBeforePassage,
+                    "the same arch returns from the second hall to the first");
+            }
+            else
+            {
+                var beforePan = Get<float>(hub, "_floorPan");
+                var beforeWrites = store.Writes;
+                Call(hub, "CrossClubHall");
+                Check(!Get<bool>(hub, "_floorPanning") && Get<float>(hub, "_floorPan") == beforePan
+                      && Get<int>(hub, "_cityLevel") == 2 && Get<int>(hub, "_visitPhase") == 0 && store.Writes == beforeWrites,
+                    "the disabled passage cannot start a pan, visit, or profile write");
+                var dormant = clubPlaces.Where(place => !placePages.ContainsKey((string)Item(place, "Art"))).ToArray();
+                Check(dormant.Length == 6 && dormant.Any(place => (bool)Item(place, "HallPassage"))
+                      && dormant.Count(place => (bool)Item(place, "HoverOnly")) == 4,
+                    "the passage, second games board, and four future tables remain saved without hit-target pages");
+            }
 
-            foreach (var id in new[] { "club-board-2", "table-durak" })
+            foreach (var id in new[] { secondHall ? "club-board-2" : "club-board", "table-durak" })
             {
                 var place = clubPlaces.Single(item => (string)Item(item, "Id") == id);
                 var screen = HoverClubPlace(place, places, mouse);
@@ -1055,14 +1958,14 @@ public static class PlayerHubQa
                 TapScreen(area, screen, id);
                 Check(Get<int>(hub, "_visitPhase") == 1, "an assigned place still approaches after panning: " + id);
                 FinishClubVisit(true, id);
-                Check(Get<string>(hub, "_page") == (id == "club-board-2" ? "games" : "game:durak"),
+                Check(Get<string>(hub, "_page") == (id.StartsWith("club-board") ? "games" : "game:durak"),
                     "the assigned place opens its existing destination: " + id);
                 InspectLayout(id);
                 hub.Back();
                 FinishClubVisit(false, id);
                 Check(Get<string>(hub, "_page") == "home" && Get<int>(hub, "_cityLevel") == 2
                       && Mathf.Abs(Get<float>(hub, "_floorPan") - savedPan) < .5f,
-                    "back from the page restores the same place in the joined halls: " + id);
+                    "back from the page restores the same place inside the Club: " + id);
             }
 
             foreach (var size in new[] { new Vector2Int(2100, 900), new Vector2Int(1600, 900), new Vector2Int(1280, 720) })
@@ -1070,6 +1973,7 @@ public static class PlayerHubQa
                 ResizeCanvas(size.x, size.y); ((RectTransform)hub.transform).sizeDelta = new Vector2(size.x, size.y); Call(hub, "Resize");
                 foreach (var art in new[] { "club-hall", "club-bridge-1-2", "club-hall-2" })
                 {
+                    if (!placePages.ContainsKey(art)) continue;
                     LookAtArtX(art, ArtPictureSize(art).x / 2);
                     CheckCityCovers(art + " " + size.x + "x" + size.y);
                     InspectLayout(art + "-" + size.x);
@@ -1078,8 +1982,9 @@ public static class PlayerHubQa
             }
             foreach (var cross in new[] { true, false })
             {
+                if (cross && !secondHall) continue;
                 ResizeCanvas(1280, 720); ((RectTransform)hub.transform).sizeDelta = new Vector2(1280, 720); Call(hub, "Resize");
-                var startArt = cross ? "club-hall" : "club-hall-2";
+                var startArt = cross || !secondHall ? "club-hall" : "club-hall-2";
                 LookAtArtX(startArt, ArtPictureSize(startArt).x / 2);
                 if (cross) Call(hub, "CrossClubHall"); else Press(keyboard, Key.D);
                 Call(hub, "MoveFloorPan", 1 / 60f);
@@ -1091,20 +1996,21 @@ public static class PlayerHubQa
                     "a resized pan settles at a reachable point within the walls");
             }
             ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900); Call(hub, "Resize");
-            LookAtArtX("club-hall-2", ArtPictureSize("club-hall-2").x / 2);
+            var exitHall = secondHall ? "club-hall-2" : "club-hall";
+            LookAtArtX(exitHall, ArtPictureSize(exitHall).x / 2);
             Call(hub, "UpdateInteriorControls");
             leave[0].onClick.Invoke();
-            Check(Get<int>(hub, "_diveTarget") == 0, "the leave button in the second hall leads outside");
-            CheckDive(0, "out of second Club hall");
+            Check(Get<int>(hub, "_diveTarget") == 0, "the leave button in the last enabled hall leads outside");
+            CheckDive(0, "out of the Club hall");
             Check(Get<int>(hub, "_cityLevel") == 0 && Get<float>(hub, "_cityCamera") == stops[1], "leaving either hall returns to the Club on the square");
             Call(hub, "UpdateInteriorControls");
             Check(!ActiveButtons().Any(button => ButtonLabel(button).Contains("ВЫЙТИ")), "no Club leave button remains on the street");
             foreach (var exit in new[] { "Back", "Escape", "S" })
             {
                 DiveNow(2);
-                LookAtArtX("club-hall-2", ArtPictureSize("club-hall-2").x / 2);
+                LookAtArtX(exitHall, ArtPictureSize(exitHall).x / 2);
                 if (exit == "Back") hub.Back(); else Press(keyboard, exit == "Escape" ? Key.Escape : Key.S);
-                Check(Get<int>(hub, "_diveTarget") == 0, exit + " in the second hall starts the street exit");
+                Check(Get<int>(hub, "_diveTarget") == 0, exit + " in the Club starts the street exit");
                 Call(hub, "MoveDive", 10f);
                 Check(Get<int>(hub, "_cityLevel") == 0 && Get<float>(hub, "_cityCamera") == stops[1], exit + " returns to the correct street entrance");
             }
@@ -1129,7 +2035,7 @@ public static class PlayerHubQa
             DriveTableTrip(game, "new entrance " + game); await NextFrame();
             CheckPlaqueBesideTable(game);
             var pane = Get<RectTransform>(hub, "_content").Find("Table plaque") as RectTransform;
-            Check(pane.rect.width == 800 && pane.rect.height == 820, "large fixed table panel: " + game);
+            Check(pane.rect.width == 944 && pane.rect.height == 820, "large table panel: " + game);
             await ChooseNonDefaultRules(game);
             var before = quickCalls;
             await Click("Начать с ботами");
@@ -1488,12 +2394,13 @@ public static class PlayerHubQa
         Check(Get<int>(hub, "_visitPhase") == 0 && Get<string>(hub, "_page") == "home", "left the place and back on the street");
     }
 
-    private static object Item(object tuple, string name) => tuple.GetType().GetField(name).GetValue(tuple);
+    private static object Item(object tuple, string name) => tuple.GetType().GetField(name, Fields).GetValue(tuple);
 
-    /// <summary>Сразу оказаться на этаже: 0 — улица, 1 — подполье, 2 — холм; без кадров нырка.</summary>
+    /// <summary>Сразу оказаться на этаже: 0 — улица, 1 — подполье, 2 — зал Клуба, 3 — Дом Шестёрки, 4 — банк; без кадров нырка.</summary>
     private static void DiveNow(int level)
     {
-        if (level != 0) SettleOn(1);
+        // Подполье и Клуб — с площади, Дом Шестёрки и таверна — из Старого города, банк — из района Тузяры.
+        if (level != 0) SettleOn(level == 3 || level == 6 ? 0 : level == 4 ? 2 : 1);
         Call(hub, "StartDive", level);
         Call(hub, "MoveDive", 10f);
     }
@@ -1724,9 +2631,9 @@ public static class PlayerHubQa
     private static async Task CheckSectionNavigation()
     {
         hub.GoHome(); await NextFrame();
-        // На главной сейчас только город; вкладки, профиль, настройки и монеты — на страницах разделов.
-        Check(!ActiveButtons().Any(), "lobby has no controls while the author works on the background");
-        hub.Navigate("friends"); await NextFrame();
+        // На главной сейчас только город и кнопка карты; вкладки, профиль, настройки и монеты — на страницах разделов.
+        Check(ActiveButtons().All(button => ButtonLabel(button) == "КАРТА"), "lobby has only the map button while the author works on the background");
+        hub.Navigate("profile"); await NextFrame();
         var entries = new[] { "Магазин", "Коллекция", "Главная", "Друзья", "Прогресс", "Профиль", "Настройки", "Пополнить" };
         Check(entries.All(entry => ActiveButtons().Any(button => ButtonLabel(button) == entry)),
             "section pages reach the five tabs, profile, settings and bank");
@@ -1770,7 +2677,7 @@ public static class PlayerHubQa
         hub.GoHome(); await NextFrame();
         Check(Get<string>(hub, "_page") == "home" && Get<List<string>>(hub, "_history").Count == 0,
             "home action clears the section's navigation history");
-        hub.Navigate("friends"); await NextFrame(); await Click("Магазин");
+        hub.Navigate("profile"); await NextFrame(); await Click("Магазин");
         Check(Get<string>(hub, "_page") == "shop", "shop opens a separate category landing");
         await Click("Персонаж и костюмы");
         Check(Get<string>(hub, "_page") == "shop-catalog", "shop category opens its own catalog page");
@@ -1778,7 +2685,7 @@ public static class PlayerHubQa
         Check(Get<string>(hub, "_page") == "shop", "catalog back returns to shop categories");
         await Click("Назад");
         Check(Get<string>(hub, "_page") == "home", "shop back returns to home");
-        hub.Navigate("friends"); await NextFrame(); await Click("Прогресс");
+        hub.Navigate("profile"); await NextFrame(); await Click("Прогресс");
         Check(Get<string>(hub, "_page") == "progress", "progress systems have their own landing");
         await Click("Пополнить");
         Check(Get<string>(hub, "_page") == "bank", "bank is a separate destination");
@@ -1922,39 +2829,190 @@ public static class PlayerHubQa
         return text.Substring(0, 399) + "!";
     }
 
+    /// <summary>
+    /// Почта таверны (2026-10-10): чаты — открытый письменный ящик поверх зала таверны со своей «НАЗАД» вместо панелей;
+    /// новое письмо — печать-сердце с числом у карточки друга, открытая переписка — прочитана; длинное письмо целиком
+    /// в облачке и листается; ответ друга — слева, свои — справа; готовая фраза уходит одним нажатием; выбор друга
+    /// не копится в истории; «Переписка» из карточки друга открывает его письма, «Назад» возвращает к карточке.
+    /// </summary>
     private static async Task CheckLongFriendChat()
     {
-        hub.GoHome(); await NextFrame(); hub.Navigate("chats"); await NextFrame();
-        Check(Get<string>(hub, "_page") == "chats", "chats have a dedicated conversation-list page");
-        var conversation = (RectTransform)Get<RectTransform>(hub, "_content").Find("Conversation bot-yegor");
-        Check(conversation != null, "existing friend has a visible conversation entry");
-        var open = ActiveButtons().Single(button => ButtonLabel(button) == "Открыть чат" && conversation.rect.Contains(
-            conversation.InverseTransformPoint(button.transform.TransformPoint(((RectTransform)button.transform).rect.center))));
-        await ClickButton(open, "open Yegor conversation");
-        Check(Get<string>(hub, "_page") == "chat:bot-yegor", "conversation entry opens the corresponding friend's messages");
-        var input = Get<RectTransform>(hub, "_content").GetComponentsInChildren<InputField>().Single();
+        var me = PlayerHubRuntime.Current.Profile.Id;
+        hub.GoHome(); await NextFrame();
+        // Обход страниц уже открывал почту — приветствие Егора прочитано. Новое письмо — его ответ на записку.
+        await Dispatch("chat_send", "bot-yegor", "Привет из QA!");
+        Check(PlayerHubRuntime.Current.Chats.Count(entry => entry.ConversationId == "bot-yegor" && entry.Unread) == 1, "Yegor's reply waits unread");
+        // Данил — друг с принятой заявки, писем ему не было (Али уже написали в таверне).
+        hub.Navigate("chat:bot-danil"); await NextFrame();
+        Call(hub, "UpdateTavernMail", 1f, false);
+        var layer = Get<RectTransform>(hub, "_mailLayer");
+        Check(Get<string>(hub, "_page") == "chat:bot-danil" && layer != null && layer.gameObject.activeInHierarchy
+            && layer.GetComponent<CanvasGroup>().alpha > .99f, "chats open the tavern mail: an open writing case over the tavern hall");
+        Check(!Get<Component>(hub, "_topBar").gameObject.activeSelf && !Get<Component>(hub, "_tabBar").gameObject.activeSelf,
+            "the tavern mail has its own НАЗАД instead of the section bars");
+        Check(Get<RectTransform>(hub, "_mailFirst").gameObject.activeInHierarchy, "an empty conversation invites to write the first letter");
+        var friends = Get<RectTransform>(hub, "_mailFriends");
+        var yegorCard = (RectTransform)friends.Find("Letter bot-yegor");
+        var danilCard = (RectTransform)friends.Find("Letter bot-danil");
+        var seal = yegorCard == null ? null : yegorCard.Find("Unread seal");
+        Check(seal != null && seal.gameObject.activeInHierarchy && seal.GetComponentInChildren<Text>().text == "1",
+            "a new letter shows a heart seal with its count on the friend's card");
+        Check(danilCard != null && danilCard.anchoredPosition.x > yegorCard.anchoredPosition.x, "the open friend's card is pulled out towards the parchment");
+        Save("hub-tavern-mail-empty.png");
+        await Click("Егор");
+        Check(Get<string>(hub, "_page") == "chat:bot-yegor", "a friend's card opens their letters on the parchment");
+        for (var frame = 0; frame < 20 && PlayerHubRuntime.Current.Chats.Any(entry => entry.Unread); frame++) await NextFrame();
+        Check(!PlayerHubRuntime.Current.Chats.Any(entry => entry.ConversationId == "bot-yegor" && entry.Unread), "opened letters are read");
+        await NextFrame();
+        Check(Get<RectTransform>(hub, "_mailFriends").Find("Letter bot-yegor").Find("Unread seal") == null,
+            "the seal leaves the card once the letters are read");
+
+        var input = layer.GetComponentInChildren<InputField>();
         var text = LongMessage(); input.text = text;
-        await Click("Отправить");
-        var message = PlayerHubRuntime.Current.Chats.Last(entry => entry.ConversationId == "bot-yegor"
-            && entry.FromId == PlayerHubRuntime.Current.Profile.Id);
-        Check(message.Text == text, "friend chat preserves all 400 characters");
-        InspectLayout("friend-chat-long-preview"); Save("hub-friend-chat.png");
-        hub.Navigate("message:" + message.Id); await NextFrame();
-        InspectLayout("friend-full-message");
-        var scroll = Get<RectTransform>(hub, "_content").GetComponentInChildren<ScrollRect>();
-        Check(scroll != null && scroll.viewport.GetComponent<RectMask2D>() != null,
-            "full friend message is displayed inside a masked scroll viewport");
-        Check(scroll.content.GetComponentInChildren<Text>().text == text, "full-message page does not truncate the saved text");
-        Save("hub-friend-message.png");
-        await Click("Назад в переписку");
-        Check(Get<string>(hub, "_page") == "chat:bot-yegor", "full-message back button returns to the correct conversation");
-        hub.Navigate("message:" + message.Id); await NextFrame();
-        await Click("Назад");
-        Check(Get<string>(hub, "_page") == "chat:bot-yegor", "global back from a message returns to its conversation");
-        await Click("Назад");
-        Check(Get<string>(hub, "_page") == "chats", "message drill-down does not duplicate the conversation in history");
-        await Click("Назад");
-        Check(Get<string>(hub, "_page") == "home", "chat list returns to the main menu");
+        await Click("Send seal");
+        for (var frame = 0; frame < 20 && PlayerHubRuntime.Current.Chats.Any(entry => entry.Unread); frame++) await NextFrame();
+        await NextFrame();
+        var chats = PlayerHubRuntime.Current.Chats;
+        var message = chats.Last(entry => entry.ConversationId == "bot-yegor" && entry.FromId == me);
+        var reply = chats.Last(entry => entry.ConversationId == "bot-yegor");
+        Check(message.Text == text, "friend letter preserves all 400 characters");
+        Check(input.text.Length == 0, "the sealed letter leaves the line empty");
+        Check(reply.FromId == "bot-yegor" && !reply.Unread && !reply.Text.Contains("[Локальный бот]"),
+            "Yegor's reply arrives in the open letter, read and without the bot tag");
+        var letters = Get<RectTransform>(hub, "_mailMessages");
+        var bubble = (RectTransform)letters.Find("Letter " + message.Id);
+        var answer = (RectTransform)letters.Find("Letter " + reply.Id);
+        var bubbleText = bubble.Find("Text").GetComponent<Text>();
+        Check(bubbleText.text == text && bubbleText.preferredHeight <= bubbleText.rectTransform.rect.height + 2,
+            "the whole letter is in its bubble, every line fits");
+        Check(bubble.anchoredPosition.x > 0 && answer.anchoredPosition.x < 0, "own letters stand on the right, the friend's on the left");
+        var view = Get<RectTransform>(hub, "_mailMessagesView");
+        Check(view.GetComponent<RectMask2D>() != null && view.GetComponent<ScrollRect>() != null && letters.sizeDelta.y > view.sizeDelta.y,
+            "long letters scroll inside the parchment");
+        Check(Mathf.Abs(letters.anchoredPosition.y - (letters.sizeDelta.y - view.sizeDelta.y)) < 1, "the parchment shows the latest letter");
+        InspectLayout("tavern-mail-long-letter"); Save("hub-friend-chat.png");
+        await Click("Сыграем?");
+        for (var frame = 0; frame < 20 && PlayerHubRuntime.Current.Chats.Any(entry => entry.Unread); frame++) await NextFrame();
+        await NextFrame();
+        Check(PlayerHubRuntime.Current.Chats.Any(entry => entry.ConversationId == "bot-yegor" && entry.FromId == me && entry.Text == "Сыграем?"),
+            "a ready phrase is sent with one tap");
+        Save("hub-tavern-mail.png");
+        ResizeCanvas(2000, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(2000, 900); Call(hub, "Resize"); Call(hub, "FitMail");
+        var caseRect = Get<RectTransform>(hub, "_mailCase");
+        var corners = new Vector3[4]; caseRect.GetWorldCorners(corners);
+        var bottom = RectTransformUtility.WorldToScreenPoint(camera, corners[0]);
+        var top = RectTransformUtility.WorldToScreenPoint(camera, corners[1]);
+        Check(bottom.y > 0 && top.y < 900 - 70 && top.y - bottom.y > 700, "at 20:9 the writing case is big and whole under the title");
+        InspectLayout("tavern-mail-2000x900"); Save("hub-tavern-mail-2000x900.png");
+        ResizeCanvas(1600, 900); ((RectTransform)hub.transform).sizeDelta = new Vector2(1600, 900); Call(hub, "Resize"); Call(hub, "FitMail");
+        await Click("НАЗАД");
+        Check(Get<string>(hub, "_page") == "home" && !layer.gameObject.activeInHierarchy, "НАЗАД leaves the mail at once, not through the friends picked inside");
+        hub.Navigate("friend:bot-ali"); await NextFrame();
+        await Click("Написать");
+        Check(Get<string>(hub, "_page") == "chat:bot-ali" && layer.gameObject.activeInHierarchy, "«Написать» on a friend's card opens their letters in the mail");
+        hub.Back(); await NextFrame();
+        Check(Get<string>(hub, "_page") == "friend:bot-ali" && !layer.gameObject.activeInHierarchy
+            && Get<RectTransform>(hub, "_friendsLayer").gameObject.activeInHierarchy && Get<string>(hub, "_friendsPick") == "bot-ali",
+            "Back from the mail returns to the friend's card in the friends window");
+        hub.GoHome(); await NextFrame();
+    }
+
+    /// <summary>
+    /// Друзья — окно таверны (2026-10-10): закладки «Друзья», «Заявки», «Найти»; Егор зовёт за стол — он первый и с печатью;
+    /// заявка Данила принимается, приглашение Егора сажает за его стол (комната у стола «Дурака», «Назад» — к табличке);
+    /// поиск находит Аслана, «Добавить в друзья» — бот принимает сразу; «Позвать играть» — выбор игры, свой закрытый стол
+    /// «Сундучков» с Асланом и ботом до трёх; из комнаты «Пригласить друга» → «Позвать за стол» → «К столу» — обратно
+    /// в комнату; удаление из друзей — со вторым нажатием.
+    /// </summary>
+    private static async Task CheckTavernFriends()
+    {
+        Set(hub, "_hubFriendsTab", "friends"); hub.Navigate("friends"); await NextFrame();
+        Call(hub, "UpdateTavernFriends", 1f, false);
+        var layer = Get<RectTransform>(hub, "_friendsLayer");
+        Check(layer != null && layer.gameObject.activeInHierarchy && !Get<RectTransform>(hub, "_tabBar").gameObject.activeInHierarchy,
+            "friends open as the tavern window, without the section tabs");
+        Check(Get<string>(hub, "_friendsPick") == "bot-yegor", "the friend who calls to his table comes first");
+        string[] Labels() => ActiveButtons().Select(ButtonLabel).ToArray();
+        Check(Labels().Contains("Сесть за стол") && Labels().Contains("Отказать") && Labels().Contains("Написать"),
+            "Yegor's card offers to take the seat at his table, to decline and to write");
+        InspectLayout("friends-window"); Save("hub-friends.png");
+        var yegorEntry = (RectTransform)Get<RectTransform>(hub, "_friendsList").Find("Entry bot-yegor");
+        var entryCorners = new Vector3[4]; yegorEntry.GetWorldCorners(entryCorners);
+        Check(InsideMask(entryCorners, Get<RectTransform>(hub, "_friendsListView").GetComponent<RectMask2D>()),
+            "the list opens with the picked friend in view, not scrolled to its end");
+
+        await Click("Заявки");
+        var seal = ((List<(Button Button, Text Seal)>)Get<object>(hub, "_friendsTabs"))[1].Seal;
+        Check(seal.transform.parent.gameObject.activeInHierarchy && seal.text == "2", "the requests tab carries a seal: an invitation and a friend request");
+        InspectLayout("friends-requests"); Save("hub-friends-requests.png");
+        await Click("Данил");
+        await Click("Принять");
+        Check(PlayerHubRuntime.Current.Friends.Contains("bot-danil"), "Danil's friend request is accepted from his card");
+        Check(Get<RectTransform>(hub, "_friendsToastPill").gameObject.activeInHierarchy, "the result shows inside the window");
+        Check(Get<string>(hub, "_friendsPick") == "invite-yegor", "the remaining invitation is picked");
+        await Click("Сесть за стол");
+        var history = Get<List<string>>(hub, "_history");
+        Check(CurrentRoom() != null && CurrentRoom().Id == "room-demo-durak" && Get<string>(hub, "_page") == "room"
+            && history.SequenceEqual(new[] { "home", "game:durak" }) && !layer.gameObject.activeInHierarchy,
+            "Yegor's invitation seats the player at his durak table; Back leads to the table's plaque");
+        var durakTable = (int)typeof(PlayerHubController).GetMethod("TablePlace", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { "durak" });
+        Check(durakTable >= 0 && Get<int>(hub, "_tableTrip") == durakTable, "the camera heads to the durak table in the Club");
+        hub.Back(); await NextFrame();
+        Check(Get<string>(hub, "_page") == "game:durak", "Back from the room is the plaque at its table");
+        await Dispatch("leave_room");
+        hub.GoHome(); await NextFrame();
+
+        hub.Navigate("friends"); await NextFrame(); Call(hub, "UpdateTavernFriends", 1f, false);
+        await Click("Найти");
+        var search = Get<InputField>(hub, "_friendsSearch");
+        Check(search.gameObject.activeInHierarchy, "the search tab has a name field");
+        search.text = "асл"; await NextFrame();
+        Check(Get<string>(hub, "_friendsPick") == "bot-aslan" && Labels().Contains("Добавить в друзья"), "the search finds Aslan by part of his name");
+        // Видимость полосы в редакторе не проверить: вне игры ScrollRect считает прокрутку нужной всегда и включает её сам.
+        Check(Get<RectTransform>(hub, "_friendsListView").GetComponent<ScrollRect>().verticalScrollbarVisibility == ScrollRect.ScrollbarVisibility.AutoHide,
+            "the list scrollbar hides itself in the game when everyone fits");
+        InspectLayout("friends-search"); Save("hub-friends-search.png");
+        await Click("Добавить в друзья");
+        Check(PlayerHubRuntime.Current.Friends.Contains("bot-aslan") && Get<Text>(hub, "_friendsToast").text.Contains("Аслан"),
+            "a local bot accepts the request at once");
+        Check(Get<Text>(hub, "_friendsEmpty").gameObject.activeInHierarchy, "a new friend leaves the search results");
+        search.text = ""; await NextFrame();
+
+        await Click("Друзья");
+        await Click("Аслан");
+        await Click("Позвать играть");
+        Check(new[] { "Дурак", "Верю — не верю", "Сундучки", "Говно", "Покер", "Отмена" }.All(Labels().Contains), "playing together starts with a choice of game");
+        InspectLayout("friends-picker"); Save("hub-friends-picker.png");
+        await Click("Сундучки");
+        var table = CurrentRoom();
+        Check(table != null && table.GameId == "chests" && table.Private && table.Stake == 0 && table.Members.Count == 3
+            && table.Members.Any(member => member.PlayerId == "bot-aslan" && member.Ready), "a private chests table with Aslan and a bot to make three");
+        Check(Get<string>(hub, "_page") == "room" && Get<List<string>>(hub, "_history").SequenceEqual(new[] { "home", "game:chests" }),
+            "the player goes to the chests table in the Club");
+
+        await Click("Пригласить друга");
+        Call(hub, "UpdateTavernFriends", 1f, false);
+        Check(Get<string>(hub, "_page") == "friends" && layer.gameObject.activeInHierarchy && Get<RectTransform>(hub, "_friendsStrip").gameObject.activeInHierarchy,
+            "inviting from the room opens the friends window with the table strip");
+        await Click("Али");
+        await Click("Позвать за стол");
+        Check(CurrentRoom().Members.Any(member => member.PlayerId == "bot-ali" && member.Ready), "Ali takes the free seat at the table");
+        Check(Labels().Contains("К столу") && Get<Text>(hub, "_friendsStripText").text.Contains("4 из 4"), "the card and the strip show the full table");
+        InspectLayout("friends-my-table"); Save("hub-friends-my-table.png");
+        var toTable = ActiveButtons().Where(button => ButtonLabel(button) == "К столу").ToArray();
+        await ClickButton(toTable.First(button => !button.transform.IsChildOf(Get<RectTransform>(hub, "_friendsStrip"))), "К столу");
+        Check(Get<string>(hub, "_page") == "room" && !layer.gameObject.activeInHierarchy, "«К столу» returns to the room");
+        await Dispatch("leave_room");
+        hub.GoHome(); await NextFrame();
+
+        hub.Navigate("friend:bot-aslan"); await NextFrame(); Call(hub, "UpdateTavernFriends", 1f, false);
+        Check(Get<string>(hub, "_friendsPick") == "bot-aslan" && (string)Get<string>(hub, "_hubFriendsTab") == "friends", "a player's card opens on that friend");
+        await Click("Удалить из друзей");
+        Check(PlayerHubRuntime.Current.Friends.Contains("bot-aslan"), "removing a friend asks once more");
+        await Click("Точно удалить?");
+        Check(!PlayerHubRuntime.Current.Friends.Contains("bot-aslan"), "the second tap removes the friend");
+        await Click("НАЗАД");
+        Check(Get<string>(hub, "_page") == "home" && !layer.gameObject.activeInHierarchy, "НАЗАД leaves the friends window");
     }
 
     private static void CheckRoomRoster()
@@ -1995,7 +3053,7 @@ public static class PlayerHubQa
     {
         // Discard only the QA canvas, then provide a fresh in-memory account to actual AppFlow.
         store = new MemoryStore(); clock = new FixedClock();
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock), clock);
         Check((await PlayerHubRuntime.LoadAsync()).Success, "fresh AppFlow memory profile loaded");
         Begin(1600, 900);
         var flow = canvasObject.AddComponent<AppFlowController>(); flow.enabled = false;
@@ -2071,7 +3129,7 @@ public static class PlayerHubQa
         blocked.Bank.DueAt = clock.Now - 86400; blocked.Bank.CollectorAt = clock.Now - 1;
         blocked.Bank.CollectorPending = true; blocked.Bank.CollectorGame = "durak";
         await store.SaveAsync(blocked);
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock), clock);
         Check((await PlayerHubRuntime.LoadAsync()).Success && PlayerHubRuntime.Current.Bank.CollectorPending,
             "collector fixture persists entirely in memory");
         var oldTable = Get<GameObject>(flow, "_gameScreen");
@@ -2144,14 +3202,14 @@ public static class PlayerHubQa
         var began = await backend.ExecuteAsync(new HubCommand { Id = "qa-interrupted", Action = "begin_match", Target = "durak", Amount = 67 });
         Check(began.Success && began.Snapshot.ActiveMatchId == "qa-interrupted", "persisted interrupted match fixture");
         var balance = began.Snapshot.Profile.Coins;
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock), clock);
         var recovered = await PlayerHubRuntime.LoadAsync();
         Check(recovered.Success && string.IsNullOrEmpty(recovered.Snapshot.ActiveMatchId)
             && recovered.Snapshot.Matches.Single(entry => entry.Id == "qa-interrupted").Abandoned, "cold load forfeits interrupted match");
         Check(recovered.Snapshot.Profile.Coins == balance && recovered.Snapshot.Profile.Matches == 0,
             "recovery neither refunds stake nor awards completed-match progress");
         var recoveryCount = recovered.Snapshot.Receipts.Count(receipt => receipt.Id == "recover:qa-interrupted");
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock), clock);
         var twice = await PlayerHubRuntime.LoadAsync();
         Check(twice.Success && recoveryCount == 1 && twice.Snapshot.Receipts.Count(receipt => receipt.Id == "recover:qa-interrupted") == 1
             && twice.Snapshot.Profile.Coins == balance, "reloading again cannot apply a second forfeit");
@@ -2160,7 +3218,7 @@ public static class PlayerHubQa
     private static async Task CheckResultSaveRetry()
     {
         var persistence = new MemoryStore();
-        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock));
+        PlayerHubRuntime.UseService(new LocalPlayerHubService(persistence, clock), clock);
         Check((await PlayerHubRuntime.LoadAsync()).Success && (await PlayerHubRuntime.BeginGameAsync("poker")).Success,
             "failed-save fixture registers its match in memory");
         var before = PlayerHubRuntime.Current.Profile.Matches;
@@ -2287,12 +3345,22 @@ public static class PlayerHubQa
             File.WriteAllText(Path.Combine(Output, "error.txt"), operation.Exception.ToString());
             Debug.LogException(operation.Exception); EditorApplication.Exit(1); return;
         }
-        File.WriteAllText(Path.Combine(Output, "verification.txt"), EntranceOnly
+        File.WriteAllText(Path.Combine(Output, "verification.txt"), MailOnly
+            ? checks + " assertions passed: full-resolution mail case, six added local contacts, smooth wheel/finger/handle scrolling, bottom contact selection and replies, preserved list position, layouts at 1600x900, 2000x900 and 960x540. Memory-only profile; no real save opened or written."
+            : FortuneOnly
+            ? checks + " assertions passed: fortune tent shared interior entrance/exit and usable return from games, full-screen illustration without empty bands, captions clear of the cards, tabletop card projection and six selectable backs, persisted flip and one free card per 24 hours, My Card and no city badge, Back/Escape isolation, all six readings at 1600x900, 2000x900, 960x540 and 600x1000 portrait, readable text, smooth wheel/finger/right-handle scrolling, all five New Road links, actual result modifier excluding stake payouts, exact remaining uses and expiry, idempotent results and truthful result hint. Memory-only profiles; no user save opened or written."
+            : BankOnly
+            ? checks + " assertions passed: bank hall and desk, readable scrolling contract at 960x540, 1280x720, 1600x900 and 2000x900, gentle wheel movement, finger dragging and draggable right scrollbar without snapback, exact amount input, red emphasis and blue pen circle, end-of-document signing gate, larger approval/refusal stamps and single borrower signature, signed read-only copy, partial and early repayment, simplified three-figure receipt, wallet-to-bank coin flight with exact debit and reduced-motion support, saved receipts and archive navigation, wallet animation, reading without correction, explicit clause challenge and achievement reward, Escape/Back isolation; three personal Tuzyara cases, envelope and note layouts, dedicated bot tables, real result/evidence bridge, weekly refresh and durable earned rewards, duplicate-claim prevention, reward coin flight, protection-card preview without charges. Memory-only profiles; no real save opened or written."
+            : QuestsOnly
+            ? checks + " assertions passed: Six quest board, 3 daily + 2 weekly notes, all 32 template titles and progress counters, NEW and ready badges, claim transaction, stamp and coin-flight origin, wallet total, countdowns, expired note replacement, overdue reward protection, Escape/Back isolation, 1600x900 and 2000x900. Memory-only profile; no real save opened or written."
+            : MapOnly
+            ? checks + " assertions passed: focused map QA, enlarged caption-free bottom-left icon on street and inside Club, five district fronts with only painted building signs, gold hint and location marker, centered and contained destination lists at 1600x900/2100x900/1280x720, interior exit hidden throughout map open/fade and restored on close, S/Escape isolation, tavern/underground/Club navigation. Memory-only profile."
+            : EntranceOnly
             ? checks + " assertions passed: five table entrances, four modes, shared rules, bot launch callbacks, create and join by code, free quick join, camera separation, scroll and text at 1600x900/1280x720/2100x900. Memory-only profile."
             : GamesOnly
             ? checks + " assertions passed: focused games/rules QA at 1600x900, four Club rows without poker, masked smooth-scroll component, last row reachable, scroll position restored, rules and table navigation, casino poker entrance, settings plaque and controls layout. No real profile store was opened or written."
             : ClubOnly
-            ? checks + " assertions passed: focused Club panorama QA, eight tables, four inactive table hover/no-op clicks, bridge games board and two-way arch, swipe/A-D movement, old game route after panning, all street exit paths, full-screen coverage during pan/visit/dive and at 2100x900/1600x900/1280x720. No real profile store was opened or written."
+            ? checks + " assertions passed: focused Club QA, enabled hall/table bounds, preserved optional second-hall catalog, disabled passage no-op, first-hall live tables/residents and games board, swipe/A-D movement, game route after panning, all street exit paths, full-screen coverage during pan/visit/dive and at 2100x900/1600x900/1280x720. No real profile store was opened or written."
             : PlacesOnly
             ? checks + " assertions passed: focused city-places QA at 1600x900, 33 unique interactive objects, outline hit targets, camera approach/return and coverage, floor transitions, place routes, inactive table clicks, hall passage, outdoor fountain stays on home with local controls and returns without profile changes. No real profile store was opened or written."
             : checks + " assertions passed: memory-only async service, " + Routes.Length

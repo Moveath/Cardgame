@@ -56,6 +56,7 @@ namespace CardGameClient
             backdrop.sprite = VerticalGradient(HubSkyTop, HubSkyBottom);
             backdrop.raycastTarget = false;
             if (!BuildCityBackdrop(background)) BuildSuitPattern(background);
+            else BuildCityCanvas();
             _stage = MakeRect(transform, "Player hub", 0, 0, 1600, 900);
             _stage.anchorMin = _stage.anchorMax = _stage.pivot = new Vector2(.5f, .5f);
             _stage.anchoredPosition = Vector2.zero;
@@ -257,13 +258,14 @@ namespace CardGameClient
                 _cityDim.color = table ? new Color(.03f, .02f, .01f, .18f) : club ? new Color(.04f, .025f, .015f, .7f)
                     : new Color(.05f, .03f, .14f, lobby ? .12f : .62f);
             // Главная — только город, персонаж и «Играть»; панели появляются на страницах разделов.
-            var sections = !lobby && !club;
+            var sections = !lobby && !club && _page != "fortune" && _page != "news" && !IsMailPage(_page) && !IsFriendsPage(_page);
             _topBar.gameObject.SetActive(sections);
             _tabShade.gameObject.SetActive(sections);
             _tabBar.gameObject.SetActive(sections);
             _header.gameObject.SetActive(sections);
             _backButton.gameObject.SetActive(sections);
             _clubHeader.gameObject.SetActive(club && !table);
+            RefreshMapButton();
             // Сообщение: на экранах клуба сверху шапка-вывеска, а внизу вкладок нет — туда.
             _toastPill.rectTransform.anchoredPosition = club ? new Vector2(520, -836) : new Vector2(420, -25);
             // Табличка стола рисуется в координатах всей сцены.
@@ -287,6 +289,10 @@ namespace CardGameClient
                 tab.Label.color = on ? (IsLight(tab.Accent) ? HubInk : Color.white) : HubTabIdle;
                 SetBadge(tab.Badge, tab.BadgeCount, BadgeFor(tab.Root));
             }
+            RefreshFortunePresentation();
+            RefreshNewsPresentation();
+            RefreshMailPresentation();
+            RefreshFriendsPresentation();
         }
 
         private void SwitchTab(string root)
@@ -309,8 +315,7 @@ namespace CardGameClient
             for (var step = 0; step < 8; step++)
             {
                 if (Array.IndexOf(TabRoots, page) >= 0) return page;
-                if (page == "chats" || page.StartsWith("chat:", StringComparison.Ordinal)
-                    || page.StartsWith("message:", StringComparison.Ordinal)) return "friends";
+                if (IsMailPage(page)) return "friends";
                 if (page.StartsWith("throw:", StringComparison.Ordinal)) return "inventory";
                 page = ParentPage(page);
             }
@@ -346,8 +351,7 @@ namespace CardGameClient
             var game = string.IsNullOrEmpty(_selectedGame) ? "home" : _selectedGame;
             if (page.StartsWith("game:", StringComparison.Ordinal)) return (page.Substring(5), "home");
             if (page.StartsWith("friend:", StringComparison.Ordinal)) return ("friends", "friends");
-            if (page.StartsWith("chat:", StringComparison.Ordinal) || page.StartsWith("message:", StringComparison.Ordinal))
-                return ("chats", "chats");
+            if (page.StartsWith("chat:", StringComparison.Ordinal)) return ("chats", "chats");
             if (page.StartsWith("throw:", StringComparison.Ordinal)) return ("inventory", "collection");
             switch (page)
             {
@@ -392,13 +396,14 @@ namespace CardGameClient
                                                             && (!item.Premium || _state.Pass.Premium));
                 case "friends":
                     return _state.FriendRequests.Count(item => item.Status == "pending" && item.ToId == me)
-                        + _state.Invites.Count(item => item.Status == "pending" && item.ToId == me);
+                        + _state.Invites.Count(item => item.Status == "pending" && item.ToId == me)
+                        + MailUnreadAll().Count;
                 default:
                     return 0;
             }
         }
 
-        private int ReadyQuests() => _state.Quests.Count(item => !item.Claimed && item.Progress >= item.Goal);
+        private int ReadyQuests() => _state == null ? 0 : CardGame.Core.Meta.HubQuests.Notifications(_state);
 
         private void BuildHome()
         {

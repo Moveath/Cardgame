@@ -23,16 +23,19 @@ namespace CardGameClient
         private bool RenderFeaturePage(string page)
         {
             _hubFeaturePage = page;
-            if (page.StartsWith("friend:", StringComparison.Ordinal)) { BuildHubPerson(page.Substring(7)); return true; }
-            if (page.StartsWith("chat:", StringComparison.Ordinal)) { BuildHubChat(page.Substring(5)); return true; }
-            if (page.StartsWith("message:", StringComparison.Ordinal)) { BuildHubMessage(page.Substring(8)); return true; }
+            // Друзья и карточка игрока — окно таверны «Червовая дама» (PlayerHubTavernFriends.cs).
+            if (page.StartsWith("friend:", StringComparison.Ordinal)) { BuildTavernFriends(); return true; }
+            // Чаты — почта таверны «Червовая дама» (PlayerHubTavernMail.cs).
+            if (page.StartsWith("chat:", StringComparison.Ordinal)) { BuildTavernMail(); return true; }
             if (page.StartsWith("throw:", StringComparison.Ordinal)) { BuildHubThrow(); return true; }
             if (page.StartsWith("place:", StringComparison.Ordinal)) { BuildCityPlace(page.Substring(6)); return true; }
             switch (page)
             {
+                case "fortune": BuildFortunePage(); return true;
+                case "news": BuildNewsPage(); return true;
                 case "profile": BuildHubProfile(); return true;
-                case "friends": BuildHubFriends(); return true;
-                case "chats": BuildHubChats(); return true;
+                case "friends": BuildTavernFriends(); return true;
+                case "chats": BuildTavernMail(); return true;
                 case "progress": BuildHubProgress(); return true;
                 case "shop": BuildHubShopFront(); return true;
                 case "shop-catalog": BuildHubShopCatalog(); return true;

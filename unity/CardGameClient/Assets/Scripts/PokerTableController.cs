@@ -461,6 +461,7 @@ namespace CardGameClient
             _potsText=PokerUi.Label(_stage,_font,"",12,new Vector2(0,106),new Vector2(580,28),PokerUi.Muted);
             _actionText=PokerUi.Label(_stage,_font,"",16,new Vector2(0,-96),new Vector2(690,33),PokerUi.Muted);
             _resultText=PokerUi.Label(_stage,_font,"",19,new Vector2(0,-141),new Vector2(680,82),PokerUi.Gold);
+            HubQuestResultLine.Attach(_resultText,()=>Complete && _settled,760);
             _resultText.resizeTextForBestFit=true;_resultText.resizeTextMinSize=13;_resultText.resizeTextMaxSize=19;
             _turnText=PokerUi.Label(_stage,_font,"",15,new Vector2(-430,350),new Vector2(400,30),PokerUi.Paper);
             Anchor(_turnText.rectTransform,new Vector2(0,1),new Vector2(370,-100));

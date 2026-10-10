@@ -9,13 +9,15 @@ using System.Threading.Tasks;
 namespace CardGame.Core.Meta
 {
     /// <summary>Local-only mock. Currency/purchases/clock must become server-authoritative before online billing.</summary>
-    public sealed class LocalPlayerHubService : IPlayerHubService
+    public sealed partial class LocalPlayerHubService : IPlayerHubService
     {
         private readonly IHubStore _store;
         private readonly IHubClock _clock;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private HubSnapshot? _snapshot;
         private static readonly string[] Games = { "durak", "bluff", "chests", "govno", "poker" };
+        // Ответы локальных ботов в переписке — по очереди (настоящих людей пока нет; IsLocalMock у сообщения).
+        private static readonly string[] BotReplies = { "Договорились, сыграем!", "Давай! Жду тебя за столом.", "Сейчас подойду, раздавай." };
 
         public LocalPlayerHubService(IHubStore store, IHubClock clock)
         {
@@ -71,6 +73,7 @@ namespace CardGame.Core.Meta
             if (next.Version != 1 || next.Profile == null || next.Profile.Coins < 0 || next.Bank == null || next.Bank.Debt < 0)
                 throw new InvalidOperationException("Unsupported or invalid local save.");
             HubSeed.MergeCatalog(next, Now);
+            if (next.Gift == null) next.Gift = new HubGift(); // Сохранения до подарка Шестёрки.
             foreach (var room in next.Rooms.Where(r => r.GameSettings == null && Games.Contains(r.GameId)))
             {
                 room.GameSettings = HubGameSettings.DefaultFor(room.GameId);
@@ -150,11 +153,19 @@ namespace CardGame.Core.Meta
                     tomatoes!.Quantity--; s.Profile.TomatoesThrown++; s.Profile.LastTomatoAt = Now;
                     Progress(s, "gardener", 1); return "Помидор брошен · правила игры не изменились";
                 case "friend_request":
-                    Person(s, target);
+                    var asked = Person(s, target);
                     Require(!s.Friends.Contains(target), "friend", "Вы уже друзья.");
                     Require(!s.FriendRequests.Any(r => r.Status == "pending" && (r.FromId == target || r.ToId == target)), "pending", "Заявка уже ожидает ответа.");
-                    s.FriendRequests.Add(new HubFriendRequest { Id = "friend-" + c.Id, FromId = s.Profile.Id, ToId = target, CreatedAt = Now });
-                    return "Локальная заявка отправлена боту";
+                    var sentRequest = new HubFriendRequest { Id = "friend-" + c.Id, FromId = s.Profile.Id, ToId = target, CreatedAt = Now };
+                    s.FriendRequests.Add(sentRequest);
+                    if (!asked.IsBot) return "Заявка отправлена";
+                    // Живых игроков пока нет: местный бот отвечает сразу (2026-10-10).
+                    sentRequest.Status = "accepted"; s.Friends.Add(target);
+                    return asked.Name + " принимает заявку — теперь вы друзья";
+                case "friend_cancel":
+                    var cancelled = s.FriendRequests.FirstOrDefault(r => r.Id == target && r.Status == "pending" && r.FromId == s.Profile.Id);
+                    Require(cancelled != null, "request", "Такая заявка не найдена.");
+                    cancelled!.Status = "cancelled"; return "Заявка отменена";
                 case "friend_accept": return ResolveFriend(s, target, true, false);
                 case "friend_decline": return ResolveFriend(s, target, false, false);
                 case "friend_mock_reply": return ResolveFriend(s, target, c.Flag, true);
@@ -166,7 +177,8 @@ namespace CardGame.Core.Meta
                     Require(isRoom || s.Friends.Contains(target), "friend", "Чат доступен с друзьями или в своей комнате.");
                     s.Chats.Add(new HubChatMessage { Id = "chat-" + c.Id, ConversationId = target, FromId = s.Profile.Id, Text = text, CreatedAt = Now, IsLocalMock = true });
                     var bot = isRoom ? Room(s).Members.FirstOrDefault(m => m.IsBot)?.PlayerId : target;
-                    if (!string.IsNullOrEmpty(bot)) s.Chats.Add(new HubChatMessage { Id = "reply-" + c.Id, ConversationId = target, FromId = bot!, Text = "[Локальный бот] Договорились, сыграем!", CreatedAt = Now, IsLocalMock = true });
+                    var replies = s.Chats.Count(m => m.ConversationId == target && m.FromId == bot);
+                    if (!string.IsNullOrEmpty(bot)) s.Chats.Add(new HubChatMessage { Id = "reply-" + c.Id, ConversationId = target, FromId = bot!, Text = BotReplies[replies % BotReplies.Length], CreatedAt = Now, IsLocalMock = true, Unread = !isRoom });
                     if (s.Chats.Count > 200) s.Chats.RemoveRange(0, s.Chats.Count - 200);
                     return "Сообщение в локальном чате";
                 case "create_room": case "room_create":
@@ -174,7 +186,7 @@ namespace CardGame.Core.Meta
                     var createSettings = c.GameSettings?.Copy() ?? HubGameSettings.DefaultFor(target);
                     ValidateGameSettings(target, createSettings, c.Amount);
                     Require(c.Value >= 0 && c.Value <= 1000000, "stake", "Недопустимая ставка.");
-                    Require(c.Value == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+                    Require(c.Value == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     LeaveRoom(s);
                     var newRoom = new HubRoom { Id = "room-" + c.Id, Code = RoomCode(c.Id), Name = text.Length == 0 ? "Стол " + s.Profile.DisplayName : text.Substring(0, Math.Min(32, text.Length)), GameId = target, GameSettings = createSettings, HostId = s.Profile.Id, MaxPlayers = c.Amount, Private = c.Flag, Stake = c.Value };
                     newRoom.Members.Add(new HubRoomMember { PlayerId = s.Profile.Id });
@@ -198,7 +210,7 @@ namespace CardGame.Core.Meta
                     Require(EditableRoom(s).Members.RemoveAll(m => m.PlayerId == target && m.IsBot) > 0, "member", "Бот не найден."); return "Бот убран";
                 case "set_room_stake":
                     var stakeRoom = EditableRoom(s); Require(c.Amount >= 0 && c.Amount <= 1000000, "stake", "Недопустимая ставка.");
-                    Require(c.Amount == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+                    Require(c.Amount == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     if (stakeRoom.Stake != c.Amount) ResetReady(stakeRoom);
                     stakeRoom.Stake = c.Amount; return "Ставка сохранена";
                 case "update_room_settings":
@@ -208,7 +220,7 @@ namespace CardGame.Core.Meta
                     ValidateGameSettings(editRoom.GameId, editedSettings, c.Amount);
                     Require(c.Amount >= editRoom.Members.Count, "capacity", "Нельзя убрать уже занятые места.");
                     Require(c.Value >= 0 && c.Value <= 1000000, "stake", "Недопустимая ставка.");
-                    Require(c.Value == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+                    Require(c.Value == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     if (editRoom.MaxPlayers != c.Amount || editRoom.Stake != c.Value
                         || !(editRoom.GameSettings ?? HubGameSettings.DefaultFor(editRoom.GameId)).HasSameRules(editedSettings))
                         ResetReady(editRoom);
@@ -227,8 +239,14 @@ namespace CardGame.Core.Meta
                     Require(s.Friends.Contains(target), "friend", "Пригласить можно друга.");
                     var inviteRoom = Room(s); Require(!inviteRoom.Started && inviteRoom.Members.Count < inviteRoom.MaxPlayers, "full", "В комнате нет доступных мест.");
                     Require(!inviteRoom.Members.Any(m => m.PlayerId == target), "member", "Друг уже за столом.");
-                    s.Invites.Add(new HubInvite { Id = "invite-" + c.Id, FromId = s.Profile.Id, ToId = target, RoomId = inviteRoom.Id });
-                    return "Локальное приглашение создано; ответ бота можно принять в демо";
+                    var invite = new HubInvite { Id = "invite-" + c.Id, FromId = s.Profile.Id, ToId = target, RoomId = inviteRoom.Id };
+                    s.Invites.Add(invite);
+                    var guest = Person(s, target);
+                    if (!guest.IsBot) return "Приглашение отправлено";
+                    // Местный бот-друг садится за стол сразу.
+                    inviteRoom.Members.Add(new HubRoomMember { PlayerId = target, Ready = true, IsBot = true });
+                    invite.Status = "accepted"; return guest.Name + " садится за стол";
+                case "friend_play": return PlayWithFriend(s, c.Id, target, text);
                 case "invite_accept": case "invite_decline":
                     var invitation = s.Invites.FirstOrDefault(i => i.Id == target && i.Status == "pending");
                     Require(invitation != null, "invite", "Приглашение не найдено.");
@@ -246,9 +264,9 @@ namespace CardGame.Core.Meta
                 case "begin_match":
                     Require(Games.Contains(target), "game", "Игра не найдена.");
                     Require(s.ActiveMatchId.Length == 0, "active_match", "Сначала заверши текущую партию.");
-                    Require(!s.Bank.CollectorPending, "collector", "Сначала сыграй с коллекторами.");
+                    Require(!s.Bank.CollectorPending || HubLoans.Version(s.Bank) >= HubLoans.CurrentTermsVersion, "collector", "Сначала сыграй с коллекторами.");
                     Require(c.Amount >= 0 && c.Amount <= s.Profile.Coins, "coins", "Недостаточно коинов для входа.");
-                    Require(c.Amount == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+                    Require(c.Amount == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     s.Profile.Coins -= c.Amount;
                     s.Matches.Add(new HubMatchEntry { Id = c.Id, Game = target, Stake = c.Amount }); s.ActiveMatchId = c.Id;
                     return "Локальная партия началась";
@@ -261,10 +279,46 @@ namespace CardGame.Core.Meta
                     var achievement = s.Achievements.FirstOrDefault(a => a.Id == target);
                     Require(achievement != null && achievement.Unlocked && !achievement.Claimed, "reward", "Награда ещё недоступна или уже получена.");
                     achievement!.Claimed = true; Credit(s, achievement.RewardCoins); Experience(s, achievement.RewardXP); return "Награда за достижение получена";
+                case "bank_jobs_seen": case "bank_job_accept": case "bank_job_start": case "bank_job_claim":
+                    return ApplyBankJob(s, c, action, target);
                 case "quest_claim":
                     var quest = s.Quests.FirstOrDefault(q => q.Id == target);
-                    Require(quest != null && quest.Progress >= quest.Goal && !quest.Claimed && quest.ExpiresAt > Now, "reward", "Задание ещё не выполнено или награда уже получена.");
-                    quest!.Claimed = true; Credit(s, quest.RewardCoins); Experience(s, quest.RewardXP); return "Награда за задание получена";
+                    Require(quest != null && HubQuests.Ready(quest), "reward", "Поручение ещё не выполнено или награда уже получена.");
+                    quest!.Claimed = quest.Seen = true;
+                    Credit(s, quest.RewardCoins); Experience(s, quest.RewardXP);
+                    if (quest.Period == "daily") QuestEvent(s, "daily_claim", "", 1);
+                    HubQuests.Refresh(s, Now);
+                    return "Награда за поручение получена";
+                case "quests_seen":
+                    foreach (var note in s.Quests) note.Seen = true;
+                    return "Поручения просмотрены";
+                case "quests_debug_refresh":
+                    HubQuests.Refresh(s, Now, true);
+                    return "Тест: новые поручения";
+                case "quests_debug_complete":
+                    foreach (var note in s.Quests.Where(q => q.Period == "daily" && !q.Claimed)) note.Progress = note.Goal;
+                    return "Тест: дневные поручения выполнены";
+                case "fortune_draw": return DrawFortune(s, c);
+                // ТЕСТ (2026-10-09, по просьбе автора): новая карта у гадалки сразу, без 24 часов. Убрать вместе с кнопкой
+                // «Тест: новая карта» (PlayerHubFortune.cs).
+                case "fortune_debug_ready": s.Fortune.ReadyAt = Now; return "Тест: можно выбрать новую карту";
+                // Переписка открыта — письма друга прочитаны (почта таверны).
+                case "chat_read":
+                    Require(target.Length > 0, "conversation", "Не выбран разговор.");
+                    foreach (var m in s.Chats.Where(m => m.ConversationId == target && m.FromId != s.Profile.Id)) m.Unread = false;
+                    return "Письма прочитаны";
+                case "news_read":
+                    Require(c.Amount > 0, "issue", "Неверный номер выпуска.");
+                    s.NewsSeen = Math.Max(s.NewsSeen, c.Amount); return "Выпуск прочитан";
+                case "gift_open":
+                    Require(Now >= s.Gift.ReadyAt, "gift", "Подарок ещё не готов.");
+                    Credit(s, HubGift.Coins);
+                    s.Gift.Opened = checked(s.Gift.Opened + 1); s.Gift.LastCoins = HubGift.Coins;
+                    s.Gift.OpenedAt = Now; s.Gift.ReadyAt = Now + HubGift.Cooldown;
+                    return "Подарок открыт · +" + HubGift.Coins + " коинов";
+                // ТЕСТ (2026-10-07, по просьбе автора): подарок готов сразу, без 12 часов. Убрать вместе с кнопкой
+                // «Тест: подарок сейчас» (PlayerHubSixGift.cs).
+                case "gift_debug_ready": s.Gift.ReadyAt = Now; return "Тест: подарок готов";
                 case "pass_premium": s.Pass.Premium = true; return "Премиум-дорожка открыта в демо · без оплаты";
                 case "pass_claim":
                     var reward = s.Pass.Rewards.FirstOrDefault(r => r.Id == target);
@@ -274,19 +328,53 @@ namespace CardGame.Core.Meta
                     if (reward.Coins > 0) Credit(s, reward.Coins);
                     if (reward.ItemId.Length > 0) GrantItem(s, reward.ItemId, 1);
                     return "Награда пропуска получена";
+                case "bank_offer":
+                    EnsureLoanOffer(s);
+                    return "Договор подготовлен";
+                case "bank_read_fine":
+                    var fineOffer = CurrentLoanOffer(s, text);
+                    fineOffer.FineRead = true;
+                    return fineOffer.Revealed ? "Поправка уже внесена · действуют обычные условия"
+                        : "Условие прочитано. Если оно расходится с обещанием Тузяры, его можно оспорить.";
+                case "bank_challenge_fine":
+                    var disputedOffer = CurrentLoanOffer(s, text);
+                    if (disputedOffer.Revealed)
+                    {
+                        Require(target.Length > 0 && target == disputedOffer.OriginalTrick,
+                            "fine_print", "Эта поправка относится к другому условию договора.");
+                        return "Поправка уже внесена · действуют обычные условия";
+                    }
+                    Require(disputedOffer.FineRead, "fine_print", "Сначала прочитай условие, которое хочешь оспорить.");
+                    Require(disputedOffer.Trick.Length > 0, "fine_print", "В этом договоре обычные условия. Исправлять нечего.");
+                    Require(target.Length > 0 && target == disputedOffer.Trick,
+                        "fine_print", "В выбранном пункте ошибки нет. Сверь ставку, комиссию и срок с обещанием Тузяры.");
+                    disputedOffer.OriginalTrick = disputedOffer.Trick;
+                    disputedOffer.Revealed = true; disputedOffer.Trick = "";
+                    Progress(s, "fine_print", 1);
+                    return "Ладно, тебя не проведёшь. Уберём… техническую неточность. Действуют обычные условия · достижение «Мелкий шрифт» открыто";
+                case "bank_sign":
+                    var offer = CurrentLoanOffer(s, text);
+                    Require(c.Amount >= 100, "amount", "Минимальная сумма кредита — 100 тун-тун коинов.");
+                    s.Bank.Offer = null; // A signed decision consumes this contract, including a refusal.
+                    return DecideLoan(s, c.Id, c.Amount, offer.Trick, Now, HubLoans.CurrentTermsVersion, offer);
                 case "bank_request":
-                    Require(s.Bank.Debt == 0 && s.Bank.Status != "pending", "loan", "Сначала погаси текущий кредит или дождись решения.");
+                    // Legacy clients still use this command, but no longer wait thirty seconds.
+                    Require(s.Bank.Debt == 0 && s.Bank.Status != "pending", "loan", "Сначала погаси текущий кредит.");
                     Require(c.Amount > 0 && c.Amount <= 1000000, "amount", "Укажи положительную сумму кредита.");
-                    s.Bank.RequestId = c.Id; s.Bank.RequestedAmount = c.Amount; s.Bank.Status = "pending";
-                    s.Bank.ReviewAt = Now + 30; s.Bank.Decision = "Заявка рассматривается · 30 секунд в локальном демо";
-                    return s.Bank.Decision;
-                case "bank_review":
-                    Require(s.Bank.Status != "pending", "pending", "Заявка ещё рассматривается."); return s.Bank.Decision;
+                    var legacyOffer = EnsureLoanOffer(s);
+                    s.Bank.Offer = null;
+                    return DecideLoan(s, c.Id, c.Amount, legacyOffer.Trick, Now, HubLoans.CurrentTermsVersion, legacyOffer);
+                case "bank_review": return s.Bank.Decision;
                 case "bank_repay":
                     Require(s.Bank.Debt > 0, "debt", "Задолженности нет.");
-                    var payment = c.Amount == 0 ? Math.Min(s.Profile.Coins, s.Bank.Debt) : c.Amount;
-                    Require(payment > 0 && payment <= s.Profile.Coins && payment <= s.Bank.Debt, "amount", "Сумма должна укладываться в баланс и остаток долга.");
-                    s.Profile.Coins -= payment; Repay(s, payment); return "Погашено " + payment + " коинов";
+                    var quote = HubLoans.PayoffQuote(s.Bank, Now);
+                    var payment = c.Amount == 0 ? Math.Min(s.Profile.Coins, quote.Amount) : c.Amount;
+                    Require(payment > 0 && payment <= s.Profile.Coins && payment <= quote.Amount,
+                        "amount", "Платёж — от 1 тун-тун коина до суммы полного погашения и доступного баланса.");
+                    var closesEarly = quote.Early && payment == quote.Amount;
+                    s.Profile.Coins -= payment;
+                    Repay(s, payment, closesEarly ? quote.Discount : 0, closesEarly, "payment", c.Id);
+                    return "Погашено " + payment + " тун-тун коинов" + (closesEarly ? " · досрочно, ставка 10%" : "");
                 case "play_collectors": case "start_collectors":
                     Require(s.Bank.CollectorPending && s.Bank.Debt > 0, "collector", "Коллекторы пока не пришли.");
                     Require(s.ActiveMatchId.Length == 0, "active_match", "Сначала заверши текущую партию.");
@@ -298,14 +386,18 @@ namespace CardGame.Core.Meta
 
         private string ReportMatch(HubSnapshot s, HubCommand command, string game, string entryId)
         {
+            var earnedBefore = s.Profile.CoinsEarned;
             Require(Games.Contains(game), "game", "Игра не найдена.");
             Require(command.Value >= 0 && command.Value <= 13, "count", "Неверное число сундучков.");
             Require(command.Amount == 0 || command.Amount == 1, "outcome", "Неизвестный исход партии.");
+            Require(command.CaughtCheats >= 0 && command.CaughtCheats <= 1024 && command.CheatsPlayed >= 0 && command.CheatsPlayed <= 1024
+                && command.TimesCaught >= 0 && command.TimesCaught <= command.CheatsPlayed, "count", "Неверная статистика обмана.");
             var draw = command.Amount == 1;
             if (entryId.Length == 0 && s.ActiveMatchId.Length > 0) entryId = s.ActiveMatchId;
             var entry = entryId.Length == 0 ? null : s.Matches.FirstOrDefault(m => m.Id == entryId);
             Require(entryId.Length == 0 || entry != null, "match", "Партия не найдена.");
             var collectorLoss = entry != null && entry.IsCollector && !draw && !command.Flag;
+            var legacyCollectorLoss = collectorLoss && HubLoans.Version(s.Bank) < HubLoans.CurrentTermsVersion;
             if (entry != null)
             {
                 Require(entry.Game == game, "match", "Результат относится к другой игре.");
@@ -317,26 +409,73 @@ namespace CardGame.Core.Meta
                 if (entry.Stake == 67) Progress(s, "six_seven", 1);
                 if (s.ActiveMatchId == entry.Id) s.ActiveMatchId = "";
                 foreach (var room in s.Rooms.Where(r => r.LocalMatchId == entry.Id)) { room.Started = false; room.Members.Where(m => !m.IsBot).ToList().ForEach(m => m.Ready = false); }
+                AskFriendshipAfter(s, entry);
             }
+            HubBankJobs.CompleteMatch(s, entry, command);
             s.Profile.Matches = checked(s.Profile.Matches + 1);
             if (!draw && command.Flag) { s.Profile.Wins++; s.Profile.Rating = checked(s.Profile.Rating + 20); Progress(s, "first_win", 1); }
             else if (!draw) { s.Profile.Losses++; s.Profile.Rating = Math.Max(0, s.Profile.Rating - 10); }
-            // The collectors' loss leaves the wallet at zero; a participation payout here
-            // would immediately undo that rule. Subsequent earnings still repay half the debt.
-            if (!collectorLoss) Credit(s, !draw && command.Flag ? 80 : 20);
-            Experience(s, !draw && command.Flag ? 40 : 20);
+            // Only legacy signed contracts zero the wallet and suppress this participation payout.
+            var ordinaryReward = HubFortunes.MatchReward(s, entry, entry?.Id ?? command.Id, game, command.Flag, draw,
+                legacyCollectorLoss ? 0 : !draw && command.Flag ? 80 : 20, !draw && command.Flag ? 40 : 20);
+            if (!legacyCollectorLoss) Credit(s, ordinaryReward.Coins);
+            Experience(s, ordinaryReward.XP);
             Progress(s, "ten_matches", s.Profile.Matches, true);
             QuestEvent(s, "match", game, 1);
             if (!draw && command.Flag) QuestEvent(s, "win", game, 1);
+            else if (!draw) QuestEvent(s, "loss", game, 1);
+            if (entry != null && entry.Stake > 0) QuestEvent(s, "stake", game, 1);
+            // Only this match's gross payout, including a won stake; no gifts, claims or returned draw stake.
+            QuestEvent(s, "match_coins", game, s.Profile.CoinsEarned - earnedBefore);
             if (game == "chests")
             {
                 Chests(s, command.Value);
                 // Только за доигранную партию: брошенная закрывается раньше и сюда не доходит.
                 if (command.Value == 0) Progress(s, "pendalist", 1);
             }
-            return collectorLoss ? "Партия с коллекторами учтена · +20 опыта, без награды коинами"
-                : draw ? "Ничья · ставка возвращена, +20 коинов и 20 опыта за участие"
-                : command.Flag ? "Победа · +80 коинов и 40 опыта до удержания долга" : "Партия учтена · +20 коинов и 20 опыта до удержания долга";
+            var rewardText = "+" + ordinaryReward.Coins + " тун-тун коинов и " + ordinaryReward.XP + " опыта";
+            var fortuneText = ordinaryReward.EffectName.Length > 0 ? " · предсказание «" + ordinaryReward.EffectName + "»" : "";
+            return legacyCollectorLoss ? "Партия с коллекторами учтена · +20 опыта, без награды тун-тун коинами"
+                : (draw ? "Ничья · ставка возвращена, " + rewardText + " за участие"
+                : (command.Flag ? "Победа · " : "Партия учтена · ") + rewardText + " до удержания долга") + fortuneText;
+        }
+
+        /// <summary>
+        /// «Позвать играть» из окна друзей: свой закрытый стол выбранной игры без ставки, друг садится сразу (местный бот),
+        /// в играх от трёх свободное место до минимума занимает местный бот — можно начинать.
+        /// </summary>
+        private string PlayWithFriend(HubSnapshot s, string commandId, string friendId, string game)
+        {
+            var friend = Person(s, friendId);
+            Require(s.Friends.Contains(friendId), "friend", "Позвать можно друга.");
+            Require(Games.Contains(game), "game", "Выбери игру.");
+            Require(s.ActiveMatchId.Length == 0, "active_match", "Сначала заверши текущую партию.");
+            var settings = HubGameSettings.DefaultFor(game);
+            var minimum = HubGameRules.MinimumPlayers(game);
+            var seats = Math.Min(HubGameRules.MaximumPlayers(game, settings), Math.Max(minimum, 4));
+            LeaveRoom(s);
+            var room = new HubRoom { Id = "room-" + commandId, Code = RoomCode(commandId), Name = "Стол " + s.Profile.DisplayName, GameId = game,
+                GameSettings = settings, HostId = s.Profile.Id, MaxPlayers = seats, Private = true };
+            room.Members.Add(new HubRoomMember { PlayerId = s.Profile.Id });
+            s.Invites.Add(new HubInvite { Id = "invite-" + commandId, FromId = s.Profile.Id, ToId = friendId, RoomId = room.Id,
+                Status = friend.IsBot ? "accepted" : "pending" });
+            if (friend.IsBot) room.Members.Add(new HubRoomMember { PlayerId = friendId, Ready = true, IsBot = true });
+            foreach (var bot in s.People.Where(p => p.IsBot && room.Members.All(m => m.PlayerId != p.Id)).OrderBy(p => s.Friends.Contains(p.Id))
+                         .Take(Math.Max(0, minimum - room.Members.Count)).ToList())
+                room.Members.Add(new HubRoomMember { PlayerId = bot.Id, Ready = true, IsBot = true });
+            s.Rooms.Add(room); s.CurrentRoomId = room.Id;
+            return friend.IsBot ? friend.Name + " садится за стол" : "Приглашение отправлено";
+        }
+
+        /// <summary>Сыграли за одним столом — местный бот, ещё не друг и не отказавший, просится в друзья (одна заявка за партию).</summary>
+        private void AskFriendshipAfter(HubSnapshot s, HubMatchEntry entry)
+        {
+            var room = s.Rooms.FirstOrDefault(r => r.LocalMatchId == entry.Id);
+            var mate = room?.Members.Select(m => m.PlayerId).FirstOrDefault(id => id != s.Profile.Id && !s.Friends.Contains(id)
+                && s.People.Any(p => p.Id == id && p.IsBot)
+                && !s.FriendRequests.Any(r => (r.FromId == id || r.ToId == id) && (r.Status == "pending" || r.Status == "declined")));
+            if (mate != null)
+                s.FriendRequests.Add(new HubFriendRequest { Id = "request-" + entry.Id, FromId = mate, ToId = s.Profile.Id, CreatedAt = Now, Game = entry.Game });
         }
 
         private string StartRoom(HubSnapshot s, string commandId)
@@ -348,8 +487,8 @@ namespace CardGame.Core.Meta
             Require(room.Members.Count >= HubGameRules.MinimumPlayers(room.GameId), "players", "За столом пока недостаточно игроков.");
             Require(room.Members.Count <= room.MaxPlayers, "capacity", "В комнате слишком много игроков для выбранных правил.");
             Require(room.Members.All(m => m.Ready), "ready", "Все игроки должны подтвердить готовность.");
-            Require(!s.Bank.CollectorPending, "collector", "Сначала сыграй с коллекторами.");
-            Require(room.Stake == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+            Require(!s.Bank.CollectorPending || HubLoans.Version(s.Bank) >= HubLoans.CurrentTermsVersion, "collector", "Сначала сыграй с коллекторами.");
+            Require(room.Stake == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
             Require(room.Stake <= s.Profile.Coins, "coins", "Не хватает заработанных коинов для входа.");
             s.Profile.Coins -= room.Stake;
             var entry = new HubMatchEntry { Id = "match-" + commandId, Game = room.GameId, Stake = room.Stake };
@@ -364,6 +503,7 @@ namespace CardGame.Core.Meta
             Require(entry != null, "match", "Партия не найдена.");
             if (entry!.Completed) return;
             entry.Completed = entry.Abandoned = true;
+            QuestEvent(s, "loss", entry.Game, 1);
             // Leaving the collectors' game is a loss, so restarting cannot cancel the debt event.
             if (entry.IsCollector) Collectors(s, false);
             if (s.ActiveMatchId == id) s.ActiveMatchId = "";
@@ -373,49 +513,156 @@ namespace CardGame.Core.Meta
         private void Refresh(HubSnapshot s)
         {
             var day = Now / 86400;
-            var week = (day + 3) / 7; // Unix epoch was Thursday; weekly reset is Monday UTC.
-            s.Quests.RemoveAll(q => q.ExpiresAt <= Now);
-            Quest(s, "daily-matches-" + day, "Сыграй 3 партии", "match", "", "daily", 3, 60, 30, (day + 1) * 86400);
-            Quest(s, "daily-win-" + day, "Выиграй партию", "win", "", "daily", 1, 40, 20, (day + 1) * 86400);
-            Quest(s, "weekly-durak-" + week, "Сыграй 3 партии в дурака", "match", "durak", "weekly", 3, 100, 50, (week * 7 + 4) * 86400);
-            Quest(s, "weekly-chests-" + week, "Собери 10 сундучков за неделю", "chests", "chests", "weekly", 10, 150, 60, (week * 7 + 4) * 86400);
+            HubQuests.Refresh(s, Now);
+            HubBankJobs.Refresh(s, Now);
+            HubFortunes.Refresh(s);
             var earningDays = s.IncomeDays.Where(d => d.Day >= day - 6 && d.Day <= day).ToArray();
             var average = earningDays.Length == 0 ? 0 : earningDays.Sum(d => (long)d.Gross) / earningDays.Length;
             s.Bank.CreditLimit = (int)Math.Min(5000, Math.Max(100, Math.Min(100L + s.Profile.Level * 100L, average * 3)));
-            if (s.Bank.Status == "pending" && Now >= s.Bank.ReviewAt)
+            NormalizeLoan(s);
+            if (s.Bank.Status == "pending")
             {
-                var approved = s.Bank.RequestedAmount <= s.Bank.CreditLimit && (s.Profile.Matches >= 2 || s.Bank.RequestedAmount <= s.Bank.CreditLimit / 2);
-                if (approved)
-                {
-                    s.Bank.Principal = s.Bank.RequestedAmount;
-                    s.Bank.Debt = checked(s.Bank.Principal + (s.Bank.Principal * s.Bank.InterestPercent + 99) / 100);
-                    s.Profile.Coins = checked(s.Profile.Coins + s.Bank.Principal); // Loan principal is not earned XP/income.
-                    s.Bank.DueAt = s.Bank.ReviewAt + 3 * 86400;
-                    s.Bank.CollectorAt = s.Bank.DueAt + 12 * 3600;
-                    s.Bank.Status = "approved"; s.Bank.Decision = "Одобрено " + s.Bank.Principal + " · вернуть " + s.Bank.Debt + " за 3 дня";
-                }
-                else { s.Bank.Status = "rejected"; s.Bank.Decision = "Отказ: сумма или история игр пока не подходят. Лимит " + s.Bank.CreditLimit; }
+                var issuedAt = s.Bank.ReviewAt > 0 ? Math.Min(Now, s.Bank.ReviewAt) : Now;
+                // A previously pending request keeps the old printed conditions.
+                DecideLoan(s, s.Bank.RequestId, s.Bank.RequestedAmount, "", issuedAt, HubLoans.LegacyTermsVersion, null);
             }
-            if (s.Bank.Debt > 0 && !s.Bank.CollectionActive && Now >= s.Bank.DueAt)
+            var bank = s.Bank;
+            if (bank.Debt > 0 && bank.Trick == "double" && !bank.OverdueDoubled && Now >= bank.DueAt)
             {
-                s.Bank.Status = "overdue";
-                if (Now >= s.Bank.CollectorAt)
+                bank.Debt = checked(bank.Debt * 2); bank.OverdueDoubled = true;
+            }
+            if (bank.Debt > 0 && !bank.CollectionActive && Now >= bank.DueAt)
+            {
+                if (HubLoans.Version(bank) >= HubLoans.CurrentTermsVersion && bank.ExtensionUsed)
                 {
-                    if (!s.Bank.CollectorPending) s.Bank.CollectorGame = Games[(s.Profile.Matches + s.Profile.Level) % Games.Length];
-                    s.Bank.CollectorPending = true; s.Bank.Status = "collection";
+                    bank.CollectionActive = true; bank.CollectorPending = false; bank.Status = "repaying";
+                    bank.Decision = "Продление закончилось · половина будущих доходов идёт в погашение";
+                }
+                else
+                {
+                    bank.Status = "overdue";
+                    if (Now >= bank.CollectorAt)
+                    {
+                        if (!bank.CollectorPending) bank.CollectorGame = Games[(s.Profile.Matches + s.Profile.Level) % Games.Length];
+                        bank.CollectorPending = true; bank.Status = "collection";
+                    }
                 }
             }
+            SyncLoanStatus(bank);
         }
 
-        private static void Quest(HubSnapshot s, string id, string name, string kind, string game, string period, int goal, int coins, int xp, long expires)
+        private static void NormalizeLoan(HubSnapshot s)
         {
-            if (!s.Quests.Any(q => q.Id == id)) s.Quests.Add(new HubQuest { Id = id, Name = name, Event = kind, Game = game, Period = period, Goal = goal, RewardCoins = coins, RewardXP = xp, ExpiresAt = expires });
+            var bank = s.Bank;
+            if (bank.Offer != null && !string.IsNullOrWhiteSpace(bank.Offer.Id))
+            {
+                if (string.IsNullOrEmpty(bank.Offer.OriginalTrick) && !string.IsNullOrEmpty(bank.Offer.Trick))
+                    bank.Offer.OriginalTrick = bank.Offer.Trick;
+                if (bank.Offer.Revealed) bank.Offer.FineRead = true;
+                if (!string.IsNullOrEmpty(bank.Offer.OriginalTrick) || bank.Offer.Revealed)
+                    bank.LastTrickOfferNumber = Math.Max(bank.LastTrickOfferNumber, bank.Offer.Number);
+            }
+            if (bank.Contracts == null) bank.Contracts = new List<HubLoanContract>();
+            if (bank.Payments == null) bank.Payments = new List<HubLoanPayment>();
+            if (bank.Contract != null && string.IsNullOrWhiteSpace(bank.Contract.Id)) bank.Contract = null;
+            if (bank.TermsVersion == 0 && (bank.Debt > 0 || bank.Principal > 0 || bank.Status == "pending")) bank.TermsVersion = HubLoans.LegacyTermsVersion;
+            if (bank.Contract == null && (bank.Debt > 0 || bank.Principal > 0))
+            {
+                bank.SignedAt = bank.ReviewAt > 0 ? bank.ReviewAt : Math.Max(0, bank.DueAt - HubLoans.Days(bank.Trick) * 86400L);
+                bank.Contract = new HubLoanContract
+                {
+                    Id = "legacy-loan-" + (string.IsNullOrEmpty(bank.RequestId) ? bank.SignedAt + "-" + bank.Principal : bank.RequestId),
+                    Number = 0, Borrower = s.Profile.DisplayName, SignedAt = bank.SignedAt, Principal = bank.Principal,
+                    CreditLimit = bank.CreditLimit, OriginalDueAt = bank.DueAt, TermsVersion = HubLoans.Version(bank), Trick = bank.Trick, OriginalTrick = bank.Trick,
+                    InterestPercent = bank.InterestPercent, TotalDebt = bank.Principal > 0 ? HubLoans.Debt(bank.Principal, bank.Trick, HubLoans.Version(bank)) : checked(bank.Debt + bank.Repaid),
+                    Status = bank.Status
+                };
+            }
+            if (bank.Contract != null && string.IsNullOrEmpty(bank.Contract.OriginalTrick) && !string.IsNullOrEmpty(bank.Contract.Trick))
+                bank.Contract.OriginalTrick = bank.Contract.Trick;
+            if (bank.Contract != null && !bank.Contracts.Any(c => c.Id == bank.Contract.Id)) bank.Contracts.Add(Copy(bank.Contract));
+            foreach (var contract in bank.Contracts)
+            {
+                if (string.IsNullOrEmpty(contract.OriginalTrick) && !string.IsNullOrEmpty(contract.Trick))
+                    contract.OriginalTrick = contract.Trick;
+                if (!string.IsNullOrEmpty(contract.OriginalTrick))
+                    bank.LastTrickOfferNumber = Math.Max(bank.LastTrickOfferNumber, contract.Number);
+            }
+            if (bank.Contracts.Count > 10) bank.Contracts.RemoveRange(0, bank.Contracts.Count - 10);
+            if (bank.Payments.Count > 10) bank.Payments.RemoveRange(0, bank.Payments.Count - 10);
+        }
+
+        private static void SyncLoanStatus(HubBank bank)
+        {
+            if (bank.Contract == null || bank.Debt == 0 && bank.Status != "paid") return;
+            bank.Contract.Status = bank.Status;
+            var archived = bank.Contracts.FirstOrDefault(c => c.Id == bank.Contract.Id);
+            if (archived != null) archived.Status = bank.Status;
+        }
+
+        private static HubLoanOffer EnsureLoanOffer(HubSnapshot s)
+        {
+            // Unity JsonUtility materializes a serialized null nested object as an empty offer.
+            // The identity, not object presence, distinguishes an issued contract from an empty slot.
+            if (s.Bank.Offer == null || string.IsNullOrWhiteSpace(s.Bank.Offer.Id) || s.Bank.Offer.Number <= 0)
+            {
+                s.Bank.OfferSequence = checked(s.Bank.OfferSequence + 1);
+                s.Bank.Offer = HubLoans.Offer(s.Profile.Id, s.Bank.OfferSequence, s.Bank.LastTrickOfferNumber);
+                if (s.Bank.Offer.Trick.Length > 0) s.Bank.LastTrickOfferNumber = s.Bank.OfferSequence;
+            }
+            return s.Bank.Offer;
+        }
+
+        private static HubLoanOffer CurrentLoanOffer(HubSnapshot s, string id)
+        {
+            Require(id.Length > 0 && s.Bank.Offer != null && s.Bank.Offer.Id == id,
+                "offer", "Этот договор уже закрыт. Возьми новый у Тузяры.");
+            return s.Bank.Offer!;
+        }
+
+        private static string DecideLoan(HubSnapshot s, string requestId, int amount, string trick, long issuedAt, int version, HubLoanOffer? offer)
+        {
+            var bank = s.Bank;
+            bank.RequestId = requestId; bank.RequestedAmount = amount;
+            var refusal = bank.CollectorPending ? "collector" : bank.Debt > 0 ? "debt"
+                : amount <= 0 || amount > bank.CreditLimit ? "limit"
+                : s.Profile.Matches < 2 && amount > bank.CreditLimit / 2 ? "history" : "";
+            if (refusal.Length > 0)
+            {
+                bank.DecisionCode = refusal;
+                if (bank.Debt == 0) bank.Status = "rejected";
+                bank.Decision = refusal == "collector" ? "Ребята тебя ждут. Сначала с ними."
+                    : refusal == "debt" ? "Сначала старый долг, потом поговорим."
+                    : refusal == "history" ? "Сначала поиграй. Половину лимита — дам."
+                    : "Губу закатай. Лимит — " + bank.CreditLimit + " тун-тун коинов.";
+                return bank.Decision;
+            }
+            bank.Principal = amount; bank.Debt = HubLoans.Debt(amount, trick, version);
+            s.Profile.Coins = checked(s.Profile.Coins + amount); // Principal is never earned income or XP.
+            bank.Trick = trick; bank.InterestPercent = HubLoans.InterestPercent(trick, version);
+            bank.TermsVersion = version; bank.SignedAt = issuedAt; bank.ExtensionUsed = false;
+            bank.DueAt = checked(issuedAt + HubLoans.Days(trick) * 86400L);
+            bank.CollectorAt = checked(bank.DueAt + (version >= HubLoans.CurrentTermsVersion ? HubLoans.CollectorDelay : HubLoans.LegacyCollectorDelay));
+            bank.ReviewAt = issuedAt;
+            bank.Repaid = bank.IncomeRemainder = 0;
+            bank.OverdueDoubled = bank.CollectionActive = bank.CollectorPending = false;
+            bank.Status = bank.DecisionCode = "approved";
+            bank.Contract = new HubLoanContract
+            {
+                Id = offer?.Id ?? "legacy-loan-" + requestId, Number = offer?.Number ?? 0,
+                Borrower = s.Profile.DisplayName, SignedAt = issuedAt, Principal = amount, CreditLimit = bank.CreditLimit,
+                OriginalDueAt = bank.DueAt, TermsVersion = version, Trick = trick, InterestPercent = bank.InterestPercent,
+                OriginalTrick = offer?.OriginalTrick ?? trick, TrickChallenged = offer?.Revealed ?? false,
+                TotalDebt = bank.Debt, Status = bank.Status
+            };
+            bank.Contracts.Add(Copy(bank.Contract));
+            if (bank.Contracts.Count > 10) bank.Contracts.RemoveAt(0);
+            bank.Decision = "Одобрено " + amount + " · вернуть " + bank.Debt + " за " + HubLoans.Days(trick) + " дня";
+            return bank.Decision;
         }
 
         private static void QuestEvent(HubSnapshot s, string kind, string game, int count)
-        {
-            foreach (var quest in s.Quests.Where(q => q.Event == kind && (q.Game.Length == 0 || q.Game == game))) quest.Progress = Math.Min(quest.Goal, quest.Progress + count);
-        }
+            => HubQuests.Event(s, kind, game, count);
 
         private static void Chests(HubSnapshot s, int count)
         {
@@ -427,12 +674,12 @@ namespace CardGame.Core.Meta
         {
             Require(amount >= 0, "amount", "Начисление не может быть отрицательным.");
             var withholding = 0;
-            if (s.Bank.CollectionActive && s.Bank.Debt > 0)
+            if (HubLoans.WithholdsIncome(s.Bank))
             {
                 var split = (long)amount + s.Bank.IncomeRemainder;
                 withholding = (int)Math.Min(s.Bank.Debt, split / 2);
                 s.Bank.IncomeRemainder = (int)(split % 2);
-                Repay(s, withholding);
+                if (withholding > 0) Repay(s, withholding, source: "income");
             }
             s.Profile.Coins = checked(s.Profile.Coins + amount - withholding);
             s.Profile.CoinsEarned = checked(s.Profile.CoinsEarned + amount);
@@ -443,41 +690,67 @@ namespace CardGame.Core.Meta
             s.IncomeDays.RemoveAll(d => d.Day < day - 30);
         }
 
-        private static void Repay(HubSnapshot s, int amount)
+        private void Repay(HubSnapshot s, int amount, int discount = 0, bool early = false, string source = "payment", string id = "")
         {
-            s.Bank.Debt -= amount;
-            s.Bank.Repaid = checked(s.Bank.Repaid + amount);
-            if (s.Bank.Debt == 0)
+            var bank = s.Bank;
+            var receipt = new HubLoanPayment
             {
-                s.Bank.Status = "paid"; s.Bank.CollectionActive = s.Bank.CollectorPending = false;
-                s.Bank.IncomeRemainder = 0; s.Bank.Decision = "Кредит полностью погашен";
+                Id = string.IsNullOrEmpty(id) ? "loan-payment-" + checked(++bank.PaymentSequence) : id,
+                ContractId = bank.Contract?.Id ?? "", Amount = amount, PaidBefore = bank.Repaid,
+                DebtBefore = bank.Debt, At = Now, Discount = discount, Early = early, Source = source
+            };
+            bank.Debt = checked(bank.Debt - amount - discount);
+            bank.Repaid = checked(bank.Repaid + amount);
+            if (bank.Debt == 0)
+            {
+                bank.Status = "paid"; bank.CollectionActive = bank.CollectorPending = false;
+                bank.IncomeRemainder = 0; bank.Decision = "Кредит полностью погашен";
             }
-            else if (s.Bank.CollectionActive) s.Bank.Status = "repaying";
+            else if (bank.CollectionActive) bank.Status = "repaying";
+            receipt.PaidAfter = bank.Repaid; receipt.DebtAfter = bank.Debt; receipt.Closed = bank.Debt == 0;
+            bank.Payments.Add(receipt);
+            if (bank.Payments.Count > 10) bank.Payments.RemoveAt(0);
+            SyncLoanStatus(bank);
         }
 
-        private static void Collectors(HubSnapshot s, bool won)
+        private void Collectors(HubSnapshot s, bool won)
         {
-            // Repayment is allowed while a collector table is open. Finishing or leaving it
-            // must still release the match, without charging an already-cleared debt again.
-            if (s.Bank.Debt == 0) return;
-            Require(s.Bank.CollectorPending && s.Bank.Debt > 0, "collector", "Коллекторская партия уже учтена.");
+            var bank = s.Bank;
+            if (bank.Debt == 0) return;
+            Require(bank.CollectorPending, "collector", "Коллекторская партия уже учтена.");
+            if (HubLoans.Version(bank) >= HubLoans.CurrentTermsVersion)
+            {
+                bank.CollectorPending = false;
+                if (won && !bank.ExtensionUsed)
+                {
+                    bank.ExtensionUsed = true; bank.CollectionActive = false;
+                    bank.DueAt = checked(Now + HubLoans.ExtensionSeconds); bank.CollectorAt = bank.DueAt;
+                    bank.Status = "extended"; bank.Decision = "Победа над коллекторами · срок продлён на одни сутки";
+                }
+                else
+                {
+                    bank.CollectionActive = true; bank.Status = "repaying";
+                    bank.Decision = "Половина будущих доходов идёт в погашение · текущий баланс сохранён";
+                }
+                SyncLoanStatus(bank);
+                return;
+            }
+            // Previously signed v1 contracts retain forgiveness and the wallet seizure.
             if (won)
             {
-                var forgiven = Math.Max(1, s.Bank.Debt / 4);
-                // Never erase the complete debt through a collector victory.
-                s.Bank.Debt -= Math.Min(s.Bank.Debt - 1, forgiven);
-                s.Bank.Decision = "Победа над коллекторами: списана четверть долга";
+                var forgiven = Math.Max(1, bank.Debt / 4);
+                bank.Debt -= Math.Min(bank.Debt - 1, forgiven);
+                bank.Decision = "Победа над коллекторами: списана четверть долга";
             }
             else
             {
-                var taken = s.Profile.Coins;
-                s.Profile.Coins = 0;
-                Repay(s, Math.Min(taken, s.Bank.Debt));
-                s.Bank.Decision = "Коллекторы забрали баланс; остаток долга хранится отдельно";
+                var taken = s.Profile.Coins; s.Profile.Coins = 0;
+                if (taken > 0) Repay(s, Math.Min(taken, bank.Debt), source: "collectors");
+                bank.Decision = "Коллекторы забрали баланс; остаток долга хранится отдельно";
             }
-            s.Bank.CollectorPending = false;
-            s.Bank.CollectionActive = s.Bank.Debt > 0;
-            s.Bank.Status = s.Bank.Debt > 0 ? "repaying" : "paid";
+            bank.CollectorPending = false; bank.CollectionActive = bank.Debt > 0;
+            bank.Status = bank.Debt > 0 ? "repaying" : "paid";
+            SyncLoanStatus(bank);
         }
 
         private static void Experience(HubSnapshot s, int amount)
@@ -579,13 +852,13 @@ namespace CardGame.Core.Meta
             s.CurrentRoomId = "";
         }
 
-        private static void JoinRoom(HubSnapshot s, string idOrCode)
+        private void JoinRoom(HubSnapshot s, string idOrCode)
         {
             var room = s.Rooms.FirstOrDefault(r => r.Id == idOrCode || string.Equals(r.Code, idOrCode, StringComparison.OrdinalIgnoreCase));
             Require(room != null && !room.Started, "room", "Комната не найдена или партия уже началась.");
             if (s.CurrentRoomId == room!.Id) return;
             Require(room.Members.Count < room.MaxPlayers, "full", "Комната заполнена.");
-            Require(room.Stake == 0 || s.Bank.Debt == 0, "debt", "Пока есть долг, доступны столы без ставок.");
+            Require(room.Stake == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
             LeaveRoom(s);
             room.Members.Add(new HubRoomMember { PlayerId = s.Profile.Id });
             s.CurrentRoomId = room.Id;
@@ -618,6 +891,8 @@ namespace CardGame.Core.Meta
         {
             var original = Part(c.Action) + Part(c.Target) + Part(c.Text) + Part(c.Amount.ToString()) + Part(c.Flag.ToString()) + Part(c.Value.ToString());
             // Keep old receipt identities for commands written before settings were added.
+            if (c.CaughtCheats != 0 || c.CheatsPlayed != 0 || c.TimesCaught != 0)
+                original += Part("durak-evidence") + Part(c.CaughtCheats.ToString()) + Part(c.CheatsPlayed.ToString()) + Part(c.TimesCaught.ToString());
             var rules = c.GameSettings;
             return rules == null ? original : original + Part("game-settings-v1") + Part(rules.DeckSize.ToString())
                 + Part(rules.AllowTransfer.ToString()) + Part(rules.NeighboursOnly.ToString())

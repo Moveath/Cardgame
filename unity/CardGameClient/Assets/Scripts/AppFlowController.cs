@@ -31,6 +31,7 @@ namespace CardGameClient
         private bool _launchingHubRoom;
         private string _lastHubGame;
         private bool _returnToBank;
+        private bool _returnToBankJobs;
 
         // Галерея аватаров: первый уровень — наборы, второй — образы внутри набора.
         private RectTransform _avatarGroupsPanel;
@@ -394,7 +395,7 @@ namespace CardGameClient
         private Button CreateAvatarCell(Transform parent, Sprite sprite, Vector2 topLeft, Vector2 cellSize,
             float portraitHeight, Action onClick)
         {
-            var go = new GameObject("AvatarCell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
+            var go = new GameObject("AvatarCell", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(HubOutline), typeof(Button));
             go.transform.SetParent(parent, false);
             PlaceFromTop((RectTransform)go.transform, topLeft.x, topLeft.y, cellSize);
 
@@ -584,7 +585,7 @@ namespace CardGameClient
             _lastHubGame=game;
             if(_launchingHubRoom)return true;
             if(_startingHubGame)return false;
-            _returnToBank=false;
+            _returnToBank=false; _returnToBankJobs=false;
             _startingHubGame=true;
             try
             {
@@ -603,9 +604,11 @@ namespace CardGameClient
         {
             _lastHubGame=game;
             var snapshot=PlayerHubRuntime.Current;
-            _returnToBank=snapshot?.Matches.Find(match=>match.Id==snapshot.ActiveMatchId)?.IsCollector==true;
-            var room=_returnToBank?null:snapshot?.Rooms.Find(item=>item.Id==snapshot.CurrentRoomId && item.GameId==game);
-            ApplyGameSettings(game,players,room?.GameSettings??HubGameSettings.DefaultFor(game));
+            var entry=snapshot?.Matches.Find(match=>match.Id==snapshot.ActiveMatchId);
+            _returnToBank=entry?.IsCollector==true;
+            _returnToBankJobs=!string.IsNullOrEmpty(entry?.BankJobId);
+            var room=_returnToBank || _returnToBankJobs?null:snapshot?.Rooms.Find(item=>item.Id==snapshot.CurrentRoomId && item.GameId==game);
+            ApplyGameSettings(game,players,_returnToBankJobs?entry.GameSettings:room?.GameSettings??HubGameSettings.DefaultFor(game));
             _launchingHubRoom=true;
             try
             {
@@ -620,6 +623,7 @@ namespace CardGameClient
             {Debug.LogWarning(PlayerHubRuntime.LastMessage);return;}
             if(this==null)return;
             ShowScreen(_mainMenuScreen);
+            if (_returnToBankJobs) { _playerHub.ReturnToBankJobs(); return; }
             _playerHub.Navigate(_returnToBank?"bank":!string.IsNullOrEmpty(PlayerHubRuntime.Current?.CurrentRoomId)?"room":
                 string.IsNullOrEmpty(_lastHubGame)?"games":"game:"+_lastHubGame);
         }

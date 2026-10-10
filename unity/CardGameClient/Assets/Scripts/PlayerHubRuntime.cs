@@ -20,18 +20,21 @@ namespace CardGameClient
         private static bool _reporting;
         public static bool HasPendingResult=>_pendingResult!=null;
         private static bool _subscribed;
+        private static int _durakCaughtCheats, _durakCheatsPlayed, _durakTimesCaught;
         public static HubSnapshot Current { get; private set; }
+        /// <summary>Часы сервиса: таймер подарка в UI считает по ним же, что и сервис.</summary>
+        public static IHubClock Clock { get; private set; } = new UnityHubClock();
         public static string LastMessage { get; private set; } = "";
         public static event Action<HubSnapshot> Changed;
 
         public static string AvatarName => Current?.Profile.AvatarName ?? UnityHubStore.LegacyAvatar;
         public static string DisplayName => Current?.Profile.DisplayName ?? "Игрок";
 
-        public static void UseService(IPlayerHubService service)
+        public static void UseService(IPlayerHubService service,IHubClock clock=null)
         {
-            _service=service;Current=null;_loading=null;_legacyAvatar=null;
+            _service=service;Clock=clock??new UnityHubClock();Current=null;_loading=null;_legacyAvatar=null;
             _matchId=null;_gameId=null;_startingMatch=null;_pendingResult=null;_reporting=false;LastMessage="";
-            HubRoster.Clear();Subscribe();
+            HubRoster.Clear();ResetDurakEvidence();Subscribe();
         }
 
         private static void EnsureService()
@@ -39,7 +42,8 @@ namespace CardGameClient
             if(_service!=null)return;
             var store=new UnityHubStore();
             _legacyAvatar=store.Exists?null:UnityHubStore.LegacyAvatar;
-            _service=new LocalPlayerHubService(store,new UnityHubClock());
+            Clock=new UnityHubClock();
+            _service=new LocalPlayerHubService(store,Clock);
             Subscribe();
         }
 
@@ -48,6 +52,7 @@ namespace CardGameClient
             if(_subscribed)return;_subscribed=true;
             HubMatchReporter.MatchCompleted+=OnMatchCompleted;
             HubMatchReporter.SpiderKilled+=OnSpiderKilled;
+            HubMatchReporter.DurakEvidence+=OnDurakEvidence;
         }
 
         public static Task<HubResult> LoadAsync()
@@ -123,6 +128,7 @@ namespace CardGameClient
 
         public static void BeginGame(string gameId,string matchId=null)
         {
+            ResetDurakEvidence();
             _gameId=gameId;
             _matchId=string.IsNullOrEmpty(matchId)?Guid.NewGuid().ToString("N"):matchId;
             _startingMatch=string.IsNullOrEmpty(matchId)
@@ -166,7 +172,10 @@ namespace CardGameClient
                 var starting=_startingMatch;_startingMatch=null;
                 if(starting!=null && !(await starting).Success)return;
                 _pendingResult=new HubCommand{Id="match-result:"+token,Action="report_match",Target=gameId,
-                    Text=token,Flag=won,Value=chests,Amount=draw?1:0};
+                    Text=token,Flag=won,Value=chests,Amount=draw?1:0,
+                    CaughtCheats=gameId=="durak"?_durakCaughtCheats:0,
+                    CheatsPlayed=gameId=="durak"?_durakCheatsPlayed:0,
+                    TimesCaught=gameId=="durak"?_durakTimesCaught:0};
                 await RetryPendingResultAsync();
             }
             finally{_reporting=false;}
@@ -180,6 +189,17 @@ namespace CardGameClient
             if(result.Success && _pendingResult==command)
             {_pendingResult=null;if(_matchId==command.Text)_matchId=null;}
             return result;
+        }
+
+        private static void ResetDurakEvidence()
+        {_durakCaughtCheats=0;_durakCheatsPlayed=0;_durakTimesCaught=0;}
+
+        private static void OnDurakEvidence(int caughtCheats,int cheatsPlayed,int timesCaught)
+        {
+            if(_gameId!="durak" || string.IsNullOrEmpty(_matchId) || HasPendingResult)return;
+            _durakCaughtCheats=Math.Max(_durakCaughtCheats,caughtCheats);
+            _durakCheatsPlayed=Math.Max(_durakCheatsPlayed,cheatsPlayed);
+            _durakTimesCaught=Math.Max(_durakTimesCaught,timesCaught);
         }
 
         private static async void OnSpiderKilled()

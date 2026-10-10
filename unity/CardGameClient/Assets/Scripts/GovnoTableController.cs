@@ -831,7 +831,8 @@ namespace CardGameClient
             Button(_intro, "Начать", new Vector2(155, -192), new Vector2(260, 60), StartMatch, true, true);
             Button(_intro, "В меню", new Vector2(-155, -192), new Vector2(260, 60), () => _onExit?.Invoke(), true);
             _result = Panel("Results", new Vector2(720, 440));
-            _resultText = Label(_result, "", 28, new Vector2(0, 40), new Vector2(650, 275));
+            _resultText = Label(_result, "", 28, new Vector2(0, 55), new Vector2(650, 245));
+            HubQuestResultLine.Attach(_resultText, () => _game != null && _game.IsFinished, 640);
             Button(_result, "Ещё партия", new Vector2(-155, -152), new Vector2(270, 60), StartMatch, true, true);
             Button(_result, "В меню", new Vector2(155, -152), new Vector2(270, 60), () => _onExit?.Invoke(), true);
             _result.gameObject.SetActive(false);

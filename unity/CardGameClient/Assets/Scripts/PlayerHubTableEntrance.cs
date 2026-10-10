@@ -53,20 +53,22 @@ namespace CardGameClient
             if (_tableModeGame != game) { _tableModeGame = game; _tableMode = TableMode.Bots; }
             PrepareGameSetup(_tableMode == TableMode.Create ? "create" : "quick", game);
             var settings = ActiveGameSetup();
-            const float x = 1600 - PlaqueMargin - PlaqueWidth, pad = 36, inner = PlaqueWidth - pad * 2;
+            const float x = 1600 - PlaqueMargin - PlaqueWidth, pad = 36;
+            var panelWidth = TablePanelWidth;
+            var inner = panelWidth - pad * 2;
             var left = x + pad;
-            var board = ClubBoard(_content, "Table plaque", x, PlaqueTop, PlaqueWidth, 820, 24);
+            var board = ClubBoard(_content, "Table plaque", x, PlaqueTop, panelWidth, 820, 24);
             board.raycastTarget = true;
             var shadow = board.gameObject.AddComponent<Shadow>();
             shadow.effectColor = new Color(0, 0, 0, .65f);
             shadow.effectDistance = new Vector2(-8, -6);
 
             // Both controls stay beside the table instead of opposite corners of the screen.
-            CityButton(_content, "ОТОЙТИ", x - 208, PlaqueTop + 8, 184, 56, Back);
+            CityButton(_content, "ОТОЙТИ", x - 208, 8, 184, 48, Back);
             var title = TableText(GameTitle(game), left, 64, inner - 126, 62, 42);
             title.font = ClubTitleFont(); title.color = ClubGold;
             title.resizeTextForBestFit = true; title.resizeTextMinSize = 26; title.resizeTextMaxSize = 42;
-            ClubButton(_content, "Правила", x + PlaqueWidth - pad - 116, 74, 116, 48,
+            ClubButton(_content, "Правила", x + panelWidth - pad - 116, 74, 116, 48,
                 () => Navigate("rules:" + game), size: 23);
             TableText(GameBlurb(game), left, 128, inner, 44, 20, true);
             var modes = new[] { "С ботами", "Быстрая игра", "Своя комната", "По коду" };

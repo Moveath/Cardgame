@@ -94,37 +94,5 @@ namespace CardGameClient
             Label(status, x + 22, y + 97, 526, 35, 20).color = HubPageGold;
             Paint(Button(title, x + 20, y + 145, 530, 50, action ?? (() => Navigate(route))), accent);
         }
-
-        private void BuildHubChats()
-        {
-            Title("Чаты", "Личные разговоры с друзьями · пока сообщения сохраняются только на этом устройстве");
-            Button("Найти друзей", 0, 0, 300, 48, () => { _hubFriendsTab = "people"; Navigate("friends"); });
-            Label(_state.Friends.Count + " друзей", 330, 13, 600, 35, 21).color = HubPageMuted;
-            var conversations = _state.People.Where(person => _state.Friends.Contains(person.Id))
-                .Select(person => new
-                {
-                    Person = person,
-                    Last = _state.Chats.Where(message => message.ConversationId == person.Id).OrderByDescending(message => message.CreatedAt).FirstOrDefault()
-                })
-                .OrderByDescending(item => item.Last == null ? 0 : item.Last.CreatedAt).ThenBy(item => item.Person.Name).ToArray();
-            if (conversations.Length == 0)
-            {
-                HubEmpty("Твои разговоры появятся здесь", "Добавь друга, чтобы написать ему или договориться о следующей партии.", 93);
-                return;
-            }
-            var start = HubPageStart("chats", conversations.Length, 5);
-            for (var i = start; i < Math.Min(start + 5, conversations.Length); i++)
-            {
-                var conversation = conversations[i]; var person = conversation.Person;
-                var y = 73 + (i - start) * 102;
-                Panel("Conversation " + person.Id, 0, y, 1160, 90);
-                HubPortrait(AvatarCatalog.Find(person.AvatarId), 16, y + 9, 64, 73);
-                Label(person.Name, 104, y + 9, 720, 31, 25).color = HubPageGold;
-                var preview = conversation.Last == null ? "Начать разговор" : conversation.Last.Text.Replace('\n', ' ').Replace('\r', ' ');
-                if (preview.Length > 72) preview = preview.Substring(0, 72) + "…";
-                Label(preview, 104, y + 47, 775, 33, 19).color = HubPageMuted;
-                Button("Открыть чат", 917, y + 22, 223, 46, () => Navigate("chat:" + person.Id));
-            }
-        }
     }
 }

@@ -99,6 +99,11 @@ namespace CardGameClient
             var selected=UnityEngine.EventSystems.EventSystem.current?.currentSelectedGameObject;
             var typing=selected!=null && selected.GetComponent<InputField>()!=null;
             UpdateCity(typing);
+            UpdateFortune(Time.unscaledDeltaTime,typing);
+            UpdateNews(Time.unscaledDeltaTime,typing);
+            UpdateTavernMail(Time.unscaledDeltaTime,typing);
+            UpdateTavernFriends(Time.unscaledDeltaTime,typing);
+            UpdateCityCanvas();
             if(_built && !_busy && !typing && (_page=="bank" || _page=="quests") && Time.unscaledTime>=_refreshAt)
             {_refreshAt=Time.unscaledTime+5;RefreshTimedPage();}
         }
@@ -144,6 +149,8 @@ namespace CardGameClient
         public void Navigate(string page)
         {
             if(_busy)return;
+            // Normalize the former placeholder before recording navigation history.
+            if(page=="place:fortune")page="fortune";
             CloseOutdoorVisit();
             if(page=="home"){_history.Clear();_tableTrip=-1;}
             else if(page!=_page)
@@ -162,7 +169,14 @@ namespace CardGameClient
         public void Back()
         {
             if(_busy)return;
+            if(TryFortuneBack())return;
+            if(TryLeaveFortuneInterior())return;
+            if(TryNewsBack())return;
             if(OutdoorVisit && _visitPhase==2){CloseOutdoorVisit();return;}
+            // Открыт подарок Шестёрки — «Назад» закрывает его, а не выводит из дома.
+            if(BankShown){CloseBankLoan();return;}
+            if(QuestsShown){CloseSixQuests();return;}
+            if(GiftShown){CloseSixGift();return;}
             // На главной внутри здания «Назад» выводит на улицу.
             if(_page=="home"){LeaveInterior();return;}
             if(_history.Count>0)
@@ -186,11 +200,6 @@ namespace CardGameClient
         private string ParentPage(string page)
         {
             if(page.StartsWith("game:",StringComparison.Ordinal) || IsRulesPage(page))return "games";
-            if(page.StartsWith("message:",StringComparison.Ordinal))
-            {
-                var message=_state.Chats.FirstOrDefault(m=>m.Id==page.Substring(8));
-                return message==null?"chats":"chat:"+message.ConversationId;
-            }
             if(page.StartsWith("chat:",StringComparison.Ordinal))return "chats";
             if(page.StartsWith("friend:",StringComparison.Ordinal))return "friends";
             if(page.StartsWith("throw:",StringComparison.Ordinal))return "inventory";
@@ -225,15 +234,20 @@ namespace CardGameClient
             if(result.Success)
             {
                 _state=result.Snapshot;
-                if(action=="create_room" || action=="join_room" || action=="invite_accept")
+                if(action=="create_room" || action=="join_room" || action=="invite_accept" || action=="friend_play")
                 {
                     var joined=CurrentRoom();
                     if(joined!=null)
                     {
                         _selectedGame=joined.GameId;
-                        if(_page=="create-room")_page="rooms";
-                        if(_page!="room" && (_history.Count==0 || _history[_history.Count-1]!=_page))_history.Add(_page);
-                        _page="room";
+                        // Из окна друзей — к столу этой игры в Клубе (PlayerHubTavernFriends.cs): «Назад» — к табличке стола.
+                        if(IsFriendsPage(_page))SeatAtTable(joined.GameId);
+                        else
+                        {
+                            if(_page=="create-room")_page="rooms";
+                            if(_page!="room" && (_history.Count==0 || _history[_history.Count-1]!=_page))_history.Add(_page);
+                            _page="room";
+                        }
                     }
                 }
                 if(action=="leave_room")
@@ -261,6 +275,8 @@ namespace CardGameClient
         private void Toast(string text)
         {
             if(_toast==null)return;
+            // Окно друзей лежит поверх общей плашки — сообщение показывает оно само.
+            if(FriendsShown && !string.IsNullOrEmpty(text)){FriendsToast(text);_toastPill.gameObject.SetActive(false);return;}
             _toast.text=text??"";
             _toastPill.gameObject.SetActive(!string.IsNullOrEmpty(text));
             _toastUntil=Time.unscaledTime+4f;
@@ -384,6 +400,8 @@ namespace CardGameClient
         private void BuildRoom()
         {
             var room=CurrentRoom();if(room==null){_page="rooms";BuildRooms();return;}
+            // Комната — у стола своей игры: из таверны или после партии камера едет к нему сама.
+            var table=TablePlace(room.GameId);if(!AtTable(table))GoToTable(table);
             Title(room.Name,GameTitle(room.GameId)+"   ·   код "+room.Code+"   ·   "+(room.Private?"закрытая":"открытая")+"   ·   ставка "+room.Stake);
             var mine=room.HostId==_state.Profile.Id;
             for(var i=0;i<room.MaxPlayers;i++)
@@ -402,7 +420,7 @@ namespace CardGameClient
             Label(GameSetupSummary(room.GameId,room.GameSettings??HubGameSettings.DefaultFor(room.GameId),room.MaxPlayers),
                 0,413,602,44,16).color=GoldInk;
             Button("Добавить бота",0,462,290,49,()=>Send("add_room_bot"),mine && room.Members.Count<room.MaxPlayers && !room.Started);
-            Button("Пригласить друга",314,462,288,49,()=>Navigate("friends"),!room.Started);
+            Button("Пригласить друга",314,462,288,49,()=>{_hubFriendsTab="friends";Navigate("friends");},!room.Started);
             var self=room.Members.FirstOrDefault(m=>m.PlayerId==_state.Profile.Id);
             Button(self!=null && self.Ready?"Не готов":"Я готов",0,527,290,49,()=>Send("room_ready",flag:self==null || !self.Ready),!room.Started);
             var localHost=mine || _state.People.Any(p=>p.Id==room.HostId && p.IsBot);
@@ -474,7 +492,7 @@ namespace CardGameClient
                 // Поле ввода клуба — тёмная вставка с тонкой золотой каймой.
                 rect=MakeRect(_content,"Input",x,y,w,44);image=rect.gameObject.AddComponent<Image>();
                 Round(image,w,44,10);image.color=new Color(.05f,.035f,.03f,.94f);
-                var edge=rect.gameObject.AddComponent<Outline>();edge.effectColor=new Color(.86f,.64f,.3f,.85f);edge.effectDistance=new Vector2(1.5f,-1.5f);
+                var edge=rect.gameObject.AddComponent<HubOutline>();edge.effectColor=new Color(.86f,.64f,.3f,.85f);edge.effectDistance=new Vector2(1.5f,-1.5f);
             }
             else{rect=Panel("Input",x,y,w,44);image=rect.GetComponent<Image>();}
             image.raycastTarget=true;
@@ -536,6 +554,8 @@ namespace CardGameClient
             if(_stage==null)return;var size=((RectTransform)transform).rect.size;if(size==_size)return;_size=size;
             _stage.localScale=Vector3.one*Mathf.Max(.01f,Mathf.Min(size.x/1600,size.y/900));
             PlaceCity();
+            PinCorners();
+            if(_built && _state!=null && IsTablePage(_page))Render();
         }
     }
 }

@@ -7,13 +7,14 @@ namespace CardGameClient
     /// <summary>Колесо плавно ведёт вертикальный список к цели; перетаскивание остаётся обычным ScrollRect.</summary>
     public sealed class HubSmoothScroll : ScrollRect
     {
-        private const float WheelSmoothTime = .16f;
-        private bool _wheelMoving, _pointerDragging;
+        // Колесо доезжает до цели мягко (автор: «листание слишком резкое», 2026-10-02).
+        public float WheelSmoothTime { get; set; } = .3f;
+        private bool _wheelMoving, _pointerDragging, _scrollbarDragging;
         private float _wheelTarget, _wheelVelocity;
 
         public override void OnScroll(PointerEventData data)
         {
-            if (!IsActive() || _pointerDragging) return;
+            if (!IsActive() || _pointerDragging || _scrollbarDragging) return;
             if (!vertical || horizontal) { base.OnScroll(data); return; }
             Canvas.ForceUpdateCanvases();
             var delta = -data.scrollDelta.y;
@@ -49,7 +50,7 @@ namespace CardGameClient
             _wheelTarget = Mathf.Clamp(_wheelTarget, 0, WheelLimit());
             var position = content.anchoredPosition;
             position.y = Mathf.SmoothDamp(position.y, _wheelTarget, ref _wheelVelocity,
-                WheelSmoothTime, Mathf.Infinity, deltaTime);
+                Mathf.Max(.01f, WheelSmoothTime), Mathf.Infinity, deltaTime);
             if (Mathf.Abs(position.y - _wheelTarget) < .1f && Mathf.Abs(_wheelVelocity) < 1)
             {
                 position.y = _wheelTarget;
@@ -64,6 +65,17 @@ namespace CardGameClient
             _wheelMoving = false;
             _wheelVelocity = 0;
             base.StopMovement();
+        }
+
+        public void BeginScrollbarDrag()
+        {
+            StopMovement();
+            _scrollbarDragging = true;
+        }
+
+        public void EndScrollbarDrag()
+        {
+            _scrollbarDragging = false;
         }
 
         public override void OnInitializePotentialDrag(PointerEventData data)
@@ -91,7 +103,7 @@ namespace CardGameClient
         protected override void OnDisable()
         {
             StopMovement();
-            _pointerDragging = false;
+            _pointerDragging = _scrollbarDragging = false;
             base.OnDisable();
         }
     }

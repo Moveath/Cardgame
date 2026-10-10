@@ -17,9 +17,9 @@ namespace CardGameClient
     public sealed partial class PlayerHubController
     {
         // Этажи: 0 — улица (лента районов), 1 — подполье, дальше — здания изнутри (PlayerHubInterior.cs):
-        // 2 — зал Клуба.
-        private static readonly string[] FloorArt = { null, "UI/Hub/card-city-underground", "UI/Hub/club-hall" };
-        private static readonly string[] FloorNames = { null, "Underground", "Club hall" };
+        // 2 — зал Клуба, 3 — Дом Шестёрки, 4 — Банк Тузяры, 5 — шатёр гадалки, 6 — таверна «Червовая дама».
+        private static readonly string[] FloorArt = { null, "UI/Hub/card-city-underground", "UI/Hub/club-hall", "UI/Hub/six-room", "UI/Hub/bank-hall", "UI/Hub/fortune-tent", "UI/Hub/tavern-hall" };
+        private static readonly string[] FloorNames = { null, "Underground", "Club hall", "Six house", "Bank hall", "Fortune tent", "Tavern hall" };
         // Район, откуда ведёт лестница вниз. Сами лестницы и двери — места с этажом в таблице CityPlaces
         // (PlayerHubPlaces.cs): их контур нажимается, дверь — точка нырка.
         private const string UndergroundFrom = "Главная площадь";
@@ -102,7 +102,20 @@ namespace CardGameClient
             floor.sizeDelta = new Vector2(_floorWidths[level], CityHeight);
             if (sprite.name != ClubHall || !BuildClubPanorama(floor, sprite))
             {
-                var art = floor.gameObject.AddComponent<HubCityArt>();
+                var artwork = floor;
+                if (level == FortuneLevel)
+                {
+                    // The approved tent stays entirely visible. Match the native page around its margins.
+                    var backing = MakeRect(floor, "Fortune interior backing", 0, 0, _floorWidths[level] * 10, CityHeight * 10);
+                    backing.anchorMin = backing.anchorMax = backing.pivot = new Vector2(.5f, .5f);
+                    backing.anchoredPosition = Vector2.zero;
+                    var fill = backing.gameObject.AddComponent<Image>();
+                    fill.color = new Color(.035f, .007f, .06f);
+                    fill.raycastTarget = false;
+                    artwork = MakeRect(floor, "Fortune interior art", 0, 0, 0, 0);
+                    Stretch(artwork);
+                }
+                var art = artwork.gameObject.AddComponent<HubCityArt>();
                 art.Art = sprite;
                 art.raycastTarget = false;
                 art.SetAllDirty();
@@ -116,12 +129,19 @@ namespace CardGameClient
             return true;
         }
 
-        /// <summary>Масштаб, при котором этаж закрывает экран целиком.</summary>
+        /// <summary>Шатёр совпадает с фоном страницы карт, остальные этажи закрывают экран целиком.</summary>
         private float FloorScale(int level)
         {
             var size = _cityArea.rect.size;
+            if (level == FortuneLevel)
+                return Mathf.Max(.0001f, FortuneBackdropRect(FortuneViewport, _floorWidths[level] / CityHeight).height
+                    * _stage.localScale.x / CityHeight);
             return Mathf.Max(size.x / _floorWidths[level], size.y / CityHeight, .0001f);
         }
+
+        private Vector2 FortuneFloorOffset(int level) => level == FortuneLevel
+            ? FortuneBackdropRect(FortuneViewport, _floorWidths[level] / CityHeight).center * _stage.localScale.x
+            : Vector2.zero;
 
         private void PlaceFloors()
         {
@@ -142,7 +162,7 @@ namespace CardGameClient
                     // После изменения размера окна цель тоже должна остаться внутри новых стен.
                     _floorPanTo = Mathf.Clamp(_floorPanTo, -limit, limit);
                 }
-                floor.anchoredPosition = new Vector2(level == _cityLevel ? -_floorPan * scale : 0, 0);
+                floor.anchoredPosition = new Vector2(level == _cityLevel ? -_floorPan * scale : 0, 0) + FortuneFloorOffset(level);
             }
             TrackClubHall();
         }
@@ -153,7 +173,8 @@ namespace CardGameClient
             if (level != 0)
             {
                 var scale = FloorScale(level);
-                return new Vector2(((uv.x - .5f) * _floorWidths[level] - FloorPan(level)) * scale, (.5f - uv.y) * CityHeight * scale);
+                return new Vector2(((uv.x - .5f) * _floorWidths[level] - FloorPan(level)) * scale, (.5f - uv.y) * CityHeight * scale)
+                    + FortuneFloorOffset(level);
             }
             var cityScale = CityScale();
             return new Vector2((_stairsPageX + uv.x * _stairsPageWidth - _cityCamera) * cityScale, (.5f - uv.y) * CityHeight * cityScale);
@@ -174,7 +195,7 @@ namespace CardGameClient
         private Vector2 DiveFocus(int level, int other)
         {
             var door = DiveDoor(level, other);
-            return door != null && _placePages.ContainsKey(door.Art) ? PlaceScreenPoint(door, door.Door) : Vector2.zero;
+            return door != null && _placePages.ContainsKey(door.Art) ? PlaceScreenPoint(door, door.Door) : FortuneFloorOffset(level);
         }
 
         /// <summary>Нажатие по городу (не свайп) — по месту под пальцем (PlayerHubPlaces.cs).</summary>
@@ -243,6 +264,13 @@ namespace CardGameClient
             FrameDive(0, false);
         }
 
+        private void MatchFortuneInteriorDim()
+        {
+            if (_cityDim == null) return;
+            // Native cards sit above the city dim. Keep the transition background equally bright.
+            _cityDim.color = _cityLevel == FortuneLevel ? Color.clear : new Color(.05f, .03f, .14f, .12f);
+        }
+
         /// <summary>Шаг нырка на <paramref name="deltaTime"/> секунд.</summary>
         private void MoveDive(float deltaTime)
         {
@@ -260,6 +288,7 @@ namespace CardGameClient
                 // Полная пелена — склейка: другое место, приближенное на свою лестницу.
                 _diveSwapped = true;
                 _cityLevel = _diveTarget;
+                if (_cityLevel == FortuneLevel || _diveFrom == FortuneLevel) MatchFortuneInteriorDim();
                 // В здание входят через двери: вид — от них; на другие этажи и на улицу — с середины.
                 _floorPan = _floorPanTo = 0;
                 _floorPanning = _floorDragging = false;
@@ -267,7 +296,9 @@ namespace CardGameClient
                 _cityStrip.gameObject.SetActive(_cityLevel == 0);
                 for (var level = 1; level < FloorArt.Length; level++)
                     if (Floor(level) != null) Floor(level).gameObject.SetActive(_cityLevel == level);
-                if (IsInterior(_cityLevel) && DiveDoor(_cityLevel, _diveFrom) is CityPlace entrance) LookAtPlace(entrance);
+                // Комната Шестёрки — меню: вид с середины, где все предметы (дверь видна и так).
+                if (IsInterior(_cityLevel) && _cityLevel != SixLevel && DiveDoor(_cityLevel, _diveFrom) is CityPlace entrance)
+                    LookAtPlace(entrance);
                 else PlaceFloors();
                 _diveFocus = DiveFocus(_cityLevel, _diveFrom);
             }
@@ -279,6 +310,8 @@ namespace CardGameClient
                 _diveVignette.gameObject.SetActive(false);
                 _diveGlow.gameObject.SetActive(false);
                 _diveTarget = -1;
+                // Карты появляются уже внутри шатра, когда закончился проход через его вход.
+                if (_cityLevel == FortuneLevel && _page == "home") Navigate("fortune");
                 return;
             }
             // Отъезд с торможением: быстро от лестницы, мягко на весь вид.
@@ -300,8 +333,12 @@ namespace CardGameClient
                 CityHeight * scale * zoom / 2 - half.y);
             // Этаж, сдвинутый вбок, упирается в стены со своего места.
             var pan = FloorPan(_cityLevel) * scale * zoom;
-            if (_cityLevel != 0) offset.x = Mathf.Clamp(offset.x, pan - reach.x, pan + reach.x);
-            offset.y = Mathf.Clamp(offset.y, -reach.y, reach.y);
+            // The tent has deliberate margins and a backing: cover-only bounds would be negative.
+            if (_cityLevel != FortuneLevel)
+            {
+                if (_cityLevel != 0) offset.x = Mathf.Clamp(offset.x, pan - reach.x, pan + reach.x);
+                offset.y = Mathf.Clamp(offset.y, -reach.y, reach.y);
+            }
             _cityRig.localScale = new Vector3(zoom, zoom, 1);
             _cityRig.anchoredPosition = offset;
             return focus * zoom + offset;

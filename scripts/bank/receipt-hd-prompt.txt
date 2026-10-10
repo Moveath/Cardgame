@@ -1,0 +1,7 @@
+Mode: built-in image_gen edit; transparent_background=true.
+Reference: unity/CardGameClient/Assets/Resources/UI/Hub/bank-receipt.png
+Final asset: unity/CardGameClient/Assets/Resources/UI/Hub/bank-receipt-hd.png
+Output: 1536 x 1024; imported uncompressed, maxTextureSize2048, no mipmaps.
+
+Prompt:
+High-resolution restoration of the bank paper UI sprite in the reference. It MUST be a SOLID OPAQUE SHEET OF GOLDEN CREAM PAPER, not an empty frame, no cut-out in the middle. Preserve the rectangular golden outer rim, inset stepped corners and thin dark brown rules from the input reference, with clean sharp illustrated edges. Fill the ENTIRE rectangle interior with fully opaque warm pale golden parchment, color approximately #F0D397, subtle natural paper texture, evenly lit, ABSOLUTELY NO transparent or dark holes, no vignette, no gray fading, no shadows inside the paper. Only the tiny area OUTSIDE the outermost silhouette should be transparent. A single golden clubs suit crest is centered near the top, slightly smaller than the reference: x44%-56%, y9%-26%, so it leaves space for large text below. Center and lower 70% completely blank PAPER, opaque even in the exact center. No words, no typography, no signatures or numbers. Front view perfectly straight, landscape 3:2 aspect, aim at 2304×1536 high resolution, minimal transparent outside padding, no fake checkerboard. Keep the warm cartoon game material style. This is a COMPLETE solid parchment card, not a transparent picture frame. Text-free game asset, crisp gold edges, very high detail.

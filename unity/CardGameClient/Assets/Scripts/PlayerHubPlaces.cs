@@ -28,6 +28,8 @@ namespace CardGameClient
             public bool HoverOnly, HallPassage;
             // Житель с роликом (пианистка): нажатие останавливает или запускает его, никуда не ведёт.
             public bool Resident;
+            // В Доме Шестёрки: нажатие — реплика Шестёрки в облачке (PlayerHubSixHouse.cs), никуда не ведёт.
+            public bool Talk;
             public Vector2 Door;
             // Область нажатия может включать подпись; обводка выделяет только сам объект.
             public Vector2[] Points, Outline;
@@ -38,7 +40,7 @@ namespace CardGameClient
         private static CityPlace Place(string id, string art, string title, string host, string plan, float doorX, float doorY,
             float[] points, string route = null, string routeTitle = null, string routeDetail = null, bool outdoors = false,
             bool direct = false, bool hoverOnly = false, bool hallPassage = false, float[] outlinePoints = null,
-            bool resident = false)
+            bool resident = false, bool talk = false)
         {
             Vector2[] Vertices(float[] coordinates)
             {
@@ -58,36 +60,60 @@ namespace CardGameClient
             return new CityPlace { Id = id, Art = art, Title = title, Host = host, Plan = plan, Door = new Vector2(doorX, doorY),
                 Points = hit, Outline = outline, Area = Mathf.Abs(area / 2), Fill = HubPlaceOutline.Triangulate(outline),
                 Route = route, RouteTitle = routeTitle, RouteDetail = routeDetail, Outdoors = outdoors, Direct = direct,
-                HoverOnly = hoverOnly, HallPassage = hallPassage, Resident = resident };
+                HoverOnly = hoverOnly, HallPassage = hallPassage, Resident = resident, Talk = talk };
         }
 
         private static CityPlace Stairs(string id, string art, int floor, float doorX, float doorY, float[] points)
+            => Entrance(Place(id, art, null, null, null, doorX, doorY, points), floor);
+
+        /// <summary>Место с названием, которое ведёт внутрь здания (этаж <paramref name="floor"/>), а не на свой экран.</summary>
+        private static CityPlace Entrance(CityPlace place, int floor)
         {
-            var place = Place(id, art, null, null, null, doorX, doorY, points);
             place.Floor = floor;
             return place;
         }
 
-        private static readonly CityPlace[] CityPlaces =
+        /// <summary>Столик в зале таверны: подход к нему — друзья (поиск, заявки, приглашения, «Позвать за стол»).</summary>
+        private static CityPlace TavernTable(int number, float doorX, float doorY, float[] points)
+            => Place("tavern-table-" + number, TavernHall, "Столик", "Дама червей", null, doorX, doorY, points,
+                "friends", "Друзья", "Друзья, поиск игроков, заявки и приглашения", direct: true);
+
+        // Реплики жителей за столами таверны выключены (2026-10-10, автор: «убери пока диалоги, может потом добавим обратно»):
+        // жители — часть своего стола (нажатие — друзья), девятки у угла кланов — просто зал. Тексты, облачка и болтовня
+        // в тишине сохранены (PlayerHubTavern.cs): вернуть — включить флаг. Объявлен до CityPlaces — тот читает его при сборке.
+        private static readonly bool TavernResidentsTalk = false;
+
+        /// <summary>Жители за столом таверны: с репликами — отвечают, без них — как их стол, друзья.</summary>
+        private static CityPlace TavernResidents(string id, string title, string host, float doorX, float doorY, float[] points)
+            => TavernResidentsTalk ? Place(id, TavernHall, title, host, null, doorX, doorY, points, talk: true)
+                : Place(id, TavernHall, title, host, null, doorX, doorY, points, "friends", "Друзья",
+                    "Друзья, поиск игроков, заявки и приглашения", direct: true);
+
+        // Выключенные места — null в списке, их нет (FindAll ниже).
+        private static readonly CityPlace[] CityPlaces = System.Array.FindAll(new[]
         {
             // Архив переехал с холма в здание бывшего полицейского поста (решение автора, 2026-09-30).
             Place("archive", "card-city-old-town", "Архив", "Туз червей — архивариус",
                 "Достижения игрока и летопись города — история Тузяры, Шестёрки и других жителей.",
                 290, 510, new float[] { 212, 655, 212, 225, 262, 185, 365, 55, 470, 175, 505, 195, 505, 620, 355, 640, 352, 655 },
                 "achievements", "Достижения", "Все достижения и награды за них"),
-            Place("six", "card-city-old-town", "Дом Шестёрки", "Шестёрка пик — проводник",
-                "Проводник по городу: правила игр, подсказки и почтовый ящик — к нему приходят письма и подарки.",
-                680, 530, new float[] { 548, 625, 548, 395, 575, 350, 610, 320, 690, 312, 715, 360, 742, 425, 742, 620, 700, 628 },
-                "tutorial", "Обучение", "Правила всех игр и подсказки"),
-            Place("tavern", "card-city-old-town", "Таверна «Червовая дама»", "Дама червей",
-                "Здесь встречаются с друзьями, пишут и зовут за стол. У входа Пятёрка червей играет на аккордеоне.",
+            // Дом Шестёрки — здание с комнатой внутри (2026-10-07, PlayerHubSixHouse.cs): дверь ведёт на её этаж.
+            // Нажимается и домик, и табличка на кронштейне справа, над проулком; контур — только домик.
+            Entrance(Place("six", "card-city-old-town", "Дом Шестёрки", "Шестёрка пик — проводник", null,
+                680, 530, new float[] { 548, 625, 548, 395, 575, 350, 610, 320, 690, 312, 715, 360, 735, 395, 860, 395, 860, 482,
+                    742, 482, 742, 620, 700, 628 },
+                outlinePoints: new float[] { 548, 625, 548, 395, 575, 350, 610, 320, 690, 312, 715, 360, 742, 425, 742, 620, 700, 628 }),
+                SixLevel),
+            // Таверна — здание с залом внутри (PlayerHubTavern.cs, 2026-10-10): дверь ведёт на его этаж.
+            Entrance(Place("tavern", "card-city-old-town", "Таверна", "Дама червей",
+                "Здесь встречаются с друзьями, пишут и зовут за стол. На сцене Пятёрка червей играет на аккордеоне.",
                 1140, 510, new float[] { 895, 610, 895, 300, 905, 170, 955, 70, 1000, 90, 1090, 25, 1140, 50, 1200, 110, 1250, 190,
-                    1300, 250, 1300, 395, 1255, 420, 1255, 600, 1190, 610 },
-                "friends", "Друзья и чаты", "Друзья, сообщения и приглашения за стол"),
-            Place("fortune", "card-city-old-town", "Шатёр гадалки", "Пиковая дама",
-                "Раз в день бесплатный «расклад дня»: открой три карты из девяти — награда и предсказание на день.",
+                    1300, 250, 1300, 395, 1255, 420, 1255, 600, 1190, 610 }),
+                TavernLevel),
+            Entrance(Place("fortune", "card-city-old-town", "Шатёр гадалки", "Пиковая дама",
+                "Одна из шести карт бесплатно каждые 24 часа. Предсказание меняет обычную награду за несколько партий.",
                 1405, 520, new float[] { 1285, 600, 1295, 470, 1310, 420, 1340, 380, 1405, 305, 1470, 370, 1500, 400, 1515, 440,
-                    1515, 600, 1460, 620, 1330, 620 }),
+                    1515, 600, 1460, 620, 1330, 620 }, "fortune", direct: true), FortuneLevel),
             Place("shop", "card-city", "Лавка", "Дама бубен",
                 "Вся косметика города: рубашки, рамки, сукна и персонажи, товар дня и примерочная.",
                 380, 500, new float[] { 230, 605, 230, 300, 300, 245, 390, 195, 455, 165, 470, 175, 520, 260, 548, 330, 552, 605 },
@@ -98,10 +124,11 @@ namespace CardGameClient
             Stairs("club", "card-city", FirstInterior, 836, 470,
                 new float[] { 558, 560, 558, 275, 610, 265, 640, 195, 700, 200, 710, 180, 760, 190, 785, 160, 790, 100,
                     880, 100, 885, 160, 915, 190, 960, 180, 975, 200, 1030, 200, 1060, 265, 1145, 275, 1145, 560, 1030, 600, 640, 600 }),
+            // Киоск «Карточный вестник» (PlayerHubNews.cs, 2026-10-09): подход к окошку и газета.
             Place("news", "card-city", "Киоск новостей", "Двойка",
-                "Новости города, задания дня и объявления о новых местах.",
+                "Новости города, хроника и слухи.",
                 1160, 520, new float[] { 1062, 615, 1058, 425, 1095, 408, 1115, 378, 1160, 345, 1205, 378, 1228, 408, 1265, 425, 1262, 615 },
-                "quests", "Задания", "Задания дня и награды за них"),
+                "news", direct: true),
             // Уличный объект: камера подходит к фонтану, но отдельный экран не открывается.
             Place("fountain", "card-city", "Фонтан", "Главная площадь", null,
                 1382, 538, new float[] { 1208, 623, 1244, 615, 1245, 588, 1250, 577, 1267, 571, 1299, 568,
@@ -110,11 +137,11 @@ namespace CardGameClient
                     1410, 449, 1405, 458, 1421, 458, 1434, 468, 1439, 482, 1435, 495, 1423, 502, 1407, 500,
                     1398, 495, 1408, 514, 1457, 518, 1470, 535, 1478, 567, 1510, 570, 1526, 578, 1533, 617,
                     1553, 624, 1554, 643, 1520, 651, 1280, 651, 1208, 641 }, outdoors: true),
-            Place("bank", "card-city-tuzyara", "Банк Тузяры", "Тузяра",
-                "Кредиты с подвохом, поручения и «крыша» Тузяры; у дверей — два вальта-бугая.",
+            // Банк — здание с залом внутри (PlayerHubBank.cs, 2026-10-08): дверь ведёт на его этаж.
+            Entrance(Place("bank", "card-city-tuzyara", "Банк Тузяры", "Тузяра", null,
                 390, 505, new float[] { 150, 600, 150, 210, 180, 185, 190, 140, 215, 135, 240, 180, 255, 45, 300, 40, 350, 15, 470, 40,
-                    560, 60, 595, 120, 600, 300, 620, 270, 640, 290, 655, 340, 655, 620, 600, 690, 460, 690, 450, 640, 300, 640, 280, 600 },
-                "bank", "Банк", "Кредиты, погашение и договоры"),
+                    560, 60, 595, 120, 600, 300, 620, 270, 640, 290, 655, 340, 655, 620, 600, 690, 460, 690, 450, 640, 300, 640, 280, 600 }),
+                BankLevel),
             Place("casino", "card-city-tuzyara", "Казино", "Дама треф и Тузяра",
                 "Покер с высокими ставками, VIP-зал и босс-партия с самим Тузярой. Хозяйка — Дама треф, поёт под рояль.",
                 905, 560, new float[] { 688, 690, 688, 265, 725, 212, 760, 238, 840, 165, 875, 110, 910, 95, 950, 110, 985, 145,
@@ -138,7 +165,10 @@ namespace CardGameClient
                     940, 300, 940, 560 }),
             Place("arena", "card-city-underground", "Арена", "Джокер",
                 "Яма Джокера: режим «Арена» — очки жизни, модификаторы и спецкарты. Ведёт красный Джокер.",
-                1400, 560, new float[] { 1040, 600, 1045, 450, 1075, 400, 1170, 395, 1200, 330, 1400, 330, 1500, 420, 1600, 470,
+                // Нажимается и табличка на перилах балкона над Ямой; контур — сама Яма.
+                1400, 560, new float[] { 1040, 600, 1045, 450, 1075, 400, 1165, 395, 1165, 238, 1422, 238, 1422, 330, 1500, 420,
+                    1600, 470, 1625, 560, 1600, 660, 1500, 700, 1300, 690, 1200, 650, 1100, 610 },
+                outlinePoints: new float[] { 1040, 600, 1045, 450, 1075, 400, 1170, 395, 1200, 330, 1400, 330, 1500, 420, 1600, 470,
                     1625, 560, 1600, 660, 1500, 700, 1300, 690, 1200, 650, 1100, 610 }),
             // Зал Клуба (картинка 1916×821): двери наружу, афиша с играми зала и четыре стола.
             Stairs("club-exit", ClubHall, 0, 115, 400,
@@ -152,6 +182,61 @@ namespace CardGameClient
             Place("club-pianist", ClubHall, "Пианистка", "Пятёрка треф", null, 1440, 440,
                 new float[] { 1506, 310, 1508, 325, 1494, 401, 1489, 411, 1414, 466, 1384, 462, 1366, 442, 1359, 367,
                     1362, 358, 1406, 312, 1459, 305, 1491, 306 }, resident: true),
+            // Дом Шестёрки изнутри (картинка 2196×941): дверь наружу, сам Шестёрка и предметы-разделы. Таблички у них
+            // автор пока убрал (2026-10-07), сундук — просто фон.
+            Stairs("six-exit", SixRoom, 0, 422, 400,
+                new float[] { 332, 650, 332, 150, 362, 100, 417, 82, 477, 100, 507, 150, 507, 640 }),
+            Place("six-guide", SixRoom, "Шестёрка", "Шестёрка пик", null, SixX, 540, new float[] {
+                572, 245, 565, 267, 571, 333, 545, 375, 547, 400, 516, 514, 508, 515, 508, 550, 548, 570, 590, 566, 595, 623,
+                625, 630, 626, 648, 598, 752, 535, 783, 519, 817, 536, 834, 589, 834, 590, 826, 622, 806, 653, 798, 639, 712,
+                654, 635, 706, 633, 712, 730, 702, 737, 692, 798, 706, 806, 701, 834, 724, 820, 751, 825, 754, 834, 817, 834,
+                830, 818, 819, 788, 759, 762, 740, 729, 734, 634, 786, 628, 779, 524, 819, 531, 834, 523, 848, 461, 866, 445,
+                866, 431, 847, 431, 839, 416, 813, 406, 796, 417, 771, 409, 743, 269, 629, 254, 628, 245 }, talk: true),
+            Place("six-quests", SixRoom, "Задания", "Шестёрка пик", null, 1262, 225,
+                new float[] { 1107, 115, 1419, 115, 1419, 392, 1107, 392 },
+                outlinePoints: new float[] { 1107, 115, 1419, 115, 1419, 335, 1107, 335 }),
+            // Мел — «Обучение»: Шестёрка спрашивает, показать ли город (PlayerHubSixHouse.cs, AskSixTour).
+            Place("six-lessons", SixRoom, "Обучение", "Шестёрка пик", null, 1034, 400,
+                new float[] { 942, 262, 1127, 262, 1127, 488, 942, 488 }, talk: true,
+                outlinePoints: new float[] { 974, 318, 1098, 312, 1098, 488, 974, 488 }),
+            // Столик с колодой — просто интерьер (решение автора, 2026-10-07): «Тренировка» повторяла Клуб — все игры и так
+            // с ботами; вернуть, когда появится игра с живыми людьми (IDEAS.md).
+            // Зал банка (картинка 2196×941, 21:9 — как комната Шестёрки): нажатие на Тузяру открывает стол и договор;
+            // сейф и вальты — фон.
+            Place("bank-boss", BankHall, "Тузяра", "Тузяра", null, 1100, 520,
+                new float[] { 747, 630, 747, 460, 962, 455, 974, 330, 1024, 250, 1167, 250, 1267, 320, 1267, 455, 1452, 460, 1452, 630 }),
+            // Зал таверны (картинка 2196×941, 21:9): Дама за стойкой и Пятёрка на сцене говорят; любой стол — друзья,
+            // почтовые ячейки за стойкой — чаты (PlayerHubTavern.cs).
+            Place("tavern-queen", TavernHall, "Дама червей", "Дама червей", null, 1098, 300,
+                new float[] { 1030, 375, 1030, 215, 1060, 182, 1140, 182, 1168, 215, 1168, 375 }, talk: true),
+            Place("tavern-five", TavernHall, "Пятёрка червей", "Пятёрка червей", null, 516, 360,
+                new float[] { 440, 525, 440, 300, 460, 205, 590, 205, 600, 300, 600, 525 }, talk: true),
+            Place("tavern-mail", TavernHall, "Письма", "Дама червей", null, 1310, 260,
+                new float[] { 1212, 180, 1410, 180, 1410, 340, 1212, 340 }, "chats", "Чаты", "Письма друзей", direct: true),
+            // Угол кланов за верёвкой (закрыт) — у верёвки дежурят девятки пик, правее почтальонов. Без реплик — просто зал.
+            TavernResidentsTalk ? Place("tavern-police", TavernHall, "Девятки пик", "Полиция", null, 1745, 400,
+                new float[] { 1540, 150, 1930, 150, 1930, 510, 1660, 510, 1660, 360, 1540, 360 }, talk: true) : null,
+            // За всеми столами — завсегдатаи (2026-10-10): стол и стулья перед ними — друзья («подсаживайся»), сами жители —
+            // реплика или, пока реплики выключены, тоже друзья. Король червей — один у сцены (лицо у левого края: на 16:9
+            // зал надо сдвинуть).
+            TavernTable(1, 380, 760, new float[] { 165, 911, 165, 640, 250, 585, 450, 580, 670, 610, 670, 911 }),
+            TavernResidents("tavern-king", "Король червей", "Мэр", 330, 520,
+                new float[] { 165, 580, 165, 425, 380, 425, 380, 580 }),
+            TavernTable(2, 840, 600, new float[] { 664, 692, 664, 500, 1030, 500, 1030, 692 }),
+            TavernResidents("tavern-builders", "Восьмёрки-строители", "Восьмёрки", 860, 430,
+                new float[] { 690, 500, 690, 420, 740, 360, 1000, 360, 1030, 420, 1030, 500 }),
+            TavernTable(3, 1440, 600, new float[] { 1290, 681, 1290, 505, 1650, 505, 1650, 681 }),
+            TavernResidents("tavern-postmen", "Четвёрки-почтальоны", "Четвёрки", 1460, 440,
+                new float[] { 1290, 505, 1290, 420, 1340, 365, 1600, 365, 1650, 420, 1650, 505 }),
+            TavernTable(4, 1700, 740, new float[] { 1504, 941, 1504, 620, 1600, 600, 1800, 600, 1889, 620, 1889, 941 }),
+            TavernResidents("tavern-sweethearts", "Семёрки", "Свидание", 1690, 540,
+                new float[] { 1520, 600, 1520, 470, 1870, 470, 1870, 600 }),
+            // Подарок — нарисованная коробка на полке (PlayerHubSixGift.cs).
+            Place("six-gift", SixRoom, "Подарок", "Шестёрка пик", null, 1780, 108,
+                new float[] { 1682, 40, 1847, 40, 1847, 240, 1682, 240 }, talk: true,
+                outlinePoints: new float[] { 1732, 148, 1732, 80, 1762, 62, 1807, 62, 1826, 85, 1826, 148 }),
+            // Сохранённые места второго зала. Пока ClubSecondHallEnabled выключен, их картинки
+            // не регистрируются в _placePages, поэтому переход, доска и столы недоступны.
             Place("club-passage", ClubBridge, "Переход между залами", "Клуб", null, 850, 350,
                 new float[] { 642, 550, 642, 220, 663, 142, 702, 81, 762, 49, 812, 58, 986, 119, 1055, 177,
                     1077, 254, 1077, 552 }, hallPassage: true),
@@ -160,7 +245,7 @@ namespace CardGameClient
             EmptyClubTable(2, 830),
             EmptyClubTable(3, 1180),
             EmptyClubTable(4, 1543),
-        };
+        }, place => place != null);
 
         // Въезд к двери: секунды, приближение и затемнение в конце (дальше страницу приглушает _cityDim).
         private const float VisitIn = .65f, VisitOut = .75f, VisitZoom = 1.8f, VisitShade = .5f;
@@ -245,7 +330,11 @@ namespace CardGameClient
             if (index < 0) return;
             var place = CityPlaces[index];
             if (place.HoverOnly) return;
-            if (place.Resident) ToggleResident(place.Id);
+            if (place.Id == "bank-boss") ShowBankLoan();
+            else if (place.Id == "six-quests") ShowSixQuests();
+            else if (place.Resident) ToggleResident(place.Id);
+            else if (place.Talk && place.Art == TavernHall) TavernTalk(place.Id);
+            else if (place.Talk) SixTalk(place.Id);
             else if (place.HallPassage) CrossClubHall();
             else if (place.Floor >= 0) StartDive(place.Floor);
             else StartVisit(index);
@@ -286,7 +375,8 @@ namespace CardGameClient
                 _visitPhase = 2;
                 _diveShade.gameObject.SetActive(false);
                 _diveVignette.gameObject.SetActive(false);
-                AimCity(VisitZoom, 1, VisitFocus());
+                AimCity(CurrentVisitZoom, 1, VisitFocus());
+                FrameTableSigns(1);
                 var place = CityPlaces[_visit];
                 if (OutdoorVisit) ShowOutdoorControls();
                 else if (!place.Direct) Navigate("place:" + place.Id);
@@ -297,7 +387,7 @@ namespace CardGameClient
             }
             if (_visitPhase == 2)
             {
-                AimCity(VisitZoom, 1, VisitFocus());
+                AimCity(CurrentVisitZoom, 1, VisitFocus());
                 // Фонтан остаётся частью площади: держим приближение до «Отойти».
                 if (OutdoorVisit) return;
                 // Вернулись на главную («Назад», вкладка) — выезжаем на улицу.
@@ -315,18 +405,25 @@ namespace CardGameClient
             }
             _cityRig.localScale = Vector3.one;
             _cityRig.anchoredPosition = Vector2.zero;
+            FrameTableSigns(0);
             _diveShade.gameObject.SetActive(false);
             _diveVignette.gameObject.SetActive(false);
             _visitPhase = 0;
             _visit = -1;
         }
 
+        private float CurrentVisitZoom => _visit >= 0 && IsGameTable(CityPlaces[_visit]) ? TableVisitZoom : VisitZoom;
+
         private Vector2 VisitFocus()
         {
             var place = CityPlaces[_visit];
             var point = PlaceScreenPoint(place, place.Door);
             // У стола с игрой справа встаёт табличка: стол подъезжает левее середины экрана.
-            if (IsGameTable(place)) point.x += _cityArea.rect.width * TableAside / VisitZoom;
+            if (IsGameTable(place))
+            {
+                point.x += _cityArea.rect.width * TableAside / CurrentVisitZoom;
+                point.y -= _cityArea.rect.height * TableLift / CurrentVisitZoom;
+            }
             return point;
         }
 
@@ -335,7 +432,7 @@ namespace CardGameClient
             if (_outdoorControls == null)
             {
                 _outdoorControls = StageLayer("Outdoor visit controls");
-                CityButton(_outdoorControls, "ОТОЙТИ", 24, 24, 170, 56, CloseOutdoorVisit);
+                PinToCorner((RectTransform)CityButton(_outdoorControls, "ОТОЙТИ", 24, 24, 170, 56, CloseOutdoorVisit).transform, -1);
             }
             _outdoorControls.SetAsLastSibling();
             _outdoorControls.gameObject.SetActive(true);
@@ -353,7 +450,8 @@ namespace CardGameClient
         /// <summary>Кадр въезда: <paramref name="depth"/> 0 — улица, 1 — у самой двери.</summary>
         private void FrameVisit(float depth)
         {
-            var screen = AimCity(1 + (VisitZoom - 1) * depth, depth, VisitFocus());
+            FrameTableSigns(depth);
+            var screen = AimCity(1 + (CurrentVisitZoom - 1) * depth, depth, VisitFocus());
             if (OutdoorVisit)
             {
                 _diveShade.gameObject.SetActive(false);
@@ -460,6 +558,7 @@ namespace CardGameClient
         /// <summary>Экран места: название, хозяин, что тут будет и переход в готовый раздел, если он есть.</summary>
         private void BuildCityPlace(string id)
         {
+            if (id == "fortune") { _page = "fortune"; BuildFortunePage(); return; }
             var place = System.Array.Find(CityPlaces, item => item.Id == id && item.Floor < 0 && !item.Outdoors && !item.Direct
                 && !item.HoverOnly && !item.HallPassage && !item.Resident);
             if (place == null)

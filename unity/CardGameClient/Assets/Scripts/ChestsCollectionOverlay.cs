@@ -485,7 +485,7 @@ namespace CardGameClient
 
         private static void ContrastOnWood(Text text, float width)
         {
-            var outline = text.gameObject.AddComponent<Outline>();
+            var outline = text.gameObject.AddComponent<HubOutline>();
             outline.effectColor = new Color(0.09f, 0.035f, 0.015f, 0.96f);
             outline.effectDistance = new Vector2(width, -width);
         }
