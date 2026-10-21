@@ -21,22 +21,22 @@ namespace CardGame.Core.Meta
             for (var i = 1; i <= 12; i++)
                 Item(s, "avatar_" + i.ToString("00"), "Персонаж " + i, "avatar", "Базовый персонаж", "#D9B765", true, "Avatars/avatar_" + i.ToString("00"));
             Item(s, "frame_default", "Простая рамка", "frame", "Базовая рамка", "#89968E", true);
-            Item(s, "frame_gold", "Золотая рамка", "frame", "Золотой контур портрета", "#E0BC57");
-            Item(s, "frame_berry", "Ягодная рамка", "frame", "Яркий контур портрета", "#C76C9C");
+            Item(s, "frame_gold", "Золотая рамка", "frame", "Золотой контур портрета", "#E0BC57", rarity: HubShop.Rare);
+            Item(s, "frame_berry", "Ягодная рамка", "frame", "Яркий контур портрета", "#C76C9C", rarity: HubShop.Uncommon);
             Item(s, "cardback_default", "Классика", "cardback", "Базовая рубашка карт", "#58766A", true);
-            Item(s, "cardback_emerald", "Изумруд", "cardback", "Изумрудная рубашка", "#23785E");
-            Item(s, "cardback_wine", "Винная рубашка", "cardback", "Бордовая рубашка", "#813C53");
+            Item(s, "cardback_emerald", "Изумруд", "cardback", "Изумрудная рубашка", "#23785E", rarity: HubShop.Uncommon);
+            Item(s, "cardback_wine", "Винная рубашка", "cardback", "Бордовая рубашка", "#813C53", rarity: HubShop.Uncommon);
             Item(s, "cardface_default", "Лицевая сторона · классика", "cardface", "Базовое оформление лицевой стороны карт", "#ECE0C7", true);
             Item(s, "cardface_contrast", "Крупные индексы", "cardface", "Выбор оформления · новое изображение появится позже", "#F1F0E6");
             Item(s, "chest_default", "Деревянный сундучок", "chest", "Базовый вид сундучка", "#967044", true);
-            Item(s, "chest_copper", "Медный сундучок", "chest", "Выбор скина сундука · арт появится позже", "#B7784D");
+            Item(s, "chest_copper", "Медный сундучок", "chest", "Выбор скина сундука · арт появится позже", "#B7784D", rarity: HubShop.Rare);
             Item(s, "trail_default", "Пунктирная дорожка", "trail", "Базовый след в Сундучках", "#BAAF83", true);
-            Item(s, "trail_dollars", "Денежная дорожка", "trail", "Выбор следа · отображение появится позже", "#81AA74");
+            Item(s, "trail_dollars", "Денежная дорожка", "trail", "Выбор следа · отображение появится позже", "#81AA74", rarity: HubShop.Rare);
             Item(s, "emote_default", "Базовые эмоции", "emote", "Базовый набор реакций", "#D5B96B", true);
-            Item(s, "emote_playful", "Весёлые эмоции", "emote", "Выбор набора · картинки появятся позже", "#E6986A");
+            Item(s, "emote_playful", "Весёлые эмоции", "emote", "Выбор набора · картинки появятся позже", "#E6986A", rarity: HubShop.Uncommon);
             Item(s, "table_default", "Зелёное сукно", "table", "Базовое сукно", "#174F3D", true);
             Item(s, "table_blue", "Ночной стол", "table", "Синее сукно", "#223D60");
-            Item(s, "table_plum", "Слива", "table", "Фиолетовое сукно", "#523655");
+            Item(s, "table_plum", "Слива", "table", "Фиолетовое сукно", "#523655", rarity: HubShop.Uncommon);
             Item(s, "background_default", "Тёплый зал", "background", "Базовый фон", "#302D28", true);
             Item(s, "background_night", "Ночная комната", "background", "Тёмный фон", "#172135");
             Item(s, "hair_natural", "Свои волосы", "hair", "Исходный цвет волос", "#59442E", true);
@@ -45,8 +45,8 @@ namespace CardGame.Core.Meta
             Item(s, "eyes_natural", "Свои глаза", "eyes", "Исходный цвет глаз", "#6B7256", true);
             Item(s, "eyes_blue", "Голубые глаза", "eyes", "Выбор для настройки внешности", "#5B93B6");
             Item(s, "eyes_green", "Зелёные глаза", "eyes", "Выбор для настройки внешности", "#679863");
-            Item(s, "hat_cap", "Кепка", "hat", "Слот головного убора · арт появится позже", "#AC8764");
-            Item(s, "outfit_midnight", "Ночной костюм", "outfit", "Слот костюма · арт появится позже", "#243D4B");
+            Item(s, "hat_cap", "Кепка", "hat", "Слот головного убора · арт появится позже", "#AC8764", rarity: HubShop.Uncommon);
+            Item(s, "outfit_midnight", "Ночной костюм", "outfit", "Слот костюма · арт появится позже", "#243D4B", rarity: HubShop.Rare);
             Item(s, "tomato_pack", "Помидоры ×10", "consumable", "Косметический бросок без влияния на правила", "#DB5341");
             s.Catalog.Last().Quantity = 10;
             foreach (var item in s.Catalog.Where(i => i.IsDefault)) s.Inventory.Add(new HubOwnedItem { ItemId = item.Id });
@@ -92,7 +92,10 @@ namespace CardGame.Core.Meta
             AddMailContacts(existing, now);
             foreach (var item in defaults.Catalog)
             {
-                if (!existing.Catalog.Any(i => i.Id == item.Id)) existing.Catalog.Add(item);
+                var saved = existing.Catalog.FirstOrDefault(i => i.Id == item.Id);
+                if (saved == null) existing.Catalog.Add(item);
+                // Цена и редкость — данные каталога, а не игрока: берутся из нынешней версии игры.
+                else { saved.Price = item.Price; saved.Rarity = item.Rarity; saved.PriceLabel = item.PriceLabel; }
                 if (item.IsDefault && !existing.Inventory.Any(i => i.ItemId == item.Id))
                     existing.Inventory.Add(new HubOwnedItem { ItemId = item.Id, Quantity = 1 });
             }
@@ -136,8 +139,14 @@ namespace CardGame.Core.Meta
             }
         }
 
-        private static void Item(HubSnapshot s, string id, string name, string category, string description, string color, bool basic = false, string resource = "")
-            => s.Catalog.Add(new HubCatalogItem { Id = id, Name = name, Category = category, Description = description, Color = color, IsDefault = basic, Resource = resource, PriceLabel = basic ? "Бесплатно" : "Демо · открыть" });
+        // Цена — по редкости (HubShop.PriceFor); базовое и расходники в Лавке не продаются.
+        private static void Item(HubSnapshot s, string id, string name, string category, string description, string color, bool basic = false,
+            string resource = "", string rarity = HubShop.Common)
+        {
+            var price = basic || category == "consumable" ? 0 : HubShop.PriceFor(rarity);
+            s.Catalog.Add(new HubCatalogItem { Id = id, Name = name, Category = category, Description = description, Color = color, IsDefault = basic,
+                Resource = resource, Rarity = rarity, Price = price, PriceLabel = basic ? "Бесплатно" : price > 0 ? price + " коинов" : "Демо · открыть" });
+        }
 
         private static void Achievement(HubSnapshot s, string id, string name, string description, int goal, int coins, int xp)
             => s.Achievements.Add(new HubAchievement { Id = id, Name = name, Description = description, Goal = goal, RewardCoins = coins, RewardXP = xp });

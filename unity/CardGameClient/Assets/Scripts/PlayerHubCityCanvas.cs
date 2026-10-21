@@ -59,7 +59,7 @@ namespace CardGameClient
                 }
             }
             // Середина доски (координаты сцены 1600×900, y вниз) → координаты фона.
-            const float left = 1600 - PlaqueMargin - PlaqueWidth;
+            var left = TablePanelX(_page.StartsWith("game:", System.StringComparison.Ordinal) ? _page.Substring(5) : "");
             Vector2 Local(float x, float y) => _cityArea.InverseTransformPoint(_stage.TransformPoint(new Vector3(x - 800, 450 - y)));
             var low = Local(left + PlaqueSolidInset, PlaqueTop + 820 - PlaqueSolidInset);
             var high = Local(left + TablePanelWidth - PlaqueSolidInset, PlaqueTop + PlaqueSolidInset);

@@ -91,7 +91,7 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = UiFonts.Body;
             BuildUi();
             Resize();
             RefreshForeground(0);
@@ -628,10 +628,16 @@ namespace CardGameClient
                 {
                     _seatLabels[id].resizeTextForBestFit = true;
                     _seatLabels[id].resizeTextMinSize = 17;
-                    _seatLabels[id].resizeTextMaxSize = 21;
+                    _seatLabels[id].resizeTextMaxSize = MobileUi.TextSize(21);
                 }
                 _seatDepth[id] = Label(anchor, "", 18, new Vector2(0, -168), new Vector2(180, 26));
                 _seatReady[id] = Label(anchor, "", 17, new Vector2(0, -191), new Vector2(id == 0 ? 200 : 180, 25));
+                if (MobileUi.Phone)
+                {
+                    _seatLabels[id].rectTransform.sizeDelta = new Vector2(id == 0 ? 220 : 200, 34);
+                    _seatDepth[id].rectTransform.sizeDelta = new Vector2(180, 30);
+                    _seatReady[id].rectTransform.sizeDelta = new Vector2(id == 0 ? 220 : 180, 30);
+                }
                 if (id == 0) continue;
                 _backs[id] = new CardView[4];
                 for (var n = 0; n < 4; n++)
@@ -663,7 +669,8 @@ namespace CardGameClient
             // Свой персонаж стоит вплотную слева от своих четырёх карт, а не в углу стола:
             // в узком окне угол занят соседом слева.
             var handHalfWidth = 1.5f * HandCardSpacing + CardView.Width * 1.10f / 2;
-            _seatPositions[0] = new Vector2(-Mathf.Min(handHalfWidth + 110, halfWidth - 100), -halfHeight + 245);
+            _seatPositions[0] = new Vector2(-Mathf.Min(handHalfWidth + 110, halfWidth - 100),
+                -halfHeight + (MobileUi.Phone ? 269 : 245));
             if (_seatAnchors[0] != null) _seatAnchors[0].anchoredPosition = _seatPositions[0];
             for (var n = 0; n < opponents.Count; n++)
             {
@@ -690,8 +697,8 @@ namespace CardGameClient
             // captions rise; the cinematic layer owns the actor's position during a close-up.
             if (sticker.Root.parent == _seatAnchors[id]) sticker.Root.anchoredPosition = offset;
             _seatLabels[id].rectTransform.anchoredPosition = offset + new Vector2(0, -142);
-            _seatDepth[id].rectTransform.anchoredPosition = offset + new Vector2(0, -168);
-            _seatReady[id].rectTransform.anchoredPosition = offset + new Vector2(0, -191);
+            _seatDepth[id].rectTransform.anchoredPosition = offset + new Vector2(0, MobileUi.Phone ? -176 : -168);
+            _seatReady[id].rectTransform.anchoredPosition = offset + new Vector2(0, MobileUi.Phone ? -207 : -191);
         }
 
         private const float HandCardSpacing = 161;
@@ -820,10 +827,10 @@ namespace CardGameClient
             var navigation = Rect(_board, "Navigation", Vector2.zero, Vector2.zero);
             Stretch(navigation);
             _navigationGroup = navigation.gameObject.AddComponent<CanvasGroup>();
-            var menu = Button(navigation, "В меню", Vector2.zero, new Vector2(180, 60), () => _onExit?.Invoke());
-            Anchor(menu, new Vector2(0, 1), new Vector2(130, -60));
-            _pauseButton = Button(navigation, "Пауза", Vector2.zero, new Vector2(160, 54), () => SetPaused(true));
-            Anchor(_pauseButton, new Vector2(1, 1), new Vector2(-120, -60));
+            var menu = Button(navigation, "В меню", Vector2.zero, new Vector2(180, MobileUi.Phone ? 84 : 60), () => _onExit?.Invoke());
+            Anchor(menu, new Vector2(0, 1), new Vector2(130, MobileUi.Phone ? -66 : -60));
+            _pauseButton = Button(navigation, "Пауза", Vector2.zero, new Vector2(160, MobileUi.Phone ? 84 : 54), () => SetPaused(true));
+            Anchor(_pauseButton, new Vector2(1, 1), new Vector2(-120, MobileUi.Phone ? -66 : -60));
             _intro = Panel("Intro", new Vector2(760, 510));
             Label(_intro, "Перед началом", 34, new Vector2(0, 192), new Vector2(670, 52)).color = Gold;
             Label(_intro, "Тап по карте — передать влево за " + _settings.PickSecondsText + " секунды.\nСобрал каре — нажми на центр стола.\nКрик и первая ладонь сработают вместе.\n\nУслышал «ГОВНО!» — тоже хлопни по центру.\nРанний хлопок: блокировка на 1 секунду.\nПромах мимо центра не штрафуется.\n\nПоследний теряет жизнь. Остались двое — оба победили.\nЖизни между раундами сохраняются.",
@@ -882,7 +889,7 @@ namespace CardGameClient
             var size = ((RectTransform)transform).rect.size;
             if (size.x <= 0 || size.y <= 0 || (size - _lastViewport).sqrMagnitude < 0.1f) return;
             _lastViewport = size;
-            var scale = Mathf.Min(size.x / 1600, size.y / 900);
+            var scale = Mathf.Max(.01f, Mathf.Min(size.x / 1600, size.y / (MobileUi.Phone ? 820 : 900)));
             _board.localScale = Vector3.one * scale;
             // Keep readable proportions but let the logical table grow with the window.
             // The felt/frame stretch independently, so wide windows have no side bars.
@@ -991,7 +998,7 @@ namespace CardGameClient
         {
             var rect = Rect(parent, "Text", position, bounds);
             var label = rect.gameObject.AddComponent<Text>();
-            label.font = _font; label.text = content; label.fontSize = size;
+            label.font = _font; label.text = content; label.fontSize = MobileUi.TextSize(size);
             label.color = Paper; label.alignment = TextAnchor.MiddleCenter; label.raycastTarget = false;
             label.horizontalOverflow = HorizontalWrapMode.Wrap; label.verticalOverflow = VerticalWrapMode.Truncate;
             return label;

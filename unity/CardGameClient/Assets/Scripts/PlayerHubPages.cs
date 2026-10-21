@@ -12,7 +12,6 @@ namespace CardGameClient
         private readonly Dictionary<string, int> _hubListPages = new Dictionary<string, int>();
         private string _hubFeaturePage;
         private string _hubFriendSearch = "";
-        private string _hubShopCategory = "all";
         private string _hubInventoryCategory = "all";
         private string _hubQuestKind = "all";
         private string _hubLesson = "durak";
@@ -37,8 +36,6 @@ namespace CardGameClient
                 case "friends": BuildTavernFriends(); return true;
                 case "chats": BuildTavernMail(); return true;
                 case "progress": BuildHubProgress(); return true;
-                case "shop": BuildHubShopFront(); return true;
-                case "shop-catalog": BuildHubShopCatalog(); return true;
                 case "inventory": BuildHubInventory(); return true;
                 case "achievements": BuildHubAchievements(); return true;
                 case "quests": BuildHubQuests(); return true;

@@ -122,6 +122,8 @@ namespace CardGameClient
             public RectTransform Bubble;
             public Text Line;
             public CanvasGroup Group;
+            public Vector2 Home, Unit;
+            public float HeadX, Bottom, Hold;
             public float Time = -1;
         }
 
@@ -153,7 +155,17 @@ namespace CardGameClient
             TavernSpeaker Speaker(string name, float x, float y, float headX)
             {
                 var (bubble, line, group) = SpeechBubble(floor, name, At(x, y), TavernBubbleWidth, TavernBubbleHeight, headX - x, unit);
-                return new TavernSpeaker { Bubble = bubble, Line = line, Group = group };
+                if (MobileUi.Phone)
+                {
+                    // Long greetings grow the paper instead of shrinking to tiny print.
+                    line.resizeTextForBestFit = false;
+                    line.fontSize = Mathf.RoundToInt(44 * unit.y);
+                    line.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    line.verticalOverflow = VerticalWrapMode.Truncate;
+                }
+                return new TavernSpeaker { Bubble = bubble, Line = line, Group = group,
+                    Home = bubble.anchoredPosition, Unit = unit, HeadX = At(headX, y).x,
+                    Bottom = bubble.anchoredPosition.y - TavernBubbleHeight * unit.y / 2 };
             }
             _tavernQueen = Speaker("Queen of Hearts bubble", TavernQueenBubbleX, TavernQueenBubbleY, TavernQueenHeadX);
             _tavernFive = Speaker("Five of Hearts bubble", TavernFiveBubbleX, TavernFiveBubbleY, TavernFiveHeadX);
@@ -208,6 +220,40 @@ namespace CardGameClient
             speaker.Bubble.SetAsLastSibling();
             speaker.Group.alpha = 1;
             speaker.Time = 0;
+            speaker.Hold = MobileUi.Phone ? Mathf.Clamp(2.5f + line.Length / 15f, 6, 13) : SixBubbleSeconds;
+            LayoutTavernSpeech(speaker);
+        }
+
+        /// <summary>Readable phone dialogue follows its speaker but stays inside the visible hall.</summary>
+        private void LayoutTavernSpeech(TavernSpeaker speaker)
+        {
+            if (!MobileUi.Phone || speaker == null || _cityArea == null || Floor(TavernLevel) == null) return;
+            var scale = FloorScale(TavernLevel);
+            var view = _cityArea.rect.size / scale;
+            var unit = speaker.Unit;
+            var width = Mathf.Min(780 * unit.x, view.x - 64 * unit.x);
+            var line = speaker.Line.rectTransform;
+            line.sizeDelta = new Vector2(width - 48 * unit.x, line.sizeDelta.y);
+            var height = Mathf.Max(126 * unit.y, speaker.Line.preferredHeight + 32 * unit.y);
+            var size = new Vector2(width, height);
+            speaker.Bubble.sizeDelta = size;
+            ((RectTransform)speaker.Bubble.Find("Paper")).sizeDelta = size;
+            ((RectTransform)speaker.Bubble.Find("Edge")).sizeDelta = size + Vector2.one * 8;
+            line.sizeDelta = size - new Vector2(48 * unit.x, 32 * unit.y);
+            var inset = 24 * unit.x;
+            var y = Mathf.Clamp(speaker.Bottom + height / 2, -view.y / 2 + height / 2 + inset,
+                view.y / 2 - height / 2 - inset);
+            var left = _floorPan - view.x / 2 + width / 2 + inset;
+            var right = _floorPan + view.x / 2 - width / 2 - inset;
+            // A panned, upper-left speaker must not put paper under the enlarged exit button.
+            var controlUnit = _stage != null ? _stage.localScale.x / scale : unit.x;
+            if (y + height / 2 > view.y / 2 - 132 * controlUnit)
+                left = Mathf.Min(right, Mathf.Max(left, _floorPan - view.x / 2 + width / 2 + 288 * controlUnit));
+            var x = Mathf.Clamp(speaker.Home.x, left, right);
+            speaker.Bubble.anchoredPosition = new Vector2(x, y);
+            var tail = (RectTransform)speaker.Bubble.Find("Tail");
+            tail.anchoredPosition = new Vector2(Mathf.Clamp(speaker.HeadX - x, -width / 2 + 36 * unit.x,
+                width / 2 - 36 * unit.x), -height / 2 - 4);
         }
 
         /// <summary>Что ждёт игрока в таверне: входящие заявки в друзья и приглашения за стол.</summary>
@@ -257,8 +303,9 @@ namespace CardGameClient
             foreach (var speaker in TavernSpeakers)
             {
                 if (speaker == null || speaker.Time < 0) continue;
+                LayoutTavernSpeech(speaker);
                 speaker.Time += deltaTime;
-                var fade = Mathf.Clamp01((speaker.Time - SixBubbleSeconds) / SixBubbleFade);
+                var fade = Mathf.Clamp01((speaker.Time - speaker.Hold) / SixBubbleFade);
                 speaker.Group.alpha = 1 - fade;
                 if (fade < 1) { talking = true; continue; }
                 speaker.Time = -1;

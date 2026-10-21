@@ -114,7 +114,7 @@ namespace CardGameClient
         /// </summary>
         private const float HandFanDrop = 30f;
 
-        private const float RankRowHeight = 56f;
+        private static float RankRowHeight => MobileUi.Phone ? 72f : 56f;
         private const float RankRowGap = 14f;
 
         /// <summary>
@@ -126,10 +126,10 @@ namespace CardGameClient
                                            + CardView.Height * ComfortableHandScale * CardView.HoverScale * 0.5f
                                            + CardView.SelectedGlowMargin;
 
-        private const float RankRowBottom = HandRowBottom + HandTopReach + RankRowGap + RankRowHeight * 0.5f;
+        private static float RankRowBottom => HandRowBottom + HandTopReach + RankRowGap + RankRowHeight * 0.5f;
 
         /// <summary>Ниже этой черты места соперников не опускаются: там уже ранги и рука.</summary>
-        private const float SeatFloor = RankRowBottom + RankRowHeight * 0.5f + 18f;
+        private static float SeatFloor => RankRowBottom + RankRowHeight * 0.5f + 18f;
 
         /// <summary>
         /// Сколько от карты обязано остаться видно из-под соседней. Угол с рангом и мастью
@@ -245,7 +245,7 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = UiFonts.Body;
             _bot = new SimpleBluffBot();
 
             BuildUi();
@@ -856,7 +856,24 @@ namespace CardGameClient
 
                 // Веер уходит в свою сторону экрана: у левых соперников влево, у правых вправо.
                 var fanSide = position.x < 0f ? -1f : 1f;
-                var container = BuildSeatBlock(_opponentsArea, player, layout.Scale, layout.FanWidth, fanSide);
+                var fanWidth = layout.FanWidth;
+                if (MobileUi.Phone)
+                {
+                    var fanY = position.y - SeatFigure.Height * .58f * layout.Scale;
+                    var fanHalfHeight = (CardView.Height * .55f * .5f + 26f) * layout.Scale;
+                    var fanOffset = (SeatFigure.Width * .5f + SeatFanGap) * layout.Scale;
+                    for (var neighbour = 0; neighbour < opponents; neighbour++)
+                    {
+                        if (neighbour == seat) continue;
+                        var other = SeatPosition(neighbour, opponents, layout);
+                        var distance = (other.x - position.x) * fanSide;
+                        if (distance <= 0 || fanY + fanHalfHeight < other.y - SeatFigure.Height * layout.Scale ||
+                            fanY - fanHalfHeight > other.y + 10f * layout.Scale) continue;
+                        var available = distance - SeatFigure.Width * SeatFigure.PortraitWidthAllowance * .5f * layout.Scale - fanOffset - 20f;
+                        fanWidth = Mathf.Min(fanWidth, Mathf.Max(CardView.Width * .55f * layout.Scale + 12f * layout.Scale, available));
+                    }
+                }
+                var container = BuildSeatBlock(_opponentsArea, player, layout.Scale, fanWidth, fanSide);
 
                 // Привязка и пивот сверху: место задаётся отступом от верха экрана, иначе
                 // блок растёт вверх и наезжает на строку статуса.
@@ -1012,6 +1029,8 @@ namespace CardGameClient
                 Mathf.Max(fanWidth - backWidth, 0f) / Mathf.Max(visible - 1, 1),
                 backWidth * 0.24f,
                 backWidth * 0.55f);
+            if (MobileUi.Phone)
+                spacing = Mathf.Min(spacing, Mathf.Max(0, fanWidth - backWidth - 12f * scale) / Mathf.Max(visible - 1, 1));
 
             var row = new GameObject("Cards", typeof(RectTransform));
             row.transform.SetParent(container, false);
@@ -1067,7 +1086,7 @@ namespace CardGameClient
             _rankBadge.fontStyle = FontStyle.Normal;
             _rankBadge.text = _game.CurrentRank.HasValue
                 ? "сейчас ходят " + RankPluralNominative(_game.CurrentRank.Value)
-                : "ранг ещё не назван";
+                : string.Empty;
         }
 
         private void RefreshHand()
@@ -1568,6 +1587,15 @@ namespace CardGameClient
                 }
             }
 
+            if (MobileUi.Phone)
+            {
+                // The renderer keeps at least 24% of each back visible. Reserve its
+                // real maximum spread (including tilted corners), not a smaller box
+                // that would push a twelve-card fan beyond the phone's felt edge.
+                var backWidth = CardView.Width * .55f * scale;
+                fanWidth = Mathf.Max(fanWidth, backWidth * (1 + (MaxSeatFanCards - 1) * .24f) + 12f * scale);
+            }
+
             return new SeatLayout
             {
                 Scale = scale,
@@ -1734,6 +1762,22 @@ namespace CardGameClient
             _lastAction = CreateText(root, string.Empty, 25, TextAnchor.MiddleCenter);
             _lastAction.color = DimColor;
             Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -88f), new Vector2(1100f, 30f));
+            if (MobileUi.Phone)
+            {
+                foreach (var label in new[] { _status, _lastAction })
+                {
+                    var rect = label.rectTransform;
+                    rect.anchorMin = new Vector2(0, 1);
+                    rect.anchorMax = Vector2.one;
+                    rect.sizeDelta = new Vector2(-500, label == _status ? 50 : 40);
+                    rect.anchoredPosition = new Vector2(0, label == _status ? -55 : -105);
+                    label.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    label.verticalOverflow = VerticalWrapMode.Truncate;
+                    label.resizeTextForBestFit = true;
+                    label.resizeTextMinSize = label == _status ? 30 : 24;
+                    label.resizeTextMaxSize = label.fontSize;
+                }
+            }
 
             _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
             _opponentsArea.SetParent(root, false);
@@ -1761,13 +1805,19 @@ namespace CardGameClient
                 new Vector2(1600f, RankRowHeight));
 
             var ranks = AvailableRanks();
-            var spacing = Mathf.Min(96f, 1400f / Mathf.Max(ranks.Count, 1));
-            var start = -(ranks.Count - 1) * spacing / 2f;
+            // A full deck has twelve selectable ranks. Two short phone rows keep the
+            // right-side throw/challenge column clear and every rank easy to tap.
+            var perRow = MobileUi.Phone && ranks.Count > 8 ? Mathf.CeilToInt(ranks.Count / 2f) : ranks.Count;
+            var spacing = Mathf.Min(96f, 1400f / Mathf.Max(perRow, 1));
 
             for (var i = 0; i < ranks.Count; i++)
             {
                 var rank = ranks[i];
-                var button = CreateChip(_rankRow, RankShort(rank), new Vector2(start + i * spacing, 0f),
+                var row = i / perRow;
+                var inRow = Mathf.Min(perRow, ranks.Count - row * perRow);
+                var position = new Vector2((i % perRow - (inRow - 1) * .5f) * spacing,
+                    ranks.Count > perRow ? (1 - row) * (RankRowHeight + 16f) : 0f);
+                var button = CreateChip(_rankRow, RankShort(rank), position,
                     new Vector2(spacing - 12f, RankRowHeight), () => SelectRank(rank));
                 _rankButtons.Add(button);
                 _rankButtonRanks.Add(rank);
@@ -1776,7 +1826,7 @@ namespace CardGameClient
 
         private void BuildControls(RectTransform root)
         {
-            _menuButton = CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, -60f), new Vector2(180f, 64f),
+            _menuButton = CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, MobileUi.Phone ? -66f : -60f), new Vector2(180f, MobileUi.Phone ? 84f : 64f),
                 new Color(0.3f, 0.3f, 0.32f), () =>
                 {
                     StopAllCoroutines();
@@ -1804,8 +1854,8 @@ namespace CardGameClient
 
             // Под «в меню», в углу: кнопка появляется редко и ни с чем не соседствует.
             // В правую колонку её ставить нельзя — там кончилось место над дугой мест.
-            _concedeButton = CreateButton(root, "Сдаться", new Vector2(0f, 1f), new Vector2(120f, -136f),
-                new Vector2(180f, 60f), new Color(0.5f, 0.2f, 0.18f), Concede);
+            _concedeButton = CreateButton(root, "Сдаться", new Vector2(0f, 1f), new Vector2(120f, MobileUi.Phone ? -166f : -136f),
+                new Vector2(180f, MobileUi.Phone ? 84f : 60f), new Color(0.5f, 0.2f, 0.18f), Concede);
             _concedeButton.gameObject.SetActive(false);
 
             _restartButton = CreateButton(root, "Ещё партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(300f, 80f),
@@ -1933,8 +1983,8 @@ namespace CardGameClient
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
             text.resizeTextForBestFit = true;
-            text.resizeTextMinSize = 18;
-            text.resizeTextMaxSize = 28;
+            text.resizeTextMinSize = MobileUi.Phone ? 24 : 18;
+            text.resizeTextMaxSize = MobileUi.Phone ? 34 : 28;
 
             return button;
         }
@@ -1946,7 +1996,7 @@ namespace CardGameClient
 
             var text = go.GetComponent<Text>();
             text.font = _font;
-            text.fontSize = fontSize;
+            text.fontSize = MobileUi.TextSize(fontSize);
             text.alignment = anchor;
             text.color = TextColor;
             text.text = content;

@@ -49,7 +49,7 @@ namespace CardGameClient
 
         private void BuildShell()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = UiFonts.Body;
             var background = MakeRect(transform, "Hub background", 0, 0, 0, 0);
             Stretch(background);
             var backdrop = background.gameObject.AddComponent<Image>();
@@ -66,7 +66,9 @@ namespace CardGameClient
             BuildTopBar();
 
             _header = MakeRect(_stage, "Page header", 0, 92, 1600, 56);
-            _backButton = IconButton(_header, "Назад", "back", 24, 6, 150, 46, Back);
+            _backButton = IconButton(_header, "Назад", "back", 24, MobileUi.Phone ? 0 : 6,
+                MobileUi.Phone ? 184 : 150, MobileUi.Phone ? 76 : 46, Back);
+            if (MobileUi.Phone) _backButton.GetComponentInChildren<Text>().fontSize = 32;
             // Значок раздела в его цвете — тот же, что на вкладке или кнопке, которой сюда пришли.
             _pageBadge = MakeRect(_header, "Page icon", 210, 3, 50, 50).gameObject.AddComponent<Image>();
             Round(_pageBadge, 50, 50, 14);
@@ -356,7 +358,7 @@ namespace CardGameClient
             switch (page)
             {
                 case "rooms": case "create-room": case "quick-game": case "room-settings": case "room": return (game, "home");
-                case "shop": case "shop-catalog": return ("shop", "shop");
+                case "shop": return ("shop", "shop");
                 case "inventory": return ("inventory", "collection");
                 case "friends": return ("friends", "friends");
                 case "chats": return ("chats", "chats");

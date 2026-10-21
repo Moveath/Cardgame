@@ -53,7 +53,8 @@ namespace CardGameClient
             if (_tableModeGame != game) { _tableModeGame = game; _tableMode = TableMode.Bots; }
             PrepareGameSetup(_tableMode == TableMode.Create ? "create" : "quick", game);
             var settings = ActiveGameSetup();
-            const float x = 1600 - PlaqueMargin - PlaqueWidth, pad = 36;
+            const float pad = 36;
+            var x = TablePanelX(game);
             var panelWidth = TablePanelWidth;
             var inner = panelWidth - pad * 2;
             var left = x + pad;
@@ -64,20 +65,24 @@ namespace CardGameClient
             shadow.effectDistance = new Vector2(-8, -6);
 
             // Both controls stay beside the table instead of opposite corners of the screen.
-            CityButton(_content, "ОТОЙТИ", x - 208, 8, 184, 48, Back);
-            var title = TableText(GameTitle(game), left, 64, inner - 126, 62, 42);
+            var phone = MobileUi.Phone;
+            var awayX = TablePlaqueOnLeft(game) ? x + panelWidth + 24 : x - (phone ? 264 : 208);
+            CityButton(_content, "ОТОЙТИ", awayX, phone ? 24 : 8,
+                phone ? 240 : 184, phone ? 88 : 48, Back);
+            var rulesWidth = phone ? 184 : 116;
+            var title = TableText(GameTitle(game), left, 64, inner - rulesWidth - 20, 62, 42);
             title.font = ClubTitleFont(); title.color = ClubGold;
             title.resizeTextForBestFit = true; title.resizeTextMinSize = 26; title.resizeTextMaxSize = 42;
-            ClubButton(_content, "Правила", x + panelWidth - pad - 116, 74, 116, 48,
-                () => Navigate("rules:" + game), size: 23);
-            TableText(GameBlurb(game), left, 128, inner, 44, 20, true);
+            ClubButton(_content, "Правила", x + panelWidth - pad - rulesWidth, phone ? 60 : 74,
+                rulesWidth, phone ? 88 : 48, () => Navigate("rules:" + game), size: phone ? 36 : 23);
+            TableText(GameBlurb(game), left, 128, phone ? inner - rulesWidth - 20 : inner, 44, phone ? 24 : 20, true);
             var modes = new[] { "С ботами", "Быстрая игра", "Своя комната", "По коду" };
             var tabWidth = (inner - 24) / 4;
             for (var i = 0; i < modes.Length; i++)
             {
                 var mode = (TableMode)i;
-                ClubButton(_content, modes[i], left + i * (tabWidth + 8), 186, tabWidth, 60,
-                    () => ChooseTableMode(mode), _tableMode == mode ? ClubTone.Primary : ClubTone.Normal, 25);
+                ClubButton(_content, modes[i], left + i * (tabWidth + 8), MobileUi.Phone ? 178 : 186, tabWidth, MobileUi.Phone ? 76 : 60,
+                    () => ChooseTableMode(mode), _tableMode == mode ? ClubTone.Primary : ClubTone.Normal, phone ? 30 : 25);
             }
 
             var page = _content;
@@ -90,23 +95,29 @@ namespace CardGameClient
             scroll.viewport = viewport; scroll.content = body; scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.scrollSensitivity = 28; scroll.decelerationRate = .12f;
+            var bodyScale = MobileUi.Phone ? 1.30f : 1f;
+            var bodyWidth = (inner - 24) / bodyScale;
+            body.sizeDelta = new Vector2(bodyWidth, 442 / bodyScale);
+            body.localScale = Vector3.one * bodyScale;
             var height = 0f;
             try
             {
                 _content = body;
-                height = BuildTableMode(game, settings, inner - 20);
+                height = BuildTableMode(game, settings, bodyWidth);
             }
             finally { _content = page; }
-            body.sizeDelta = new Vector2(inner - 20, Mathf.Max(442, height));
+            body.sizeDelta = new Vector2(bodyWidth, Mathf.Max(442 / bodyScale, height));
+            height *= bodyScale;
             _scrollMemory.TryGetValue(key, out var saved);
             body.anchoredPosition = new Vector2(0, Mathf.Clamp(saved, 0, Mathf.Max(0, height - 442)));
             if (height > 442)
             {
-                var track = MakeRect(viewport, "Scrollbar", inner - 8, 0, 6, 442);
+                var track = MakeRect(viewport, "Scrollbar", inner - 22, 0, 22, 442);
                 track.gameObject.AddComponent<Image>().color = new Color(0, 0, 0, .35f);
-                var handle = MakeRect(track, "Handle", 0, 0, 6, 80);
+                var handle = MakeRect(track, "Handle", 7, 0, 8, 80);
                 var graphic = handle.gameObject.AddComponent<Image>(); graphic.color = ClubGold;
-                var bar = track.gameObject.AddComponent<Scrollbar>();
+                var bar = track.gameObject.AddComponent<HubDragScrollbar>();
+                bar.ScrollView = scroll;
                 bar.handleRect = handle; bar.targetGraphic = graphic;
                 bar.direction = Scrollbar.Direction.BottomToTop;
                 bar.SetValueWithoutNotify(1 - Mathf.Clamp01(saved / (height - 442)));
@@ -116,10 +127,10 @@ namespace CardGameClient
             divider.color = new Color(.85f, .64f, .3f, .6f); divider.raycastTarget = false;
             TableText(_tableMode == TableMode.Bots || _tableMode == TableMode.Create
                 ? TableSummary(game, settings, _roomCapacity)
-                : "Комнаты пока локальные · онлайн появится позже", left, 730, inner, 40, 19, true);
+                : "Комнаты пока локальные · онлайн появится позже", left, 730, inner, 40, phone ? 25 : 19, true);
             var action = _tableMode == TableMode.Bots ? "Начать с ботами" : _tableMode == TableMode.Quick
                 ? "Найти свободный стол" : _tableMode == TableMode.Create ? "Создать комнату" : "Войти по коду";
-            var primary = ClubButton(page, action, left, 780, inner, 56, () =>
+            var primary = ClubButton(page, action, left, MobileUi.Phone ? 772 : 780, inner, MobileUi.Phone ? 72 : 56, () =>
             {
                 switch (_tableMode)
                 {
@@ -128,7 +139,7 @@ namespace CardGameClient
                     case TableMode.Create: CreateRoom(); break;
                     case TableMode.Code: JoinTableCode(game); break;
                 }
-            }, ClubTone.Primary, 30);
+            }, ClubTone.Primary, phone ? 34 : 30);
             if (_tableMode == TableMode.Quick) primary.interactable = AvailableTables(game).Length > 0;
             if (_tableMode == TableMode.Code)
             {

@@ -160,7 +160,7 @@ namespace CardGameClient
         internal static Text Label(Transform parent,Font font,string text,int size,Vector2 pos,Vector2 dimensions,Color color)
         {
             var t=Rect(parent,text.Length>0?text:"Label",pos,dimensions).gameObject.AddComponent<Text>();
-            t.font=font;t.text=text;t.fontSize=size;t.color=color;t.alignment=TextAnchor.MiddleCenter;
+            t.font=font;t.text=text;t.fontSize=MobileUi.TextSize(size);t.color=color;t.alignment=TextAnchor.MiddleCenter;
             t.raycastTarget=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;return t;
         }
         internal static Button Button(Transform parent,Font font,string text,Vector2 pos,Vector2 size,Color color,Action action)

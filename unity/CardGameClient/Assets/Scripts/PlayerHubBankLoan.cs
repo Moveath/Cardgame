@@ -256,6 +256,7 @@ namespace CardGameClient
             var image = LoanRect(parent, name, at, size).gameObject.AddComponent<Image>();
             image.sprite = string.IsNullOrEmpty(resource) ? null : Resources.Load<Sprite>("UI/Hub/" + resource);
             image.color = image.sprite == null ? fallback : Color.white;
+            if (image.sprite != null && HubScenery.IsBackdrop(resource)) HubScenery.Apply(image);
             image.raycastTarget = false;
             return image;
         }

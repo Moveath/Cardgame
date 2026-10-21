@@ -19,6 +19,9 @@ public static partial class PlayerHubQa
 {
     private const BindingFlags Fields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static readonly string Output = FindOutput();
+    private static readonly bool PhoneUi = Environment.GetEnvironmentVariable("PLAYER_HUB_QA_PHONE") == "1";
+    private static readonly bool PhoneLayoutOnly = Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE") == "phone-layout";
+    private static readonly bool SceneryOnly = Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE") == "scenery";
     private static readonly bool MailOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "mail", StringComparison.OrdinalIgnoreCase);
     private static readonly bool FortuneOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "fortune", StringComparison.OrdinalIgnoreCase);
     private static readonly bool BankOnly = string.Equals(Environment.GetEnvironmentVariable("PLAYER_HUB_QA_SCOPE"), "bank", StringComparison.OrdinalIgnoreCase);
@@ -70,6 +73,7 @@ public static partial class PlayerHubQa
         if(File.Exists(previousError))File.Delete(previousError);
         Application.logMessageReceived += OnLog;
         // This is deliberately the FIRST call involving any hub/profile/app-flow object.
+        if (PhoneUi) typeof(AppFlowController).Assembly.GetType("CardGameClient.MobileUi").GetField("TestPhone").SetValue(null, true);
         store = new MemoryStore(); clock = new FixedClock();
         PlayerHubRuntime.UseService(new LocalPlayerHubService(store, clock), clock);
         EditorApplication.update += FinishWhenReady;
@@ -81,7 +85,7 @@ public static partial class PlayerHubQa
     {
         var loaded = await PlayerHubRuntime.LoadAsync();
         Check(loaded.Success && store.Writes > 0, "profile initializes through the injected memory store");
-        if (!PlacesOnly && !ClubOnly && !GamesOnly && !EntranceOnly && !MapOnly && !QuestsOnly && !BankOnly && !FortuneOnly && !MailOnly) CheckCanvasDensity();
+        if (!PhoneLayoutOnly && !SceneryOnly && !PlacesOnly && !ClubOnly && !GamesOnly && !EntranceOnly && !MapOnly && !QuestsOnly && !BankOnly && !FortuneOnly && !MailOnly) CheckCanvasDensity();
         Begin(1600, 900);
         var root = new GameObject("Player hub QA", typeof(RectTransform));
         root.transform.SetParent(canvasObject.transform, false);
@@ -92,6 +96,18 @@ public static partial class PlayerHubQa
         Call(hub, "Start");
         await WaitFor(() => Get<HubSnapshot>(hub, "_state") != null && !Get<bool>(hub, "_busy"), "initial async hub load");
         Check(Get<string>(hub, "_page") == "home", "new profile opens the uncluttered main menu");
+        if (PhoneLayoutOnly)
+        {
+            await CheckPhoneHubLayout();
+            Check(RuntimeErrors.Count == 0, "no phone layout runtime errors: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
+        if (SceneryOnly)
+        {
+            await CheckScenery();
+            Check(RuntimeErrors.Count == 0, "no scenery runtime errors: " + string.Join(" | ", RuntimeErrors));
+            return;
+        }
         if (MailOnly)
         {
             await CheckMailVisual();
@@ -2254,8 +2270,11 @@ public static partial class PlayerHubQa
         var doorWorld = area.TransformPoint(area.rect.center + door);
         var plaque = Get<RectTransform>(hub, "_content").Find("Table plaque") as RectTransform;
         var corners = new Vector3[4]; plaque.GetWorldCorners(corners);
-        Check(Mathf.Abs(door.x) > area.rect.width * .1f && (doorWorld.x < corners[0].x || doorWorld.x > corners[2].x),
-            "the table stands aside and the plaque does not cover it: " + game);
+        var clear = Mathf.Abs(door.x) > area.rect.width * .1f && (doorWorld.x < corners[0].x || doorWorld.x > corners[2].x);
+        if (!clear) Save("entrance-obstruction-" + game + ".png");
+        Check(clear, "the table stands aside and the plaque does not cover it: " + game
+            + " (door " + door.x + ", area " + area.rect.width + ", world " + doorWorld.x
+            + ", plaque " + corners[0].x + ".." + corners[2].x + ")");
     }
 
     private static RectTransform PlacePage(string art)
@@ -3258,6 +3277,23 @@ public static partial class PlayerHubQa
     }
     private static async Task ClickButton(Button button, string label)
     {
+        if (PhoneUi)
+        {
+            var scroll = button.GetComponentInParent<ScrollRect>();
+            if (scroll != null && scroll.content != null)
+            {
+                Canvas.ForceUpdateCanvases();
+                var center = scroll.viewport.InverseTransformPoint(((RectTransform)button.transform).TransformPoint(((RectTransform)button.transform).rect.center));
+                if (center.y < scroll.viewport.rect.yMin + 24 || center.y > scroll.viewport.rect.yMax - 24)
+                {
+                    var limit = Mathf.Max(0, scroll.content.rect.height * scroll.content.localScale.y - scroll.viewport.rect.height);
+                    scroll.StopMovement();
+                    scroll.content.anchoredPosition = new Vector2(scroll.content.anchoredPosition.x,
+                        Mathf.Clamp(scroll.content.anchoredPosition.y + scroll.viewport.rect.center.y - center.y, 0, limit));
+                    await NextFrame();
+                }
+            }
+        }
         var hit = Hit((RectTransform)button.transform);
         Check(hit.gameObject != null && (hit.gameObject == button.gameObject || hit.gameObject.transform.IsChildOf(button.transform)), "click reaches " + label);
         var pointer = new PointerEventData(events) { button = PointerEventData.InputButton.Left, position = hit.screenPosition,
@@ -3345,7 +3381,11 @@ public static partial class PlayerHubQa
             File.WriteAllText(Path.Combine(Output, "error.txt"), operation.Exception.ToString());
             Debug.LogException(operation.Exception); EditorApplication.Exit(1); return;
         }
-        File.WriteAllText(Path.Combine(Output, "verification.txt"), MailOnly
+        File.WriteAllText(Path.Combine(Output, "verification.txt"), PhoneLayoutOnly
+            ? checks + " assertions passed: phone club pan/zoom, accessible table entrances and larger navigation, readable scrolling rules, tavern dialogue bounds at 16:9 and 20:9. Memory-only profile."
+            : SceneryOnly
+            ? checks + " assertions passed: city and interior scenery shaders, matching masked-video treatment, before/after renders, untouched text and mail UI materials. Memory-only profile."
+            : MailOnly
             ? checks + " assertions passed: full-resolution mail case, six added local contacts, smooth wheel/finger/handle scrolling, bottom contact selection and replies, preserved list position, layouts at 1600x900, 2000x900 and 960x540. Memory-only profile; no real save opened or written."
             : FortuneOnly
             ? checks + " assertions passed: fortune tent shared interior entrance/exit and usable return from games, full-screen illustration without empty bands, captions clear of the cards, tabletop card projection and six selectable backs, persisted flip and one free card per 24 hours, My Card and no city badge, Back/Escape isolation, all six readings at 1600x900, 2000x900, 960x540 and 600x1000 portrait, readable text, smooth wheel/finger/right-handle scrolling, all five New Road links, actual result modifier excluding stake payouts, exact remaining uses and expiry, idempotent results and truthful result hint. Memory-only profiles; no user save opened or written."

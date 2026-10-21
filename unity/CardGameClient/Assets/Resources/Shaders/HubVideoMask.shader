@@ -7,6 +7,7 @@ Shader "CardCity/HubVideoMask"
         [PerRendererData] _MainTex ("Video", 2D) = "black" {}
         _MaskTex ("Mask", 2D) = "white" {}
         _Color ("Tint", Color) = (1, 1, 1, 1)
+        _SceneryTone ("Soft light", Range(0, 1)) = 1
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
         _StencilOp ("Stencil Operation", Float) = 0
@@ -40,6 +41,7 @@ Shader "CardCity/HubVideoMask"
             #pragma target 2.0
             #include "UnityCG.cginc"
             #include "UnityUI.cginc"
+            #include "HubSceneryTone.cginc"
             #pragma multi_compile_local _ UNITY_UI_CLIP_RECT
 
             struct appdata { float4 vertex : POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; };
@@ -47,6 +49,7 @@ Shader "CardCity/HubVideoMask"
 
             sampler2D _MainTex, _MaskTex;
             fixed4 _Color;
+            half _SceneryTone;
             float4 _ClipRect;
 
             v2f vert(appdata v)
@@ -61,7 +64,9 @@ Shader "CardCity/HubVideoMask"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                fixed4 color = tex2D(_MainTex, i.uv) * i.color;
+                fixed4 color = tex2D(_MainTex, i.uv);
+                color.rgb = CardCitySceneryTone(color.rgb, _SceneryTone);
+                color *= i.color;
                 color.a *= tex2D(_MaskTex, i.uv).r;
                 #ifdef UNITY_UI_CLIP_RECT
                 color.a *= UnityGet2DClipping(i.world.xy, _ClipRect);

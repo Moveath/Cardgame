@@ -60,7 +60,7 @@ namespace CardGameClient
         private const float FeltEdgeMargin = 56f;
 
         private const float LineHeight = 38f;
-        private const float ChoiceRowHeight = 56f;
+        private static float ChoiceRowHeight => MobileUi.Phone ? 72f : 56f;
 
         /// <summary>Сколько места у соперника сбоку под сундучки — там, где в блефе лежал веер.</summary>
         private const float SideMaxWidth = 230f;
@@ -210,7 +210,7 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = UiFonts.Body;
             _bot = new SimpleChestsBot();
 
             BuildUi();
@@ -1184,6 +1184,11 @@ namespace CardGameClient
             var shortNames = new List<string>();
             foreach (var rank in ranks) shortNames.Add(RankShort(rank));
             _collectedRanks.text = "Собраны: " + (shortNames.Count == 0 ? "—" : string.Join(" · ", shortNames));
+            if (MobileUi.Phone)
+            {
+                _progress.gameObject.SetActive(!_game.IsFinished);
+                _collectedRanks.gameObject.SetActive(!_game.IsFinished);
+            }
 
             // По ходу партии верхняя строка молчит: ни «ходит такой-то», ни «твой ход», ни пересказа
             // вопросов — всё это перегружало стол. Кто ходит, видно по свету под фигурой, кто
@@ -1251,7 +1256,7 @@ namespace CardGameClient
         {
             var ranks = _game.AskableRanks(HumanIndex);
             var perRow = ranks.Count <= 9 ? ranks.Count : Mathf.CeilToInt(ranks.Count / 2f);
-            const float spacing = 76f;
+            var spacing = MobileUi.Phone ? 92f : 76f;
 
             for (var i = 0; i < ranks.Count; i++)
             {
@@ -1286,7 +1291,7 @@ namespace CardGameClient
         private void BuildSuitChoices()
         {
             var need = _game.GuessedCount.GetValueOrDefault();
-            const float spacing = 88f;
+            var spacing = MobileUi.Phone ? 104f : 88f;
             var suits = new[] { Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades };
             var left = -(suits.Length * spacing + 230f) * 0.5f + spacing * 0.5f;
 
@@ -1301,7 +1306,8 @@ namespace CardGameClient
                 SetChipSelected(chip, selected);
 
                 var label = chip.GetComponentInChildren<Text>();
-                label.fontSize = 40;
+                label.font = UiFonts.Symbols;
+                label.fontSize = MobileUi.Phone ? 52 : 40;
                 label.color = red ? (selected ? RedSuitOnGold : RedSuitOnDark) : selected ? ChipInk : TextColor;
             }
 
@@ -1837,6 +1843,13 @@ namespace CardGameClient
             _collectedRanks = CreateText(root, "Собраны: —", 22, TextAnchor.MiddleCenter);
             _collectedRanks.color = AccentGlow;
             Place((RectTransform)_collectedRanks.transform, new Vector2(0.5f, 1f), new Vector2(0f, -120f), new Vector2(1180f, 28f));
+            if (MobileUi.Phone)
+            {
+                // The two progress lines need room for the larger phone type without
+                // reaching the central opponent's head or the final result heading.
+                Place(_progress.rectTransform, new Vector2(.5f, 1), new Vector2(0, -65), new Vector2(1100, 42));
+                Place(_collectedRanks.rectTransform, new Vector2(.5f, 1), new Vector2(0, -108), new Vector2(1180, 34));
+            }
 
             _opponentsArea = new GameObject("Opponents", typeof(RectTransform)).GetComponent<RectTransform>();
             _opponentsArea.SetParent(root, false);
@@ -1861,7 +1874,7 @@ namespace CardGameClient
                 new Vector2(HumanChestsWidth, HumanChestsHeight));
             _handRow = CreatePanel("Hand", root, new Vector2(0.5f, 0f), new Vector2(0f, HandRowBottom), new Vector2(1600f, 200f));
 
-            CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, -60f), new Vector2(180f, 64f),
+            CreateButton(root, "В меню", new Vector2(0f, 1f), new Vector2(120f, MobileUi.Phone ? -66f : -60f), new Vector2(180f, MobileUi.Phone ? 84f : 64f),
                 new Color(0.3f, 0.3f, 0.32f), () =>
                 {
                     StopAllCoroutines();
@@ -1989,8 +2002,8 @@ namespace CardGameClient
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
             text.resizeTextForBestFit = true;
-            text.resizeTextMinSize = 18;
-            text.resizeTextMaxSize = 28;
+            text.resizeTextMinSize = MobileUi.Phone ? 24 : 18;
+            text.resizeTextMaxSize = MobileUi.Phone ? 34 : 28;
 
             return button;
         }
@@ -2002,7 +2015,7 @@ namespace CardGameClient
 
             var text = go.GetComponent<Text>();
             text.font = _font;
-            text.fontSize = fontSize;
+            text.fontSize = MobileUi.TextSize(fontSize);
             text.alignment = anchor;
             text.color = TextColor;
             text.text = content;

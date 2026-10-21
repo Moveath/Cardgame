@@ -163,6 +163,7 @@ namespace CardGameClient
             page.anchoredPosition = new Vector2(x, 0);
             page.sizeDelta = new Vector2(width, CityHeight);
             var art = page.gameObject.AddComponent<HubCityArt>();
+            art.Street = true;
             art.Art = sprite;
             art.Mirrored = mirrored;
             art.FadeLeft = fadeLeft;
@@ -186,7 +187,8 @@ namespace CardGameClient
             if (_floorDragging && pointer != null && !pointer.press.isPressed) EndFloorDrag();
             PrepareFloors();
             // Под открытой картой город стоит: клавиши — карте (PlayerHubMap.cs).
-            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown) CityKeys(Keyboard.current);
+            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown)
+                CityKeys(Keyboard.current);
             ClubKeys(typing);
             UpdateMap(Time.unscaledDeltaTime, typing);
             UpdateSixHouse(Time.unscaledDeltaTime);

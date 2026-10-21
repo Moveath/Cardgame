@@ -71,6 +71,10 @@ namespace CardGame.Core.Meta
         public HubBankJobBoard BankJobs = new HubBankJobBoard();
         public HubGift Gift = new HubGift();
         public HubFortuneState Fortune = new HubFortuneState();
+        // Витрина дня в Лавке Дамы бубен (HubShop.cs, 2026-10-17).
+        public HubShopState Shop = new HubShopState();
+        // Рынок Короля бубен (HubMarket.cs, 2026-10-21): что было на витринах Лавки за неделю и заказ с корабля.
+        public HubMarketState Market = new HubMarketState();
         // «Карточный вестник» (киоск на площади, 2026-10-09): номер последнего прочитанного выпуска; выпуск новее — кружок
         // на киоске. 0 — ни одного.
         public int NewsSeen;
@@ -111,6 +115,10 @@ namespace CardGame.Core.Meta
         public string Color = "#D9B765";
         public string Resource = "";
         public string PriceLabel = "Демо · открыть";
+        // Цена в Лавке в серебре и редкость (HubShop, 2026-10-17); 0 — не продаётся. Данные каталога, а не игрока:
+        // при обновлении игры переписываются из HubSeed.
+        public int Price;
+        public string Rarity = HubShop.Common;
         public int Quantity = 1;
         public bool IsDefault;
         public bool IsPremium;

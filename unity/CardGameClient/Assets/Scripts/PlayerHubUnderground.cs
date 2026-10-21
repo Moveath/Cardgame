@@ -17,9 +17,10 @@ namespace CardGameClient
     public sealed partial class PlayerHubController
     {
         // Этажи: 0 — улица (лента районов), 1 — подполье, дальше — здания изнутри (PlayerHubInterior.cs):
-        // 2 — зал Клуба, 3 — Дом Шестёрки, 4 — Банк Тузяры, 5 — шатёр гадалки, 6 — таверна «Червовая дама».
-        private static readonly string[] FloorArt = { null, "UI/Hub/card-city-underground", "UI/Hub/club-hall", "UI/Hub/six-room", "UI/Hub/bank-hall", "UI/Hub/fortune-tent", "UI/Hub/tavern-hall" };
-        private static readonly string[] FloorNames = { null, "Underground", "Club hall", "Six house", "Bank hall", "Fortune tent", "Tavern hall" };
+        // 2 — зал Клуба, 3 — Дом Шестёрки, 4 — Банк Тузяры, 5 — шатёр гадалки, 6 — таверна «Червовая дама», 7 — Лавка Дамы бубен,
+        // 8 — Архив, 9 — Рынок Короля бубен («Бубновые ряды»).
+        private static readonly string[] FloorArt = { null, "UI/Hub/card-city-underground", "UI/Hub/club-hall", "UI/Hub/six-room", "UI/Hub/bank-hall", "UI/Hub/fortune-tent", "UI/Hub/tavern-hall", "UI/Hub/shop-counter", "UI/Hub/archive-hall", "UI/Hub/market-hall" };
+        private static readonly string[] FloorNames = { null, "Underground", "Club hall", "Six house", "Bank hall", "Fortune tent", "Tavern hall", "Shop counter", "Archive hall", "Market hall" };
         // Район, откуда ведёт лестница вниз. Сами лестницы и двери — места с этажом в таблице CityPlaces
         // (PlayerHubPlaces.cs): их контур нажимается, дверь — точка нырка.
         private const string UndergroundFrom = "Главная площадь";
@@ -136,7 +137,11 @@ namespace CardGameClient
             if (level == FortuneLevel)
                 return Mathf.Max(.0001f, FortuneBackdropRect(FortuneViewport, _floorWidths[level] / CityHeight).height
                     * _stage.localScale.x / CityHeight);
-            return Mathf.Max(size.x / _floorWidths[level], size.y / CityHeight, .0001f);
+            var scale = Mathf.Max(size.x / _floorWidths[level], size.y / CityHeight, .0001f);
+            // Bring club residents closer on a phone, as one scene: the art, live video,
+            // table labels and hit areas all share this transform. Existing horizontal
+            // camera bounds still allow the player to reach every table and the doorway.
+            return scale * (level == FirstInterior ? ClubPhoneZoom : 1f);
         }
 
         private Vector2 FortuneFloorOffset(int level) => level == FortuneLevel

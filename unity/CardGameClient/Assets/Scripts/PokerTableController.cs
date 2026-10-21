@@ -62,7 +62,7 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font=Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font=UiFonts.Body;
             BuildUi();Resize();StartMatch();_intro.gameObject.SetActive(true);Render();
         }
 
@@ -375,6 +375,15 @@ namespace CardGameClient
                 seat.Name=PokerUi.Label(seat.Root,_font,name,20,new Vector2(0,-18),new Vector2(200,27),PokerUi.Paper);
                 seat.Stack=PokerUi.Label(seat.Root,_font,"",20,new Vector2(0,-43),new Vector2(170,25),PokerUi.Gold);
                 seat.Status=PokerUi.Label(seat.Root,_font,"",14,new Vector2(0,id==0?-78:-137),new Vector2(230,30),PokerUi.Muted);
+                if(MobileUi.Phone)
+                {
+                    seat.Name.rectTransform.sizeDelta=new Vector2(220,34);
+                    seat.Stack.rectTransform.sizeDelta=new Vector2(190,32);
+                    seat.Stack.rectTransform.anchoredPosition=new Vector2(0,-51);
+                    seat.Glow.rectTransform.anchoredPosition=new Vector2(0,-72);
+                    seat.Status.rectTransform.sizeDelta=new Vector2(250,46);
+                    seat.Status.rectTransform.anchoredPosition=new Vector2(0,id==0?-94:-161);
+                }
                 if(id>0 && Mathf.Abs(_seatPositions[id].x)<50)
                     seat.Status.rectTransform.anchoredPosition=new Vector2(-155,-72);
                 seat.Marker=PokerUi.Box(seat.Root,"Dealer or blind",new Vector2(-88,-36),new Vector2(30,30),PokerUi.Paper,30).rectTransform;
@@ -386,7 +395,9 @@ namespace CardGameClient
                     for(var n=0;n<2;n++)
                     {
                         seat.Cards[n]=CardView.Create(seat.Root,_font,.37f);seat.Cards[n].ShowBack();seat.Cards[n].SetPlain();
-                        seat.Cards[n].Rect.anchoredPosition=new Vector2((n-.5f)*36,-91);
+                        seat.Cards[n].Rect.anchoredPosition=new Vector2((n-.5f)*36,MobileUi.Phone?-107:-91);
+                        if(MobileUi.Phone && Mathf.Abs(_seatPositions[id].x)<50)
+                            seat.Cards[n].Rect.anchoredPosition=new Vector2(-150+(n-.5f)*36,15);
                         seat.Cards[n].Rect.localRotation=Quaternion.Euler(0,0,n==0?7:-7);
                     }
                 }
@@ -401,7 +412,7 @@ namespace CardGameClient
             var count=_seats.Length;
             var extra=(_stage.rect.size-new Vector2(1600,900))*.5f;
             _seatPositions[0]=new Vector2(-255-extra.x*.35f,-260-extra.y);
-            _betPositions[0]=new Vector2(0,-137-extra.y*.5f);
+            _betPositions[0]=new Vector2(MobileUi.Phone?-175:0,-137-extra.y*.5f);
             Vector2[] positions;
             if(count==2)positions=new[]{new Vector2(0,280)};
             else if(count==3)positions=new[]{new Vector2(-475,155),new Vector2(475,155)};
@@ -435,16 +446,16 @@ namespace CardGameClient
             PokerUi.Stretch(background.rectTransform);
             _stage=PokerUi.Rect(transform,"Poker stage",Vector2.zero,new Vector2(1600,900));
             PokerUi.Label(_stage,_font,"NO LIMIT",13,new Vector2(0,-71),new Vector2(150,22),new Color(.7f,.78f,.65f,.23f));
-            Anchor((RectTransform)PokerUi.Button(_stage,_font,"В меню",Vector2.zero,new Vector2(146,48),PokerUi.Dark,()=>_onExit?.Invoke()).transform,
-                new Vector2(0,1),new Vector2(111,-51));
+            Anchor((RectTransform)PokerUi.Button(_stage,_font,"В меню",Vector2.zero,new Vector2(146,MobileUi.Phone?84:48),PokerUi.Dark,()=>_onExit?.Invoke()).transform,
+                new Vector2(0,1),new Vector2(111,MobileUi.Phone?-66:-51));
             Anchor(PokerUi.Label(_stage,_font,"TEXAS HOLD’EM",25,Vector2.zero,new Vector2(330,44),PokerUi.Gold).rectTransform,
                 new Vector2(0,1),new Vector2(370,-50));
             _roundText=PokerUi.Label(_stage,_font,"",15,new Vector2(20,400),new Vector2(480,35),PokerUi.Muted);
             Anchor(_roundText.rectTransform,new Vector2(.5f,1),new Vector2(20,-50));
-            Anchor((RectTransform)PokerUi.Button(_stage,_font,"Комбинации",Vector2.zero,new Vector2(172,48),PokerUi.Dark,()=>{_help.Show();RefreshControls();}).transform,
-                Vector2.one,new Vector2(-290,-51));
-            Anchor((RectTransform)PokerUi.Button(_stage,_font,"Пауза",Vector2.zero,new Vector2(126,48),PokerUi.Dark,()=>SetPaused(true)).transform,
-                Vector2.one,new Vector2(-103,-51));
+            Anchor((RectTransform)PokerUi.Button(_stage,_font,"Комбинации",Vector2.zero,new Vector2(172,MobileUi.Phone?84:48),PokerUi.Dark,()=>{_help.Show();RefreshControls();}).transform,
+                Vector2.one,new Vector2(-290,MobileUi.Phone?-66:-51));
+            Anchor((RectTransform)PokerUi.Button(_stage,_font,"Пауза",Vector2.zero,new Vector2(126,MobileUi.Phone?84:48),PokerUi.Dark,()=>SetPaused(true)).transform,
+                Vector2.one,new Vector2(-103,MobileUi.Phone?-66:-51));
             _seatLayer=PokerUi.Rect(_stage,"Seats",Vector2.zero,Vector2.zero);
             for(var i=0;i<5;i++)
             {
@@ -468,11 +479,11 @@ namespace CardGameClient
             for(var i=0;i<2;i++)
             {
                 _humanCards[i]=CardView.Create(_stage,_font,.84f);_humanCards[i].SetPlain();
-                Anchor(_humanCards[i].Rect,new Vector2(.5f,0),new Vector2((i-.5f)*115,187));
+                Anchor(_humanCards[i].Rect,new Vector2(.5f,0),new Vector2((i-.5f)*115,MobileUi.Phone?201:187));
                 _humanCards[i].Rect.localRotation=Quaternion.Euler(0,0,i==0?3:-3);
             }
             _handText=PokerUi.Label(_stage,_font,"ТВОИ КАРТЫ",14,new Vector2(0,-181),new Vector2(360,24),PokerUi.Gold);
-            Anchor(_handText.rectTransform,new Vector2(.5f,0),new Vector2(0,269));
+            Anchor(_handText.rectTransform,new Vector2(.5f,0),new Vector2(0,MobileUi.Phone?287:269));
             _humanChips=PokerChipPile.Create(_stage,_font,new Vector2(255,-280),1.08f,true);
             Anchor(_humanChips.Root,new Vector2(.5f,0),new Vector2(255,170));
             Anchor(PokerUi.Label(_stage,_font,"ТВОИ ФИШКИ",12,Vector2.zero,new Vector2(240,24),PokerUi.Muted).rectTransform,
@@ -525,6 +536,47 @@ namespace CardGameClient
             foreach(var b in _raiseQuick)b.GetComponentInChildren<Text>().fontSize=13;
             _nextButton=PokerUi.Button(_controls,_font,"Следующая раздача",Vector2.zero,new Vector2(350,57),new Color(.42f,.32f,.14f),NextHand);
             _nextText=_nextButton.GetComponentInChildren<Text>();_nextButton.gameObject.SetActive(false);
+            if(MobileUi.Phone)ConfigurePhoneBettingControls();
+        }
+
+        private void ConfigurePhoneBettingControls()
+        {
+            // A phone has room for one useful row, not three miniature rows. The
+            // amount field keeps arbitrary raises; presets replace tiny slider taps.
+            _controls.sizeDelta=new Vector2(-70,108);
+            _controls.anchoredPosition=new Vector2(0,60);
+            foreach(var button in new[]{_foldButton,_callButton,_raiseButton,_allInButton,_nextButton})
+            {
+                var rect=(RectTransform)button.transform;
+                rect.sizeDelta=new Vector2(rect.sizeDelta.x,76);
+                var label=button.GetComponentInChildren<Text>();
+                label.rectTransform.sizeDelta=rect.sizeDelta-new Vector2(12,8);
+                label.fontSize=28;
+            }
+            _raiseSlider.gameObject.SetActive(false);
+            _raiseQuick[0].gameObject.SetActive(false);
+            _raiseQuick[1].gameObject.SetActive(false);
+            var prefix=_raiseArea.Find("ДО").GetComponent<Text>();
+            prefix.rectTransform.anchoredPosition=new Vector2(-264,0);
+            prefix.rectTransform.sizeDelta=new Vector2(42,40);
+            prefix.fontSize=19;
+            var input=(RectTransform)_raiseInput.transform;
+            input.anchoredPosition=new Vector2(-168,0);
+            input.sizeDelta=new Vector2(134,72);
+            _raiseInput.textComponent.rectTransform.sizeDelta=new Vector2(126,60);
+            _raiseInput.textComponent.fontSize=28;
+            var positions=new[]{-22f,95f,216f};
+            var widths=new[]{106f,112f,110f};
+            for(var i=0;i<3;i++)
+            {
+                var button=_raiseQuick[i+2];
+                var rect=(RectTransform)button.transform;
+                rect.anchoredPosition=new Vector2(positions[i],0);
+                rect.sizeDelta=new Vector2(widths[i],72);
+                var label=button.GetComponentInChildren<Text>();
+                label.rectTransform.sizeDelta=rect.sizeDelta-new Vector2(8,8);
+                label.fontSize=23;
+            }
         }
 
         private RectTransform Modal(string title,string detail,string button,Action action)
@@ -532,11 +584,13 @@ namespace CardGameClient
             var root=PokerUi.Box(_stage,title,Vector2.zero,new Vector2(1600,900),new Color(0,0,0,.68f),0).rectTransform;
             PokerUi.Stretch(root);
             root.GetComponent<Image>().raycastTarget=true;
-            PokerUi.Box(root,"Gold edge",Vector2.zero,new Vector2(660,420),PokerUi.Gold);
-            PokerUi.Box(root,"Panel",Vector2.zero,new Vector2(655,415),PokerUi.Dark);
-            PokerUi.Label(root,_font,title,36,new Vector2(0,130),new Vector2(620,58),PokerUi.Gold);
-            PokerUi.Label(root,_font,detail,23,new Vector2(0,12),new Vector2(590,160),PokerUi.Paper);
-            PokerUi.Button(root,_font,button,new Vector2(0,-130),new Vector2(320,57),new Color(.39f,.3f,.14f),action);
+            var phone=MobileUi.Phone;
+            var panelSize=phone?new Vector2(760,510):new Vector2(660,420);
+            PokerUi.Box(root,"Gold edge",Vector2.zero,panelSize,PokerUi.Gold);
+            PokerUi.Box(root,"Panel",Vector2.zero,panelSize-Vector2.one*5,PokerUi.Dark);
+            PokerUi.Label(root,_font,title,36,new Vector2(0,phone?176:130),phone?new Vector2(720,64):new Vector2(620,58),PokerUi.Gold);
+            PokerUi.Label(root,_font,detail,23,new Vector2(0,phone?10:12),phone?new Vector2(690,240):new Vector2(590,160),PokerUi.Paper);
+            PokerUi.Button(root,_font,button,new Vector2(0,phone?-190:-130),phone?new Vector2(380,76):new Vector2(320,57),new Color(.39f,.3f,.14f),action);
             return root;
         }
 
@@ -545,7 +599,7 @@ namespace CardGameClient
             if(_stage==null)return;
             var size=((RectTransform)transform).rect.size;
             if(size==_lastSize)return;_lastSize=size;
-            var scale=Mathf.Max(.01f,Mathf.Min(size.x/1600,size.y/900));
+            var scale = Mathf.Max(.01f, Mathf.Min(size.x / 1600, size.y / (MobileUi.Phone ? 820 : 900)));
             _stage.localScale=Vector3.one*scale;
             _stage.sizeDelta=size/scale;
             LayoutSeats();

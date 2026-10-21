@@ -25,7 +25,8 @@ namespace CardGameClient
         private const float MailCaseWidth = 1476, MailCaseHeight = 642, MailCaseMaxHeight = 760, MailCaseY = -35;
         private static readonly Rect MailLeather = Rect.MinMaxRect(84, 70, 526, 576);
         private static readonly Rect MailParchment = Rect.MinMaxRect(657, 73, 1378, 566);
-        private const float MailRowHeight = 90, MailRowGap = 8, MailBubbleWidth = 470, MailPad = 24;
+        private static float MailRowHeight => MobileUi.Phone ? 104 : 90;
+        private const float MailRowGap = 8, MailBubbleWidth = 470, MailPad = 24;
         private static readonly string[] MailPhrases = { "Сыграем?", "Хорошая игра!", "Реванш?" };
         private static readonly Color MailMine = new Color(1f, .87f, .83f), MailMuted = new Color(.45f, .32f, .2f),
             MailCream = new Color(1f, .91f, .74f);
@@ -166,7 +167,7 @@ namespace CardGameClient
             var viewport = FortuneViewport;
             var backdrop = _mailBackdrop.rectTransform;
             backdrop.localScale = Vector3.one * Mathf.Max(viewport.x / backdrop.sizeDelta.x, viewport.y / backdrop.sizeDelta.y);
-            var scale = Mathf.Min((viewport.x - 60) / MailCaseWidth, MailCaseMaxHeight / MailCaseHeight);
+            var scale = Mathf.Min((viewport.x - 60) / MailCaseWidth, (MobileUi.Phone ? 790 : MailCaseMaxHeight) / MailCaseHeight);
             _mailCase.localScale = Vector3.one * scale * Mathf.Lerp(.94f, 1, Mathf.SmoothStep(0, 1, _mailFade));
         }
 
@@ -338,7 +339,7 @@ namespace CardGameClient
             for (var i = 0; i < MailPhrases.Length; i++)
             {
                 var phrase = MailPhrases[i];
-                LoanPaperButton(_mailWrite, phrase, new Vector2(-inner / 2 + 85 + i * 186, 26), new Vector2(170, 40), () => _ = SendMail(phrase));
+                LoanPaperButton(_mailWrite, phrase, new Vector2(-inner / 2 + 85 + i * 186, 26), new Vector2(170, MobileUi.Phone ? 48 : 40), () => _ = SendMail(phrase));
             }
             var quill = LoanArt(_mailWrite, "Quill", "tavern-mail-quill", new Vector2(-inner / 2 + 22, -26), new Vector2(46, 52), Color.clear);
             quill.preserveAspect = true;
@@ -465,11 +466,11 @@ namespace CardGameClient
                 var unread = MailUnread(person.Id);
                 var textWidth = width - 84 - (unread > 0 ? 66 : 16);
                 var textX = -width / 2 + 80 + textWidth / 2;
-                var name = LoanText(row, "Name", "", new Vector2(textX, 17), new Vector2(textWidth, 40), 30, SixBubbleInk, true);
+                var name = LoanText(row, "Name", "", new Vector2(textX, 22), new Vector2(textWidth, 46), MobileUi.Phone ? 34 : 30, SixBubbleInk, true);
                 name.alignment = TextAnchor.MiddleLeft;
                 MailFitLine(name, person.Name);
                 var last = MailLast(person.Id);
-                var preview = LoanText(row, "Last line", "", new Vector2(textX, -20), new Vector2(textWidth, 32), 22, MailMuted);
+                var preview = LoanText(row, "Last line", "", new Vector2(textX, -22), new Vector2(textWidth, 42), MobileUi.Phone ? 28 : 22, MailMuted);
                 preview.alignment = TextAnchor.MiddleLeft;
                 MailFitLine(preview, last == null ? "Начать переписку"
                     : (last.FromId == _state.Profile.Id ? "Ты: " : "") + last.Text.Replace('\n', ' ').Replace('\r', ' '));
@@ -502,7 +503,7 @@ namespace CardGameClient
                 var rim = bubble.gameObject.AddComponent<HubOutline>();
                 rim.effectColor = SixBubbleInk;
                 rim.effectDistance = new Vector2(2, -2);
-                var text = LoanText(bubble.transform, "Text", letter.Text.Replace(" —", " —"), Vector2.zero, new Vector2(MailBubbleWidth - 32, 10), 27, SixBubbleInk);
+                var text = LoanText(bubble.transform, "Text", letter.Text.Replace(" —", " —"), Vector2.zero, new Vector2(MailBubbleWidth - 32, 10), MobileUi.Phone ? 34 : 27, SixBubbleInk);
                 text.alignment = TextAnchor.MiddleLeft;
                 // Ширина — по самой длинной строке, не шире облачка; высота — сколько строк вышло.
                 var textWidth = Mathf.Min(MailBubbleWidth - 32, Mathf.Ceil(text.preferredWidth) + 4);
@@ -515,7 +516,7 @@ namespace CardGameClient
                 rect.sizeDelta = size;
                 var x = mine ? width / 2 - 14 - size.x / 2 : -width / 2 + 14 + size.x / 2;
                 rect.anchoredPosition = new Vector2(x, -y - size.y / 2);
-                var time = LoanText(_mailMessages, "Time", MailTime(letter.CreatedAt), Vector2.zero, new Vector2(70, 30), 19, MailMuted);
+                var time = LoanText(_mailMessages, "Time", MailTime(letter.CreatedAt), Vector2.zero, new Vector2(70, 36), MobileUi.Phone ? 23 : 19, MailMuted);
                 time.rectTransform.anchorMin = time.rectTransform.anchorMax = new Vector2(.5f, 1);
                 time.rectTransform.anchoredPosition = new Vector2(x + (mine ? -1 : 1) * (size.x / 2 + 42), -y - size.y + 16);
                 y += size.y + 12;

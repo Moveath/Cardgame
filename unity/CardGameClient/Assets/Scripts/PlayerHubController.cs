@@ -101,6 +101,9 @@ namespace CardGameClient
             UpdateCity(typing);
             UpdateFortune(Time.unscaledDeltaTime,typing);
             UpdateNews(Time.unscaledDeltaTime,typing);
+            UpdateShop(Time.unscaledDeltaTime,typing);
+            UpdateArchive(Time.unscaledDeltaTime,typing);
+            UpdateMarket(Time.unscaledDeltaTime,typing);
             UpdateTavernMail(Time.unscaledDeltaTime,typing);
             UpdateTavernFriends(Time.unscaledDeltaTime,typing);
             UpdateCityCanvas();
@@ -151,6 +154,8 @@ namespace CardGameClient
             if(_busy)return;
             // Normalize the former placeholder before recording navigation history.
             if(page=="place:fortune")page="fortune";
+            // Магазин — Лавка Дамы бубен изнутри: не страница, а поездка к её двери и нырок (PlayerHubShop.cs).
+            if(page=="shop"){GoToShop();return;}
             CloseOutdoorVisit();
             if(page=="home"){_history.Clear();_tableTrip=-1;}
             else if(page!=_page)
@@ -172,6 +177,9 @@ namespace CardGameClient
             if(TryFortuneBack())return;
             if(TryLeaveFortuneInterior())return;
             if(TryNewsBack())return;
+            if(TryShopBack())return;
+            if(TryArchiveBack())return;
+            if(TryMarketBack())return;
             if(OutdoorVisit && _visitPhase==2){CloseOutdoorVisit();return;}
             // Открыт подарок Шестёрки — «Назад» закрывает его, а не выводит из дома.
             if(BankShown){CloseBankLoan();return;}
@@ -205,7 +213,6 @@ namespace CardGameClient
             if(page.StartsWith("throw:",StringComparison.Ordinal))return "inventory";
             switch(page)
             {
-                case "shop-catalog":return "shop";
                 case "room":case "create-room":return "rooms";
                 case "room-settings":return "room";
                 case "quick-game":return "game:"+_roomGame;
@@ -311,6 +318,7 @@ namespace CardGameClient
             else if(_page=="room")BuildRoom();
             else if(!RenderFeaturePage(_page)){_page="home";BuildHome();}
             RefreshShell();
+            MobileUi.EnlargeLabels(_content);
         }
 
         /// <summary>Плитка-переход в цвете раздела (<see cref="Accent"/>); справа круглая стрелка, за ней — масть игры.</summary>

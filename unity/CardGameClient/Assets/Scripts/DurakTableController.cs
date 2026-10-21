@@ -39,10 +39,10 @@ namespace CardGameClient
         private static readonly Color TransferChipColor = new Color(0.42f, 0.28f, 0.55f);
 
         // Насколько поднимается выбранная карта и какого размера плашка перевода над ней.
-        private const float ChoiceCardLift = 40f;
-        private const float ChoiceChipHeight = 44f;
-        private const float ChoiceChipWidth = 150f;
-        private const float HandRowBottom = 138f;
+        private static float ChoiceCardLift => MobileUi.Phone ? 28f : 40f;
+        private static float ChoiceChipHeight => MobileUi.Phone ? 62f : 44f;
+        private static float ChoiceChipWidth => MobileUi.Phone ? 184f : 150f;
+        private static float HandRowBottom => MobileUi.Phone ? 132f : 138f;
 
         // Конец раздачи: сначала пауза на прочитать расклад, потом карты уезжают к тому,
         // кто их забрал. Без этого стол просто мгновенно пустел и было непонятно, что было.
@@ -84,7 +84,9 @@ namespace CardGameClient
         // соперников, карты. Если привязывать их к центру, при широком окне Unity ужимает
         // высоту холста и они наезжают друг на друга.
         private const float SeatTopMargin = 130f;
-        private const float TableRowTop = 524f;
+        // На телефоне высота холста — 820: между верхними местами и поднятой картой
+        // руки нужен отдельный ряд, а не прежняя позиция для холста высотой 1080.
+        private static float TableRowTop => MobileUi.Phone ? 435f : 524f;
 
         // Ровно столько занимают шесть пар карт: шире стол не раскладывается. Значение
         // заметно влияет на дугу — места, попавшие в эту полосу, опускать некуда.
@@ -185,7 +187,10 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            // AppFlow меняет масштаб холста при входе за стол. Первый расклад должен
+            // использовать уже новый размер, иначе боковые руки оказываются за экраном.
+            Canvas.ForceUpdateCanvases();
+            _font = UiFonts.Body;
             _bot = new SimpleDurakBot();
             var hub = PlayerHubRuntime.Current;
             _hubBankJobMatch = hub != null && hub.Matches.Any(entry => entry.Id == hub.ActiveMatchId && !string.IsNullOrEmpty(entry.BankJobId));
@@ -533,7 +538,10 @@ namespace CardGameClient
         private IEnumerator FlyFromDeck(int playerIndex, int count)
         {
             var canvas = ((RectTransform)transform).rect;
-            var from = new Vector2(-canvas.width * 0.5f + DeckStackFromLeft, -(canvas.height - DeckStackFromBottom));
+            var pile = transform.InverseTransformPoint(_deckStackArea.position);
+            var from = MobileUi.Phone
+                ? new Vector2(pile.x, pile.y - canvas.yMax)
+                : new Vector2(-canvas.width * 0.5f + DeckStackFromLeft, -(canvas.height - DeckStackFromBottom));
             return FlyCards(playerIndex, count, from);
         }
 
@@ -620,10 +628,19 @@ namespace CardGameClient
             if (playerIndex == HumanIndex)
             {
                 var canvasHeight = ((RectTransform)transform).rect.height;
+                if (MobileUi.Phone) return new Vector2(0f, -(canvasHeight - HandRowBottom));
                 return new Vector2(PlayerSeatX(), -(canvasHeight - PlayerSeatBottom));
             }
 
-            return SeatPosition(playerIndex - 1, _game.Players.Count - 1);
+            var layout = BuildSeatLayout(_game.Players.Count - 1);
+            var seat = SeatPosition(playerIndex - 1, _game.Players.Count - 1, layout);
+            if (MobileUi.Phone)
+            {
+                var side = seat.x < 0f ? -1f : 1f;
+                seat += new Vector2(side * ((AvatarWidth * 0.5f + SeatFanGap) * layout.Scale + layout.FanWidth * 0.5f),
+                    -AvatarHeight * 0.58f * layout.Scale);
+            }
+            return seat;
         }
 
         /// <summary>Применяет клик человека по последней сыгранной карте — оспаривание, а не ход.</summary>
@@ -766,7 +783,7 @@ namespace CardGameClient
             _trumpCard.gameObject.SetActive(trumpCardOnTable);
             _trumpFrame.gameObject.SetActive(trumpCardOnTable);
 
-            _trumpInfo.fontSize = trumpCardOnTable ? 28 : 40;
+            _trumpInfo.fontSize = trumpCardOnTable ? MobileUi.TextSize(28) : 40;
             _trumpInfo.rectTransform.anchoredPosition = trumpCardOnTable
                 ? new Vector2(0f, -128f)
                 : new Vector2(0f, -20f);
@@ -807,15 +824,16 @@ namespace CardGameClient
             Clear(_tableRow);
             _challengeableCardView = null;
 
-            const float tableCardScale = 1.1f;
+            var tableCardScale = MobileUi.Phone ? 1.05f : 1.1f;
             var stillOnTable = new HashSet<Card>();
+            var phoneArrivals = MobileUi.Phone ? new List<(CardView View, Card Card)>() : null;
 
             for (var slotIndex = 0; slotIndex < pairs.Count; slotIndex++)
             {
                 var pair = pairs[slotIndex];
                 var container = new GameObject("Slot", typeof(RectTransform));
                 container.transform.SetParent(_tableRow, false);
-                ((RectTransform)container.transform).sizeDelta = new Vector2(190f, 260f);
+                ((RectTransform)container.transform).sizeDelta = new Vector2(MobileUi.Phone ? 178f : 190f, 260f);
 
                 var attackPosition = new Vector2(-16f, 18f);
                 CreateCardShadow(container.transform, attackPosition, tableCardScale);
@@ -824,7 +842,8 @@ namespace CardGameClient
                 attack.Rect.anchoredPosition = attackPosition;
                 attack.ShowFace(pair.Attack);
                 attack.SetPlain();
-                AnimateArrival(attack, pair.Attack);
+                if (phoneArrivals != null) phoneArrivals.Add((attack, pair.Attack));
+                else AnimateArrival(attack, pair.Attack);
                 stillOnTable.Add(pair.Attack);
 
                 // Пока в руке выбрана карта, стол работает только как выбор цели: иначе
@@ -848,7 +867,8 @@ namespace CardGameClient
                     defense.Rect.anchoredPosition = defensePosition;
                     defense.ShowFace(pair.Defense.Value);
                     defense.SetPlain();
-                    AnimateArrival(defense, pair.Defense.Value);
+                    if (phoneArrivals != null) phoneArrivals.Add((defense, pair.Defense.Value));
+                    else AnimateArrival(defense, pair.Defense.Value);
                     stillOnTable.Add(pair.Defense.Value);
 
                     if (!choosing)
@@ -856,6 +876,14 @@ namespace CardGameClient
                         WireChallengeIfPending(defense, slotIndex, isAttackCard: false);
                     }
                 }
+            }
+
+            if (phoneArrivals != null)
+            {
+                // Все слоты уже созданы: их центры больше не сдвинутся после начала
+                // перелёта, даже если одновременно появились несколько пар.
+                Canvas.ForceUpdateCanvases();
+                foreach (var arrival in phoneArrivals) AnimateArrival(arrival.View, arrival.Card);
             }
 
             _tableCardsShown.Clear();
@@ -1016,7 +1044,17 @@ namespace CardGameClient
                 return;
             }
 
-            view.PlayFlyIn(SeatOffset(_lastActorIndex));
+            if (MobileUi.Phone)
+            {
+                // Отправная точка общая для всего стола, а карта живёт внутри своего
+                // слота. Переводим координаты, чтобы крайние слоты не удваивали сдвиг.
+                var seat = SeatAnchorPosition(_lastActorIndex ?? HumanIndex);
+                var root = (RectTransform)transform;
+                var world = root.TransformPoint(new Vector3(seat.x, root.rect.yMax + seat.y, 0f));
+                var local = (Vector2)view.Rect.parent.InverseTransformPoint(world);
+                view.PlayFlyIn(local - view.Rect.anchoredPosition);
+            }
+            else view.PlayFlyIn(SeatOffset(_lastActorIndex));
         }
 
         /// <summary>Откуда карта прилетает на стол: снизу — от игрока, иначе с его места за столом.</summary>
@@ -1075,9 +1113,9 @@ namespace CardGameClient
             {
                 Scale = scale,
                 BlockHeight = SeatBlockHeight * scale,
-                ArchDepth = opponentCount <= 2 ? 150f : (opponentCount == 3 ? 220f : 290f),
+                ArchDepth = MobileUi.Phone ? 18f : opponentCount <= 2 ? 150f : (opponentCount == 3 ? 220f : 290f),
                 FanWidth = fanWidth,
-                MaxX = room - fanWidth
+                MaxX = room - fanWidth - (MobileUi.Phone ? 18f : 0f)
             };
         }
 
@@ -1107,6 +1145,14 @@ namespace CardGameClient
             // заполняют пустые углы сукна, а средние поджимаются к верхушке дуги.
             // Ровная развёртка оставляла углы пустыми, а середину растянутой.
             var spread = seatIndex / (float)(opponentCount - 1) * 2f - 1f;
+            if (MobileUi.Phone)
+            {
+                // Пять соперников занимают один неглубокий ряд: боковые фигуры
+                // больше не опускаются на колоду, а веера целиком остаются на сукне.
+                var phoneDepth = layout.ArchDepth * Mathf.Abs(spread);
+                var limit = TableRowTop - TableCardsHalfHeight - 16f - SeatTopMargin - layout.BlockHeight;
+                return new Vector2(layout.MaxX * spread, -(SeatTopMargin + Mathf.Min(phoneDepth, Mathf.Max(0f, limit))));
+            }
             var eased = Mathf.Sign(spread) * Mathf.Pow(Mathf.Abs(spread), SeatArcBias(opponentCount));
             var angle = eased * Mathf.PI * 0.5f;
 
@@ -1181,13 +1227,15 @@ namespace CardGameClient
             // Ширина ограничена ещё и экраном: по краям нижнего ряда стоят колода со своим
             // местом слева и кнопки справа, и веер не должен на них наезжать.
             const int comfortableHandCount = 8;
-            var availableHandWidth = Mathf.Min(1500f, ((RectTransform)transform).rect.width - 1200f);
-            if (count > comfortableHandCount)
+            var availableHandWidth = Mathf.Min(1500f, ((RectTransform)transform).rect.width - (MobileUi.Phone ? 1040f : 1200f));
+            if (!MobileUi.Phone && count > comfortableHandCount)
             {
                 availableHandWidth *= Mathf.Sqrt(comfortableHandCount / (float)count);
             }
 
-            var spacing = Mathf.Min(cardWidth * 0.82f, availableHandWidth / count);
+            var spacing = MobileUi.Phone
+                ? Mathf.Min(cardWidth * 0.82f, Mathf.Max(0f, availableHandWidth - cardWidth - 36f) / Mathf.Max(1, count - 1))
+                : Mathf.Min(cardWidth * 0.82f, availableHandWidth / count);
             var mid = (count - 1) / 2f;
 
             // Крайние карты наклонены, поэтому к половине ширины добавляем запас на наклон:
@@ -1205,7 +1253,8 @@ namespace CardGameClient
 
                 var offset = i - mid;
                 var isChoosing = _choiceCard.HasValue && _choiceCard.Value == card;
-                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 6f + (isChoosing ? ChoiceCardLift : 0f));
+                var drop = Mathf.Abs(offset) * (MobileUi.Phone ? Mathf.Min(6f, 16f / Mathf.Max(mid, 1f)) : 6f);
+                var position = new Vector2(offset * spacing, -drop + (isChoosing ? ChoiceCardLift : 0f));
                 view.SetRestTransform(position, isChoosing ? 0f : -offset * angleStep);
 
                 if (!_waitingForHuman)
@@ -1277,7 +1326,8 @@ namespace CardGameClient
 
                 // Плашка уезжает вправо, если у крайней левой карты легла бы на персонажа.
                 var minCenter = PlayerSeatX() + AvatarWidth * 0.5f + 8f + ChoiceChipWidth * 0.5f;
-                CreateChoiceChip("перевести", Mathf.Max(choiceX, minCenter), chipY, TransferChipColor, choiceTransfer.Value);
+                var chipX = MobileUi.Phone ? ((RectTransform)transform).rect.width * 0.5f - 190f : Mathf.Max(choiceX, minCenter);
+                CreateChoiceChip("перевести", chipX, chipY, TransferChipColor, choiceTransfer.Value);
             }
         }
 
@@ -1353,6 +1403,8 @@ namespace CardGameClient
         /// </summary>
         private float ChoiceChipOffset(float cardWidth)
         {
+            // Перевод — третья кнопка действий справа; он не закрывает цель на столе.
+            if (MobileUi.Phone) return 318f - HandRowBottom;
             var canvasHeight = ((RectTransform)transform).rect.height;
             var cardHeight = cardWidth * (CardView.Height / CardView.Width);
             var handTop = HandRowBottom + cardHeight * 0.5f + ChoiceCardLift;
@@ -1366,7 +1418,7 @@ namespace CardGameClient
         private float PlayerSeatX()
         {
             var canvasHalf = ((RectTransform)transform).rect.width * 0.5f;
-            return Mathf.Max(-(_handHalfWidth + AvatarWidth * 0.5f + 30f), -canvasHalf + 356f);
+            return Mathf.Max(-(_handHalfWidth + AvatarWidth * 0.5f + 30f), -canvasHalf + (MobileUi.Phone ? 420f : 356f));
         }
 
         /// <summary>Клик по карте с двумя вариантами: раскрывает выбор или закрывает его обратно.</summary>
@@ -1547,7 +1599,8 @@ namespace CardGameClient
                 back.SetPlain();
 
                 var offset = h - mid;
-                var position = new Vector2(offset * spacing, -Mathf.Abs(offset) * 3f);
+                var drop = Mathf.Abs(offset) * (MobileUi.Phone ? Mathf.Min(3f, 16f / Mathf.Max(mid, 1f)) : 3f);
+                var position = new Vector2(offset * spacing, -drop);
                 back.SetRestTransform(position, -offset * angleStep);
             }
         }
@@ -1566,6 +1619,7 @@ namespace CardGameClient
         /// </summary>
         private static float OpponentVisualScale(int opponentCount)
         {
+            if (MobileUi.Phone) return opponentCount <= 4 ? 0.9f : opponentCount <= 5 ? 0.86f : 0.76f;
             if (opponentCount <= 2) return 1f;
             if (opponentCount <= 4) return 0.9f;
             if (opponentCount <= 6) return 0.8f;
@@ -1668,11 +1722,17 @@ namespace CardGameClient
 
             if (_choiceCard.HasValue)
             {
-                _status.text = "Куда кладём: нажми карту на столе или «перевести»";
+                _status.text = MobileUi.Phone ? "Выбери цель или нажми «Перевести»" : "Куда кладём: нажми карту на столе или «перевести»";
                 return;
             }
 
             // Подсказка про перевод появляется только когда он реально возможен.
+            if (MobileUi.Phone)
+            {
+                _status.text = _humanLegalMoves.Any(m => m.Type == DurakMoveType.Transfer)
+                    ? "Отбей, переведи или забери карты" : "Отбей карту или нажми «Забрать»";
+                return;
+            }
             _status.text = _humanLegalMoves.Any(m => m.Type == DurakMoveType.Transfer)
                 ? "Отбивайся, переведи картой того же достоинства или забери"
                 : "Отбивайся: выбери карту или забери";
@@ -1713,7 +1773,7 @@ namespace CardGameClient
 
             _status = CreateText(root, string.Empty, 36, TextAnchor.MiddleCenter);
             HubQuestResultLine.Attach(_status, () => _game != null && _game.IsFinished);
-            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(1100f, 66f));
+            Place((RectTransform)_status.transform, new Vector2(0.5f, 1f), new Vector2(0f, -54f), new Vector2(MobileUi.Phone ? root.rect.width - 640f : 1100f, 66f));
 
             // Соперники рассаживаются по дуге вокруг стола (см. SeatPosition), поэтому здесь
             // только пустая область на весь экран — каждое место позиционируется само.
@@ -1724,7 +1784,7 @@ namespace CardGameClient
             _tableRow = CreatePanel("Table", root, new Vector2(0.5f, 1f), new Vector2(0f, -TableRowTop), new Vector2(1500f, 280f));
             _tableGroup = _tableRow.gameObject.AddComponent<CanvasGroup>();
             var tableLayout = _tableRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            tableLayout.spacing = 16f;
+            tableLayout.spacing = MobileUi.Phone ? 12f : 16f;
             tableLayout.childAlignment = TextAnchor.MiddleCenter;
             tableLayout.childControlWidth = false;
             tableLayout.childControlHeight = false;
@@ -1739,7 +1799,7 @@ namespace CardGameClient
 
             // Колода с козырем — в самом левом нижнем углу, ниже дуги мест и левее руки:
             // середину краёв стола теперь занимают крайние соперники.
-            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(170f, 170f), new Vector2(220f, 300f));
+            var trumpArea = CreatePanel("Trump", root, new Vector2(0f, 0f), new Vector2(180f, MobileUi.Phone ? 228f : 170f), new Vector2(220f, 300f));
 
             const float trumpScale = 0.9f;
             var trumpFrame = new GameObject("TrumpFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -1760,12 +1820,13 @@ namespace CardGameClient
             _deckStackArea = CreatePanel("DeckStack", trumpArea, new Vector2(0.5f, 0.5f), new Vector2(-6f, 60f), new Vector2(100f, 100f));
 
             _trumpInfo = CreateText(trumpArea, string.Empty, 28, TextAnchor.MiddleCenter);
+            _trumpInfo.font = UiFonts.Symbols;
             _trumpInfo.color = ActiveGlow;
             _trumpInfo.fontStyle = FontStyle.Bold;
             Place((RectTransform)_trumpInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -100f), new Vector2(220f, 44f));
 
             _deckInfo = CreateText(trumpArea, string.Empty, 26, TextAnchor.MiddleCenter);
-            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, -145f), new Vector2(220f, 50f));
+            Place((RectTransform)_deckInfo.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, MobileUi.Phone ? -166f : -145f), new Vector2(MobileUi.Phone ? 240f : 280f, 50f));
 
             _lastAction = CreateText(root, string.Empty, 26, TextAnchor.MiddleCenter);
             _lastAction.color = new Color(0.85f, 0.92f, 0.85f, 0.9f);
@@ -1773,10 +1834,10 @@ namespace CardGameClient
             // потому что вниз местам мешают карты стола.
             Place((RectTransform)_lastAction.transform, new Vector2(0.5f, 1f), new Vector2(0f, -102f), new Vector2(900f, 38f));
 
-            _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, 250f),
+            _passButton = CreateButton(root, "Бито / Пас", new Vector2(1f, 0f), new Vector2(-190f, MobileUi.Phone ? 225f : 250f),
                 new Color(0.21f, 0.45f, 0.29f), () => _pendingMove = DurakMove.Pass());
 
-            _takeButton = CreateButton(root, "Забрать", new Vector2(1f, 0f), new Vector2(-190f, 150f),
+            _takeButton = CreateButton(root, "Забрать", new Vector2(1f, 0f), new Vector2(-190f, MobileUi.Phone ? 117f : 150f),
                 new Color(0.55f, 0.28f, 0.18f), () => _pendingMove = DurakMove.Take());
 
             _restartButton = CreateButton(root, _hubBankJobMatch ? "К Тузяре" : "Новая партия", new Vector2(0.5f, 0.5f), new Vector2(0f, -190f),
@@ -1793,7 +1854,8 @@ namespace CardGameClient
                     StopAllCoroutines();
                     _onExit?.Invoke();
                 });
-            ((RectTransform)exitButton.transform).sizeDelta = new Vector2(200f, 64f);
+            ((RectTransform)exitButton.transform).sizeDelta = MobileUi.Phone ? new Vector2(230f, 82f) : new Vector2(200f, 64f);
+            if (MobileUi.Phone) ((RectTransform)exitButton.transform).anchoredPosition = new Vector2(169f, -77f);
 
             // Создаётся последним, чтобы летящие карты шли поверх всего остального.
             _flyLayer = new GameObject("Flights", typeof(RectTransform)).GetComponent<RectTransform>();
@@ -1827,6 +1889,7 @@ namespace CardGameClient
             innerImage.raycastTarget = false;
 
             var marks = CreateText(ring.transform, "♠  ♥  ♦  ♣", 76, TextAnchor.MiddleCenter);
+            marks.font = UiFonts.Symbols;
             Stretch((RectTransform)marks.transform);
             marks.color = new Color(1f, 0.93f, 0.7f, 0.09f);
         }
@@ -1841,7 +1904,7 @@ namespace CardGameClient
             rect.anchorMax = anchor;
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = position;
-            rect.sizeDelta = new Vector2(280f, 76f);
+            rect.sizeDelta = new Vector2(280f, MobileUi.Phone ? 86f : 76f);
 
             var image = go.GetComponent<Image>();
             image.sprite = UiTextures.RoundedRect(140, 76, 18f, color);
@@ -1875,7 +1938,7 @@ namespace CardGameClient
 
             var text = go.GetComponent<Text>();
             text.font = _font;
-            text.fontSize = fontSize;
+            text.fontSize = MobileUi.TextSize(fontSize);
             text.alignment = anchor;
             text.color = new Color(0.94f, 0.95f, 0.93f);
             text.text = content;

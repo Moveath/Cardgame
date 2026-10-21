@@ -20,7 +20,7 @@ public static class AndroidTestBuild
         if (string.IsNullOrEmpty(output)) output = Path.GetFullPath("../CardCity-test.apk");
         var android = NamedBuildTarget.Android;
         PlayerSettings.productName = "Card City";
-        PlayerSettings.SetApplicationIdentifier(android, "com.cardcity.test");
+        PlayerSettings.SetApplicationIdentifier(android, Environment.GetEnvironmentVariable("ANDROID_APP_ID") ?? "com.cardcity.test");
         // Поворот — только между двумя горизонтальными положениями.
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
         PlayerSettings.allowedAutorotateToPortrait = false;

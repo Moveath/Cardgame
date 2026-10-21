@@ -7,27 +7,6 @@ namespace CardGameClient
 {
     public sealed partial class PlayerHubController
     {
-        private void BuildHubShopCatalog()
-        {
-            Title("Магазин · " + HubShopSectionName(_hubShopCategory), "Выбери предмет для своей коллекции. Пока всё открывается локально, без оплаты.");
-            HubCatalogTabs(_hubShopCategory, category => { _hubShopCategory = category; _hubListPages["shop"] = 0; Navigate("shop-catalog"); });
-            var items = _state.Catalog.Where(item => HubCategoryMatches(item.Category, _hubShopCategory)).OrderBy(item => HubOwned(item.Id)).ToArray();
-            var start = HubPageStart("shop", items.Length, 6);
-            for (var i = start; i < Math.Min(start + 6, items.Length); i++)
-            {
-                var item = items[i]; var n = i - start;
-                var x = n % 2 * 590; var y = 62 + n / 2 * 171;
-                HubItemCard(item, x, y, 166);
-                var owned = HubOwned(item.Id);
-                var consumable = item.Category == "consumable";
-                Label(consumable ? item.PriceLabel : owned ? "Уже в коллекции" : "Без оплаты · локальное открытие", x + 16, y + 83, 528, 26, 17).color = HubPageMuted;
-                Button(consumable ? "+10 помидоров (локально)" : owned ? "Открыть инвентарь" : "Получить (локально)", x + 16, y + 113, 528, 44,
-                    () => { if (consumable) Send("tomato_buy", item.Id); else if (owned) Navigate("inventory"); else Send("cosmetic_unlock", item.Id); });
-            }
-            if (items.Length == 0) HubEmpty("В этой категории пока пусто", "Другие доступные предметы есть во вкладке «Все».", 85);
-            Label("Новые образы не дают преимуществ. Реальные покупки здесь не подключены.", 0, 578, 1160, 28, 18).color = HubPageMuted;
-        }
-
         private void BuildHubInventory()
         {
             Title("Инвентарь и образ", "Выбор сохраняется в профиле. Предметы без готового рисунка пока меняют только слот.");
@@ -120,6 +99,10 @@ namespace CardGameClient
                 Button("Бросить помидор", x + 16, y + 125, 338, 40, () => Send("tomato_throw", person.Id));
             }
             Button("В инвентарь", 0, 535, 280, 48, () => Navigate("inventory"));
+            // Кидалки — у Семёрки треф на чёрном рынке (IDEAS.md, 2026-10-17); пока его нет — докупка прямо здесь, в демо.
+            var left = _state.Inventory.Where(entry => entry.ItemId == "tomato_pack").Sum(entry => entry.Quantity);
+            Button("Ещё 10 помидоров", 300, 535, 320, 48, () => Send("tomato_buy"));
+            Label("Осталось: " + left, 645, 545, 300, 30, 19).color = HubPageMuted;
         }
 
         private void BuildHubBank()

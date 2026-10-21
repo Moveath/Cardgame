@@ -144,6 +144,14 @@ namespace CardGame.Core.Meta
                     // An explicit empty slot survives catalog migrations; absence means old schema.
                     s.Equipped.Add(new HubEquipment { Slot = target, ItemId = "" }); return "Предмет снят";
                 case "tomato_buy": GrantItem(s, "tomato_pack", 10); Progress(s, "gardener", 1); return "Демо-пачка: +10 помидоров";
+                // Лавка Дамы бубен (HubShop.cs): покупка с витрины дня и «Покажи другое» (пока без ролика рекламы).
+                case "shop_buy": return BuyFromShop(s, target);
+                case "shop_reroll": return RerollShop(s);
+                // Рынок Короля бубен (HubMarket.cs): заказ с корабля, получение посылки, скупка и торг.
+                case "market_order": return OrderFromShip(s, target);
+                case "market_pickup": return PickUpOrder(s);
+                case "market_sell": return SellToKing(s, target);
+                case "market_haggle": return HaggleWithSeven(s, target);
                 case "tomato_throw":
                     Require(target.Length > 0 && target != s.Profile.Id, "target", "Выбери соперника.");
                     Require(s.People.Any(p => p.Id == target) || s.CurrentRoomId.Length > 0 && Room(s).Members.Any(m => m.PlayerId == target), "target", "Игрок не найден.");
@@ -516,6 +524,10 @@ namespace CardGame.Core.Meta
             HubQuests.Refresh(s, Now);
             HubBankJobs.Refresh(s, Now);
             HubFortunes.Refresh(s);
+            HubMarket.Normalize(s, Now);
+            HubShop.Refresh(s, Now);
+            // Сегодняшняя витрина — тоже в памяти рынка (и у старых сохранений, где её ещё не запоминали).
+            HubMarket.Remember(s, s.Shop.Day, s.Shop.Slots);
             var earningDays = s.IncomeDays.Where(d => d.Day >= day - 6 && d.Day <= day).ToArray();
             var average = earningDays.Length == 0 ? 0 : earningDays.Sum(d => (long)d.Gross) / earningDays.Length;
             s.Bank.CreditLimit = (int)Math.Min(5000, Math.Max(100, Math.Min(100L + s.Profile.Level * 100L, average * 3)));

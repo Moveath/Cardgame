@@ -49,8 +49,9 @@ namespace CardGameClient
 
         private void Start()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = UiFonts.Body;
             _root = (RectTransform)transform;
+            MobileUi.ConfigureTableCanvas(GetComponent<CanvasScaler>());
 
             BuildBackground();
             BuildMainMenu();
@@ -636,6 +637,10 @@ namespace CardGameClient
 
             if (_gameScreen != null)
             {
+                if (screen == _gameScreen)
+                    MobileUi.ConfigureTableCanvas(GetComponent<CanvasScaler>(),
+                        _gameScreen.GetComponent<ChestsTableController>() != null ||
+                        _gameScreen.GetComponent<BluffTableController>() != null ? 900 : 820);
                 _gameScreen.SetActive(screen == _gameScreen);
             }
             // В галерею всегда заходим с первого уровня — со списка, кто это будет, — и

@@ -93,10 +93,11 @@ namespace CardGameClient
         private static readonly CityPlace[] CityPlaces = System.Array.FindAll(new[]
         {
             // Архив переехал с холма в здание бывшего полицейского поста (решение автора, 2026-09-30).
-            Place("archive", "card-city-old-town", "Архив", "Туз червей — архивариус",
-                "Достижения игрока и летопись города — история Тузяры, Шестёрки и других жителей.",
-                290, 510, new float[] { 212, 655, 212, 225, 262, 185, 365, 55, 470, 175, 505, 195, 505, 620, 355, 640, 352, 655 },
-                "achievements", "Достижения", "Все достижения и награды за них"),
+            // Здание с залом внутри (PlayerHubArchive.cs, 2026-10-18): дверь ведёт на его этаж.
+            Entrance(Place("archive", "card-city-old-town", "Архив", "Туз червей — архивариус",
+                "Витрина достижений, летопись города и твоё личное дело.",
+                290, 510, new float[] { 212, 655, 212, 225, 262, 185, 365, 55, 470, 175, 505, 195, 505, 620, 355, 640, 352, 655 }),
+                ArchiveLevel),
             // Дом Шестёрки — здание с комнатой внутри (2026-10-07, PlayerHubSixHouse.cs): дверь ведёт на её этаж.
             // Нажимается и домик, и табличка на кронштейне справа, над проулком; контур — только домик.
             Entrance(Place("six", "card-city-old-town", "Дом Шестёрки", "Шестёрка пик — проводник", null,
@@ -114,10 +115,11 @@ namespace CardGameClient
                 "Одна из шести карт бесплатно каждые 24 часа. Предсказание меняет обычную награду за несколько партий.",
                 1405, 520, new float[] { 1285, 600, 1295, 470, 1310, 420, 1340, 380, 1405, 305, 1470, 370, 1500, 400, 1515, 440,
                     1515, 600, 1460, 620, 1330, 620 }, "fortune", direct: true), FortuneLevel),
-            Place("shop", "card-city", "Лавка", "Дама бубен",
-                "Вся косметика города: рубашки, рамки, сукна и персонажи, товар дня и примерочная.",
-                380, 500, new float[] { 230, 605, 230, 300, 300, 245, 390, 195, 455, 165, 470, 175, 520, 260, 548, 330, 552, 605 },
-                "shop", "Магазин", "Рубашки, рамки, персонажи и товар дня"),
+            // Лавка Дамы бубен — здание с прилавком внутри (PlayerHubShop.cs, 2026-10-17): дверь ведёт на её этаж.
+            Entrance(Place("shop", "card-city", "Лавка", "Дама бубен",
+                "Витрина дня: рубашки, рамки, сукна и наряды, товар дня со скидкой.",
+                380, 500, new float[] { 230, 605, 230, 300, 300, 245, 390, 195, 455, 165, 470, 175, 520, 260, 548, 330, 552, 605 }),
+                ShopLevel),
             Stairs("stairs-down", "card-city", 1, 476, 725,
                 new float[] { 268, 792, 268, 610, 300, 592, 345, 615, 455, 605, 575, 605, 600, 595, 650, 615, 652, 752, 598, 762, 560, 792 }),
             // Клуб — здание с залом внутри (PlayerHubInterior.cs): двери ведут на этаж зала.
@@ -148,10 +150,10 @@ namespace CardGameClient
                     1010, 100, 1050, 120, 1080, 180, 1120, 150, 1160, 95, 1200, 150, 1205, 690 },
                 // Покер переехал из Клуба в казино (решение автора, 2026-09-29); свой зал казино — потом.
                 "game:poker", direct: true),
-            Place("market", "card-city-port", "Рынок", "Король бубен",
-                "Рынок игроков: выставляй свои вещи по своей цене, покупай чужие.",
+            Entrance(Place("market", "card-city-port", "Рынок", "Король бубен", null,
                 555, 400, new float[] { 120, 590, 120, 400, 200, 370, 280, 300, 385, 200, 400, 110, 470, 110, 515, 90, 545, 60, 565, 48,
                     585, 60, 615, 90, 650, 120, 700, 150, 720, 210, 740, 330, 800, 395, 895, 450, 895, 590 }),
+                MarketLevel),
             Stairs("stairs-up", "card-city-underground", 0, 267, 188,
                 new float[] { 0, 480, 0, 120, 120, 20, 160, 0, 310, 0, 335, 60, 420, 105, 500, 130, 400, 200, 300, 260, 230, 310,
                     160, 390, 110, 480 }),
@@ -231,6 +233,23 @@ namespace CardGameClient
             TavernTable(4, 1700, 740, new float[] { 1504, 941, 1504, 620, 1600, 600, 1800, 600, 1889, 620, 1889, 941 }),
             TavernResidents("tavern-sweethearts", "Семёрки", "Свидание", 1690, 540,
                 new float[] { 1520, 600, 1520, 470, 1870, 470, 1870, 600 }),
+            // Прилавок Лавки (картинка 2196×941, 21:9): Дама — реплика, пять мест витрины — карточка вещи (PlayerHubShop.cs).
+            ShopQueenPlace(),
+            ShopSlotPlace(0),
+            ShopSlotPlace(1),
+            ShopSlotPlace(2),
+            ShopSlotPlace(3),
+            ShopSlotPlace(4),
+            // Зал Архива (PlayerHubArchive.cs, 2026-10-18): витрина, летопись, Туз червей, картотека.
+            ArchiveCabinetPlace(),
+            ArchiveBookPlace(),
+            ArchiveAcePlace(),
+            ArchiveDrawersPlace(),
+            // Зал Рынка Короля бубен (PlayerHubMarket.cs, 2026-10-19): арка на причал/корабль, прилавок с весами, Король бубен, Семёрка треф.
+            MarketShipPlace(),
+            MarketScalesPlace(),
+            MarketKingPlace(),
+            MarketSevenPlace(),
             // Подарок — нарисованная коробка на полке (PlayerHubSixGift.cs).
             Place("six-gift", SixRoom, "Подарок", "Шестёрка пик", null, 1780, 108,
                 new float[] { 1682, 40, 1847, 40, 1847, 240, 1682, 240 }, talk: true,
@@ -332,6 +351,9 @@ namespace CardGameClient
             if (place.HoverOnly) return;
             if (place.Id == "bank-boss") ShowBankLoan();
             else if (place.Id == "six-quests") ShowSixQuests();
+            else if (place.Art == ShopCounter) ClickShop(place.Id);
+            else if (place.Art == ArchiveHall) ClickArchive(place.Id);
+            else if (place.Art == MarketHall) ClickMarket(place.Id);
             else if (place.Resident) ToggleResident(place.Id);
             else if (place.Talk && place.Art == TavernHall) TavernTalk(place.Id);
             else if (place.Talk) SixTalk(place.Id);
@@ -412,16 +434,20 @@ namespace CardGameClient
             _visit = -1;
         }
 
-        private float CurrentVisitZoom => _visit >= 0 && IsGameTable(CityPlaces[_visit]) ? TableVisitZoom : VisitZoom;
+        // The extra phone zoom belongs to the overview; do not compound it when approaching
+        // a table, otherwise residents' heads and the tabletop are cropped by the close-up.
+        private float CurrentVisitZoom => _visit >= 0 && IsGameTable(CityPlaces[_visit])
+            ? TableVisitZoom / (PlaceLevel(CityPlaces[_visit]) == FirstInterior ? ClubPhoneZoom : 1f) : VisitZoom;
 
         private Vector2 VisitFocus()
         {
             var place = CityPlaces[_visit];
             var point = PlaceScreenPoint(place, place.Door);
-            // У стола с игрой справа встаёт табличка: стол подъезжает левее середины экрана.
+            // Стол встаёт рядом с табличкой; у правой стены зала стороны меняются местами.
             if (IsGameTable(place))
             {
-                point.x += _cityArea.rect.width * TableAside / CurrentVisitZoom;
+                var side = TablePlaqueOnLeft(place.Route.Substring(5)) ? -1 : 1;
+                point.x += side * _cityArea.rect.width * TableAside / CurrentVisitZoom;
                 point.y -= _cityArea.rect.height * TableLift / CurrentVisitZoom;
             }
             return point;

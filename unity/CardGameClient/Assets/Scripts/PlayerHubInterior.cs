@@ -27,6 +27,7 @@ namespace CardGameClient
         // Совпадающие края готовых картинок: мост начинается в x=1105 первого зала,
         // второй зал — в x=1342 моста. Всё измерено в общей системе 1916×821.
         private const float ClubPictureWidth = 1916, ClubPictureHeight = 821, ClubBridgeX = 1105, ClubHall2X = 2447;
+        private static float ClubPhoneZoom => MobileUi.Phone ? 1.2f : 1f;
 
         private RectTransform _interiorControls;
         // Сдвиг вида по этажу вбок — в пикселях его картинки (0 — середина). Зал 21:9 на экране 16:9 или 4:3
@@ -158,12 +159,28 @@ namespace CardGameClient
             if (_stage == null) return;
             var size = ((RectTransform)transform).rect.size / Mathf.Max(.01f, _stage.localScale.x);
             var spare = new Vector2(Mathf.Max(0, size.x - 1600) / 2, Mathf.Max(0, size.y - 900) / 2);
+            // A phone notch/navigation inset is measured in screen pixels, while these controls
+            // live in stage units. Editor QA uses an independent canvas, so only use the real
+            // display's safe area in a player on a mobile device.
+            var safe = Application.isMobilePlatform ? Screen.safeArea : new Rect(0, 0, Screen.width, Screen.height);
+            var left = safe.xMin * size.x / Mathf.Max(1, Screen.width);
+            var right = (Screen.width - safe.xMax) * size.x / Mathf.Max(1, Screen.width);
+            var top = (Screen.height - safe.yMax) * size.y / Mathf.Max(1, Screen.height);
             foreach (var pin in _cornerPins)
-                if (pin.Rect != null) pin.Rect.anchoredPosition = pin.Home + new Vector2(pin.Side * spare.x, spare.y);
+                if (pin.Rect != null) pin.Rect.anchoredPosition = pin.Home
+                    + new Vector2(pin.Side * spare.x + (pin.Side < 0 ? left : -right), spare.y - top);
         }
 
         private Button CityButton(Transform parent, string text, float x, float y, float w, float h, System.Action action)
         {
+            if (MobileUi.Phone && (text == "НАЗАД" || text == "ВЫЙТИ" || text == "ОТОЙТИ" || text == "ЗАКРЫТЬ"))
+            {
+                var oldWidth = w;
+                w = Mathf.Max(240, w);
+                h = Mathf.Max(88, h);
+                // Right-corner close buttons grow inward; left-corner controls keep their origin.
+                if (x > 800) x -= w - oldWidth;
+            }
             var plaque = s_signPlaque != null ? s_signPlaque : s_signPlaque = Resources.Load<Sprite>("UI/Hub/sign-plaque");
             var font = s_signNarrow != null ? s_signNarrow : s_signNarrow = Resources.Load<Font>("Fonts/SignNarrow");
             var rect = MakeRect(parent, text, x, y, w, h);
@@ -347,7 +364,8 @@ namespace CardGameClient
         /// <summary>Размер исходной картинки, в пикселях которой заданы места и вывески.</summary>
         private static Vector2 PictureSize(string art) =>
             IsClubArt(art) ? new Vector2(ClubPictureWidth, ClubPictureHeight)
-            : art == SixRoom || art == BankHall || art == TavernHall ? new Vector2(SixPictureWidth, SignPictureHeight) : new Vector2(SignPictureWidth, SignPictureHeight);
+            : art == SixRoom || art == BankHall || art == TavernHall || art == ShopCounter || art == ArchiveHall || art == MarketHall ? new Vector2(SixPictureWidth, SignPictureHeight)
+            : new Vector2(SignPictureWidth, SignPictureHeight);
 
         // Стол в зале Клуба (пиксели картинки зала): ширина со стульями; середина того, чем он стоит на полу
         // (ножки стульев и подножие), — в середине пятна света на полу. У всех четырёх пятен общая
@@ -555,6 +573,9 @@ namespace CardGameClient
         {
             if (art == SixRoom) AddSixRoom(floor, width);
             if (art == TavernHall) AddTavernHall(floor, width);
+            if (art == ShopCounter) AddShopCounter(floor, width);
+            if (art == ArchiveHall) AddArchiveHall(floor, width);
+            if (art == MarketHall) AddMarketHall(floor, width);
             if (art != ClubHall && art != ClubHall2) return;
             var table = Resources.Load<Sprite>("UI/Hub/club-table");
             var felt = Resources.Load<Sprite>("UI/Hub/club-table-felt");
@@ -638,6 +659,7 @@ namespace CardGameClient
             rect.sizeDelta = new Vector2(LiveSquare * unit.x, LiveSquare * unit.y);
             var image = rect.gameObject.AddComponent<Image>();
             image.sprite = sprite;
+            HubScenery.Apply(image);
             image.raycastTarget = false;
             return true;
         }
@@ -654,7 +676,7 @@ namespace CardGameClient
                 && !GiftShown && !QuestsShown && !BankShown)
                 Navigate("fortune");
             var show = _page == "home" && IsInterior(_cityLevel) && _diveTarget < 0 && _visitPhase == 0
-                && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown;
+                && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown;
             if (_interiorControls == null)
             {
                 if (!show) return;
@@ -680,7 +702,8 @@ namespace CardGameClient
         /// <summary>Из здания — на улицу, к его двери. Не в здании — ничего не делает.</summary>
         private bool LeaveInterior()
         {
-            if (!IsInterior(_cityLevel) || _diveTarget >= 0 || _visitPhase != 0 || _mapOpen || _mapFade > 0 || GiftShown || QuestsShown || BankShown) return false;
+            if (!IsInterior(_cityLevel) || _diveTarget >= 0 || _visitPhase != 0 || _mapOpen || _mapFade > 0 || GiftShown || QuestsShown || BankShown
+                || ShopCardShown || ArchiveShown || MarketShown) return false;
             StartDive(0);
             return true;
         }

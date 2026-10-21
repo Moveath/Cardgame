@@ -129,7 +129,7 @@ namespace CardGameClient
                 SetupChoice(n.ToString(),_roomCapacity==n,left+(n-minimum)*(choice+12),y,choice,
                     ()=>SelectGameSetupPlayerCount(count),n>=occupiedSeats);
             }
-            y+=compact?56:65;
+            y+=MobileUi.Phone?76:compact?56:65;
             if(_roomGame=="durak" || _roomGame=="bluff" || _roomGame=="chests")
             {
                 Label("Колода",left,y,width,31,21);y+=38;
@@ -140,9 +140,9 @@ namespace CardGameClient
                     SetupChoice(deck.ToString(),settings.DeckSize==deck,left+i*(deckWidth+12),y,deckWidth,
                         ()=>SelectGameSetupDeck(deck),HubGameRules.MaximumPlayers(_roomGame,candidate)>=occupiedSeats);
                 }
-                y+=compact?56:69;
+                y+=MobileUi.Phone?76:compact?56:69;
             }
-            var step=compact?54:70;
+            var step=MobileUi.Phone?78:compact?54:70;
             switch(_roomGame)
             {
                 case "durak":
@@ -200,7 +200,7 @@ namespace CardGameClient
         /// <summary>Вариант правила; выбранный — золотой доской (в клубе) или жёлтым с галочкой.</summary>
         private void SetupChoice(string text,bool selected,float x,float y,float width,Action action,bool enabled=true)
         {
-            var button=Button((selected && !_clubStyle?"✓ ":"")+text,x,y,width,45,action,enabled);
+            var button=Button((selected && !_clubStyle?"✓ ":"")+text,x,y,width,MobileUi.Phone?62:45,action,enabled);
             if(!selected)return;
             if(_clubStyle)ClubPaint(button,ClubTone.Primary);else MarkSelected(button);
         }

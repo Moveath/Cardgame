@@ -32,6 +32,12 @@ namespace CardGameClient
 
         private float TablePanelWidth => PlaqueWidth + Mathf.Max(0, (_size.x / Mathf.Max(.01f, _stage.localScale.x) - 1600) / 2);
 
+        // The last club table is next to the right wall. Its phone plaque belongs on the
+        // left, so approaching it never pushes the camera beyond the painted room.
+        private static bool TablePlaqueOnLeft(string game) => MobileUi.Phone && game == "govno";
+        private float TablePanelX(string game) => TablePlaqueOnLeft(game)
+            ? -(TablePanelWidth - PlaqueWidth) : 1600 - PlaqueMargin - PlaqueWidth;
+
         private void FrameTableSigns(float depth)
         {
             var selected = _visit >= 0 && IsGameTable(CityPlaces[_visit]) ? CityPlaces[_visit].Route.Substring(5) : null;

@@ -27,54 +27,6 @@ namespace CardGameClient
             Label("Правила всех игр всегда можно повторить.", 449, 601, 710, 35, 20).color = HubPageMuted;
         }
 
-        private void BuildHubShopFront()
-        {
-            Title("Магазин", "Выбери отдел. Пока предметы открываются пробно, без оплаты.");
-            HubShopTile("Персонаж и костюмы", "Аватары, одежда, головные уборы и внешность", "character", 0, 12);
-            HubShopTile("Стол и карты", "Сукно, рубашки, сундучки и дорожки", "table", 590, 12);
-            HubShopTile("Рамки профиля", "Выдели свой портрет", "frame", 0, 247);
-            HubShopTile("Предметы и эмоции", "Реакции за столом и броски помидоров", "consumable", 590, 247);
-            Button("Весь каталог", 0, 498, 360, 52, () => OpenHubShopCategory("all"));
-            Button("Моя коллекция", 388, 498, 360, 52, () => Navigate("inventory"));
-            HubCurrencyLegend(HubCurrencyArt.Silver, HubCurrencyArt.SilverName, "Основная валюта · почти все покупки", 0);
-            HubCurrencyLegend(HubCurrencyArt.Gold, HubCurrencyArt.GoldName, "Более редкие и ценные", 590);
-        }
-
-        private void HubCurrencyLegend(Sprite sprite, string name, string detail, float x)
-        {
-            Panel("Currency " + name, x, 566, 570, 85);
-            HubPortrait(sprite, x + 13, 573, 56, 72);
-            Label(name, x + 88, 576, 464, 31, 21).color = HubPageGold;
-            Label(detail, x + 88, 616, 464, 26, 18).color = HubPageMuted;
-        }
-
-        private void HubShopTile(string title, string detail, string category, float x, float y)
-        {
-            var items = _state.Catalog.Where(item => HubCategoryMatches(item.Category, category)).ToArray();
-            var owned = items.Count(item => HubOwned(item.Id));
-            HubSectionTile(title, detail, items.Length + " предметов · в коллекции " + owned, x, y, "shop-catalog",
-                () => OpenHubShopCategory(category), "shop-" + category);
-        }
-
-        private void OpenHubShopCategory(string category)
-        {
-            _hubShopCategory = category;
-            _hubListPages["shop"] = 0;
-            Navigate("shop-catalog");
-        }
-
-        private static string HubShopSectionName(string category)
-        {
-            switch (category)
-            {
-                case "character": return "Персонаж и костюмы";
-                case "table": return "Стол и карты";
-                case "frame": return "Рамки профиля";
-                case "consumable": return "Предметы и эмоции";
-                default: return "Весь каталог";
-            }
-        }
-
         /// <summary>Плитка раздела в его цвете: значок, описание, состояние и кнопка перехода того же цвета.</summary>
         private void HubSectionTile(string title, string detail, string status, float x, float y, string route, Action action = null,
             string section = null)

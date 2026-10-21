@@ -36,6 +36,7 @@ namespace CardGameClient
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
+            MobileUi.ConfigureTableCanvas(scaler);
 
             canvasObject.AddComponent<AppFlowController>();
         }

@@ -278,15 +278,17 @@ namespace CardGameClient
             for (var i = 0; i < lines.Length; i++)
             {
                 var top = 250 + i * 100;
-                var key = MakeLabel(_content, lines[i].Item1.ToUpperInvariant(), 30, top, 300, 26, 16);
+                var key = MakeLabel(_content, lines[i].Item1.ToUpperInvariant(), 30, top, 300, MobileUi.Phone ? 40 : 26, MobileUi.Phone ? 24 : 16);
                 key.font = ClubFont();
+                if (MobileUi.Phone) key.gameObject.AddComponent<MobileReadableLabel>();
                 key.color = ClubMuted;
-                var value = MakeLabel(_content, lines[i].Item2, 30, top + 28, 300, 44, 24);
+                var value = MakeLabel(_content, lines[i].Item2, 30, top + (MobileUi.Phone ? 40 : 28), 300, 48, MobileUi.Phone ? 30 : 24);
                 value.font = ClubFont();
+                if (MobileUi.Phone) value.gameObject.AddComponent<MobileReadableLabel>();
                 value.color = ClubCream;
                 value.resizeTextForBestFit = true;
                 value.resizeTextMinSize = 14;
-                value.resizeTextMaxSize = 24;
+                value.resizeTextMaxSize = value.fontSize;
             }
             var fromTable = _history.Count > 0 && _history[_history.Count - 1] == "game:" + game;
             if (fromTable) ClubButton(_content, "Вернуться к столу", 0, 588, 360, 72, Back, ClubTone.Primary, 28);
@@ -302,18 +304,21 @@ namespace CardGameClient
             var y = 14f;
             foreach (var (heading, body) in sections)
             {
-                var head = MakeLabel(holder, heading, 0, y, inner, 40, 27);
+                var head = MakeLabel(holder, heading, 0, y, inner, MobileUi.Phone ? 64 : 40, MobileUi.Phone ? 34 : 27);
                 head.font = ClubFont();
+                if (MobileUi.Phone) head.gameObject.AddComponent<MobileReadableLabel>();
                 head.color = ClubGold;
                 head.gameObject.AddComponent<Shadow>().effectColor = new Color(.06f, .03f, 0, .85f);
                 items.Add((head, y));
-                y += 42;
+                y += MobileUi.Phone ? 66 : 42;
                 // Тире держится за слово перед ним: в начале строки его не спутать с пунктом списка.
-                var text = MakeLabel(holder, body.Replace(" — ", " — "), 0, y, inner, 30, 20);
+                var text = MakeLabel(holder, body.Replace(" — ", " — "), 0, y, inner, 30, MobileUi.Phone ? 30 : 20);
                 text.font = ClubFont();
+                if (MobileUi.Phone) text.gameObject.AddComponent<MobileReadableLabel>();
                 text.color = ClubCream;
-                text.lineSpacing = .92f;
-                var height = text.preferredHeight + 4;
+                text.lineSpacing = MobileUi.Phone ? 1.02f : .92f;
+                // SignNarrow's ascenders/descenders need extra vertical room beyond its line advance.
+                var height = Mathf.Ceil(text.preferredHeight) + (MobileUi.Phone ? 20 : 4);
                 text.rectTransform.sizeDelta = new Vector2(inner, height);
                 items.Add((text, y));
                 y += height + 22;

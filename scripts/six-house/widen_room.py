@@ -18,6 +18,17 @@
 
 Зал таверны (2026-10-10) — так же: `tavern-hall-v1.png` → заготовки `canvases/tavern-hall-v1-wide-left/right-canvas.png`,
 итог — `tavern-hall-v2-wide.png` и `UI/Hub/tavern-hall.png` (meta — при подключении этажа).
+
+Прилавок Лавки (2026-10-17) — так же: `shop-counter-v2.png` (касса вместо банки, `scripts/shop/register_patch.py`) →
+заготовки `canvases/shop-counter-v2-wide-left/right-canvas.png`, промпт — `shop-prompts.txt`, итог —
+`shop-counter-v3-wide.png` и `UI/Hub/shop-counter.png` (meta — при подключении этажа).
+
+Зал Архива (2026-10-18) — так же: `archive-hall-v1.png` → заготовки `canvases/archive-hall-v1-wide-left/right-canvas.png`,
+промпт — `archive-prompts.txt`, итог — `archive-hall-v2-wide.png` и `UI/Hub/archive-hall.png` (meta — при подключении этажа).
+
+Зал рынка Короля бубен (2026-10-19) — так же: `market-hall-v1.png` (с кораблём в арке) → заготовки
+`canvases/market-hall-v1-wide-left/right-canvas.png`, промпт — `market-prompts.txt`, итог — `market-hall-v2-wide.png`
+и `UI/Hub/market-hall.png`. Арка без корабля — отдельная накладка (`scripts/market/ship_patch.py`).
 """
 import sys
 from pathlib import Path
@@ -38,6 +49,12 @@ ROOMS = {
                'tavern-hall-v2-wide.png', 'tavern-hall.png'),
     'kiosk': ('news-kiosk-v2.png', 'canvases/news-kiosk-v2-wide-left.png', 'canvases/news-kiosk-v2-wide-right.png',
               'news-kiosk-v3-wide.png', 'news-kiosk.png'),
+    'shop': ('shop-counter-v2.png', 'canvases/shop-counter-v2-wide-left.png', 'canvases/shop-counter-v2-wide-right.png',
+             'shop-counter-v3-wide.png', 'shop-counter.png'),
+    'archive': ('archive-hall-v1.png', 'canvases/archive-hall-v1-wide-left.png', 'canvases/archive-hall-v1-wide-right.png',
+                'archive-hall-v2-wide.png', 'archive-hall.png'),
+    'market': ('market-hall-v1.png', 'canvases/market-hall-v1-wide-left.png', 'canvases/market-hall-v1-wide-right.png',
+               'market-hall-v2-wide.png', 'market-hall.png'),
 }
 SOURCE, LEFT, RIGHT, OUT, GAME = None, None, None, None, None
 EXTRA = 262   # (2196 - 1672) / 2: 21:9 при высоте 941; ширина кратна 4
