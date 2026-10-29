@@ -28,7 +28,11 @@ rm -f "$OUT/CardCity-test.apk"
 # Ключ adb — тот же, что у пользователя: Unity при сборке поднимает свой adb, и с чужим ключом телефон «отваливается».
 mkdir -p "$OUT/android-home"
 cp "$USERPROFILE/.android/adbkey" "$USERPROFILE/.android/adbkey.pub" "$OUT/android-home/" 2>/dev/null || true
-ANDROID_USER_HOME="$(cygpath -w "$OUT/android-home")" GRADLE_USER_HOME="$(cygpath -w "$OUT/gradle")" ANDROID_APK="$(cygpath -w "$OUT/CardCity-test.apk")" "$UNITY" -batchmode -nographics -projectPath "$(cygpath -w "$DST")" \
+# Java 17 использует временные Unix-domain sockets для связи Gradle. В профиле с кириллицей
+# соединение может падать с Invalid argument: connect; меняем путь только для процесса сборки.
+mkdir -p "$OUT/tmp"
+TASK_JAVA_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-Djava.io.tmpdir=$(cygpath -m "$OUT/tmp") -Djdk.net.unixdomain.tmpdir=$(cygpath -m "$OUT/tmp")"
+JAVA_TOOL_OPTIONS="$TASK_JAVA_OPTIONS" ANDROID_USER_HOME="$(cygpath -w "$OUT/android-home")" GRADLE_USER_HOME="$(cygpath -w "$OUT/gradle")" ANDROID_APK="$(cygpath -w "$OUT/CardCity-test.apk")" "$UNITY" -batchmode -nographics -projectPath "$(cygpath -w "$DST")" \
   -buildTarget Android -executeMethod AndroidTestBuild.Run -logFile "$(cygpath -w "$OUT/build.log")" || true
 grep -E "ANDROID TEST BUILD|error CS|BuildFailedException" "$OUT/build.log" | head -20
 [ -f "$OUT/CardCity-test.apk" ] && ls -la "$OUT/CardCity-test.apk"
