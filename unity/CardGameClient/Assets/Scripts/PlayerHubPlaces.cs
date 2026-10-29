@@ -120,8 +120,6 @@ namespace CardGameClient
                 "Витрина дня: рубашки, рамки, сукна и наряды, товар дня со скидкой.",
                 380, 500, new float[] { 230, 605, 230, 300, 300, 245, 390, 195, 455, 165, 470, 175, 520, 260, 548, 330, 552, 605 }),
                 ShopLevel),
-            Stairs("stairs-down", "card-city", 1, 476, 725,
-                new float[] { 268, 792, 268, 610, 300, 592, 345, 615, 455, 605, 575, 605, 600, 595, 650, 615, 652, 752, 598, 762, 560, 792 }),
             // Клуб — здание с залом внутри (PlayerHubInterior.cs): двери ведут на этаж зала.
             Stairs("club", "card-city", FirstInterior, 836, 470,
                 new float[] { 558, 560, 558, 275, 610, 265, 640, 195, 700, 200, 710, 180, 760, 190, 785, 160, 790, 100,
@@ -133,45 +131,26 @@ namespace CardGameClient
                 "news", direct: true),
             // Уличный объект: камера подходит к фонтану, но отдельный экран не открывается.
             Place("fountain", "card-city", "Фонтан", "Главная площадь", null,
-                1382, 538, new float[] { 1208, 623, 1244, 615, 1245, 588, 1250, 577, 1267, 571, 1299, 568,
-                    1306, 537, 1316, 522, 1358, 516, 1369, 498, 1353, 503, 1341, 497, 1335, 485, 1337, 472,
-                    1346, 460, 1365, 455, 1360, 441, 1365, 427, 1376, 420, 1391, 417, 1405, 424, 1412, 438,
-                    1410, 449, 1405, 458, 1421, 458, 1434, 468, 1439, 482, 1435, 495, 1423, 502, 1407, 500,
-                    1398, 495, 1408, 514, 1457, 518, 1470, 535, 1478, 567, 1510, 570, 1526, 578, 1533, 617,
-                    1553, 624, 1554, 643, 1520, 651, 1280, 651, 1208, 641 }, outdoors: true),
+                182, 582, new float[] { 3, 671, 39, 663, 40, 634, 45, 623, 62, 616, 94, 613,
+                    101, 580, 111, 564, 153, 558, 164, 539, 148, 544, 136, 538, 130, 525, 132, 511,
+                    141, 499, 160, 493, 155, 478, 160, 464, 171, 456, 186, 453, 200, 460, 207, 475,
+                    205, 487, 200, 496, 216, 496, 229, 507, 234, 522, 230, 536, 218, 543, 202, 541,
+                    193, 536, 203, 556, 252, 560, 265, 578, 273, 612, 305, 615, 321, 624, 328, 665,
+                    348, 672, 349, 693, 315, 701, 75, 701, 3, 690 }, outdoors: true),
             // Банк — здание с залом внутри (PlayerHubBank.cs, 2026-10-08): дверь ведёт на его этаж.
             Entrance(Place("bank", "card-city-tuzyara", "Банк Тузяры", "Тузяра", null,
                 390, 505, new float[] { 150, 600, 150, 210, 180, 185, 190, 140, 215, 135, 240, 180, 255, 45, 300, 40, 350, 15, 470, 40,
                     560, 60, 595, 120, 600, 300, 620, 270, 640, 290, 655, 340, 655, 620, 600, 690, 460, 690, 450, 640, 300, 640, 280, 600 }),
                 BankLevel),
-            Place("casino", "card-city-tuzyara", "Казино", "Дама треф и Тузяра",
-                "Покер с высокими ставками, VIP-зал и босс-партия с самим Тузярой. Хозяйка — Дама треф, поёт под рояль.",
+            Entrance(Place("casino", "card-city-tuzyara", "Казино", "Дама треф и Тузяра",
+                "Карточный дворец: Покер, 21, Карточная Рулетка, Кости, Слоты «777», Туз-Ракета и касса золотых жетонов.",
                 905, 560, new float[] { 688, 690, 688, 265, 725, 212, 760, 238, 840, 165, 875, 110, 910, 95, 950, 110, 985, 145,
-                    1010, 100, 1050, 120, 1080, 180, 1120, 150, 1160, 95, 1200, 150, 1205, 690 },
-                // Покер переехал из Клуба в казино (решение автора, 2026-09-29); свой зал казино — потом.
-                "game:poker", direct: true),
+                    1010, 100, 1050, 120, 1080, 180, 1120, 150, 1160, 95, 1200, 150, 1205, 690 }),
+                CasinoLevel),
             Entrance(Place("market", "card-city-port", "Рынок", "Король бубен", null,
                 555, 400, new float[] { 120, 590, 120, 400, 200, 370, 280, 300, 385, 200, 400, 110, 470, 110, 515, 90, 545, 60, 565, 48,
                     585, 60, 615, 90, 650, 120, 700, 150, 720, 210, 740, 330, 800, 395, 895, 450, 895, 590 }),
                 MarketLevel),
-            Stairs("stairs-up", "card-city-underground", 0, 267, 188,
-                new float[] { 0, 480, 0, 120, 120, 20, 160, 0, 310, 0, 335, 60, 420, 105, 500, 130, 400, 200, 300, 260, 230, 310,
-                    160, 390, 110, 480 }),
-            Place("black-market", "card-city-underground", "Чёрный рынок", "Семёрка треф",
-                "Лавка под лестницей: редкие вещи не для всех и не по правилам.",
-                380, 470, new float[] { 165, 650, 160, 400, 230, 320, 300, 265, 420, 235, 550, 250, 560, 300, 600, 375, 598, 600,
-                    520, 630, 390, 655 }),
-            Place("underground-club", "card-city-underground", "Подпольный клуб", "Десятки треф",
-                "Подпольные столы с высокими ставками. У двери — вальт-бугай, за столами — десятки треф.",
-                768, 430, new float[] { 604, 560, 604, 300, 620, 230, 660, 180, 720, 150, 768, 140, 830, 150, 890, 185, 925, 240,
-                    940, 300, 940, 560 }),
-            Place("arena", "card-city-underground", "Арена", "Джокер",
-                "Яма Джокера: режим «Арена» — очки жизни, модификаторы и спецкарты. Ведёт красный Джокер.",
-                // Нажимается и табличка на перилах балкона над Ямой; контур — сама Яма.
-                1400, 560, new float[] { 1040, 600, 1045, 450, 1075, 400, 1165, 395, 1165, 238, 1422, 238, 1422, 330, 1500, 420,
-                    1600, 470, 1625, 560, 1600, 660, 1500, 700, 1300, 690, 1200, 650, 1100, 610 },
-                outlinePoints: new float[] { 1040, 600, 1045, 450, 1075, 400, 1170, 395, 1200, 330, 1400, 330, 1500, 420, 1600, 470,
-                    1625, 560, 1600, 660, 1500, 700, 1300, 690, 1200, 650, 1100, 610 }),
             // Зал Клуба (картинка 1916×821): двери наружу, афиша с играми зала и четыре стола.
             Stairs("club-exit", ClubHall, 0, 115, 400,
                 new float[] { 0, 665, 0, 60, 60, 20, 150, 15, 220, 40, 268, 120, 268, 600, 210, 612, 150, 650, 60, 668 }),
@@ -250,6 +229,14 @@ namespace CardGameClient
             MarketScalesPlace(),
             MarketKingPlace(),
             MarketSevenPlace(),
+            // Зал Казино Тузяры и Дамы треф (PlayerHubCasino.cs, 2026-10-22): двери, карточный стол, рояль, касса Дамы треф, VIP-балкон Тузяры, рулетка с крупье и арка автоматов.
+            CasinoExitPlace(),
+            CasinoCardsPlace(),
+            CasinoPianoPlace(),
+            CasinoCashierPlace(),
+            CasinoTuzyaraPlace(),
+            CasinoRoulettePlace(),
+            CasinoArcadePlace(),
             // Подарок — нарисованная коробка на полке (PlayerHubSixGift.cs).
             Place("six-gift", SixRoom, "Подарок", "Шестёрка пик", null, 1780, 108,
                 new float[] { 1682, 40, 1847, 40, 1847, 240, 1682, 240 }, talk: true,
@@ -290,7 +277,7 @@ namespace CardGameClient
         {
             if (IsClubArt(place.Art)) return FirstInterior;
             for (var level = 1; level < FloorArt.Length; level++)
-                if (FloorArt[level].EndsWith("/" + place.Art, System.StringComparison.Ordinal)) return level;
+                if (FloorArt[level] != null && FloorArt[level].EndsWith("/" + place.Art, System.StringComparison.Ordinal)) return level;
             return 0;
         }
 
@@ -354,6 +341,7 @@ namespace CardGameClient
             else if (place.Art == ShopCounter) ClickShop(place.Id);
             else if (place.Art == ArchiveHall) ClickArchive(place.Id);
             else if (place.Art == MarketHall) ClickMarket(place.Id);
+            else if (place.Art == CasinoHall) ClickCasino(place.Id);
             else if (place.Resident) ToggleResident(place.Id);
             else if (place.Talk && place.Art == TavernHall) TavernTalk(place.Id);
             else if (place.Talk) SixTalk(place.Id);
@@ -387,10 +375,10 @@ namespace CardGameClient
             _visitTime += deltaTime;
             if (_visitPhase == 1)
             {
-                var t = Mathf.Clamp01(_visitTime / VisitIn);
+                var t = Mathf.Clamp01(_visitTime / VisitInTime);
                 if (t < 1)
                 {
-                    FrameVisit(Mathf.SmoothStep(0, 1, t));
+                    FrameVisit(FountainVisit ? t : Mathf.SmoothStep(0, 1, t));
                     return;
                 }
                 // У объекта: уличный остаётся в кадре, здание открывает свой экран.
@@ -419,10 +407,10 @@ namespace CardGameClient
                 _diveShade.gameObject.SetActive(true);
                 _diveVignette.gameObject.SetActive(true);
             }
-            var q = Mathf.Clamp01(_visitTime / VisitOut);
+            var q = Mathf.Clamp01(_visitTime / VisitOutTime);
             if (q < 1)
             {
-                FrameVisit(1 - Mathf.SmoothStep(0, 1, q));
+                FrameVisit(FountainVisit ? 1 - q : 1 - Mathf.SmoothStep(0, 1, q));
                 return;
             }
             _cityRig.localScale = Vector3.one;
@@ -476,6 +464,8 @@ namespace CardGameClient
         /// <summary>Кадр въезда: <paramref name="depth"/> 0 — улица, 1 — у самой двери.</summary>
         private void FrameVisit(float depth)
         {
+            // К фонтану — пешком, со своим кадром (PlayerHubFountain.cs).
+            if (FountainVisit) { FrameFountainWalk(depth); return; }
             FrameTableSigns(depth);
             var screen = AimCity(1 + (CurrentVisitZoom - 1) * depth, depth, VisitFocus());
             if (OutdoorVisit)

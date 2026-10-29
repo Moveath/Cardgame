@@ -103,7 +103,9 @@ namespace CardGameClient
             UpdateNews(Time.unscaledDeltaTime,typing);
             UpdateShop(Time.unscaledDeltaTime,typing);
             UpdateArchive(Time.unscaledDeltaTime,typing);
+            UpdateFountain();
             UpdateMarket(Time.unscaledDeltaTime,typing);
+            UpdateCasino(Time.unscaledDeltaTime,typing);
             UpdateTavernMail(Time.unscaledDeltaTime,typing);
             UpdateTavernFriends(Time.unscaledDeltaTime,typing);
             UpdateCityCanvas();
@@ -180,6 +182,7 @@ namespace CardGameClient
             if(TryShopBack())return;
             if(TryArchiveBack())return;
             if(TryMarketBack())return;
+            if(TryCasinoBack())return;
             if(OutdoorVisit && _visitPhase==2){CloseOutdoorVisit();return;}
             // Открыт подарок Шестёрки — «Назад» закрывает его, а не выводит из дома.
             if(BankShown){CloseBankLoan();return;}

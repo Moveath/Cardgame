@@ -88,8 +88,6 @@ namespace CardGameClient
                 new Vector2(1368, 456), new Vector2(1438, 456), new Vector2(1368, 474), new Vector2(1438, 474)),
             SignDefinition.Painted("card-city", "ЛАВКА", SignLook.Board, true,
                 new Vector2(333, 309), new Vector2(487, 330), new Vector2(333, 339), new Vector2(487, 359)),
-            SignDefinition.Painted("card-city", "ПОДПОЛЬЕ", SignLook.Board, false,
-                new Vector2(473, 626), new Vector2(551, 638), new Vector2(469, 645), new Vector2(549, 657)),
             SignDefinition.Painted("card-city", "КЛУБ", SignLook.Marquee, true,
                 new Vector2(715, 328), new Vector2(955, 328), new Vector2(715, 362), new Vector2(955, 363), 16, 10),
             SignDefinition.Painted("card-city", "НОВОСТИ", SignLook.Board, false,
@@ -105,15 +103,6 @@ namespace CardGameClient
                 new Vector2(778, 344), new Vector2(1056, 305), new Vector2(778, 371), new Vector2(1056, 340), 24, 13),
             SignDefinition.Painted("card-city-port", "РЫНОК", SignLook.Marquee, true,
                 new Vector2(457, 256), new Vector2(667, 278), new Vector2(457, 292), new Vector2(667, 314), 15, 5),
-            // Кривая доска на краю навеса лавки — ниже крючков цепей.
-            SignDefinition.Painted("card-city-underground", "ЧЁРНЫЙ РЫНОК", SignLook.Board, false,
-                new Vector2(413, 332), new Vector2(539, 362), new Vector2(413, 356), new Vector2(539, 382)),
-            // На цепях под гербом-трефой, над аркой двери.
-            SignDefinition.Painted("card-city-underground", "ПОДПОЛЬНЫЙ КЛУБ", SignLook.Board, false,
-                new Vector2(692, 285), new Vector2(843, 285), new Vector2(692, 305), new Vector2(843, 305)),
-            // На перилах балкона над Ямой, между накладками с болтами.
-            SignDefinition.Painted("card-city-underground", "АРЕНА", SignLook.Board, true,
-                new Vector2(1190, 252), new Vector2(1404, 270), new Vector2(1190, 275), new Vector2(1404, 292)),
             // Афиша у входа в зал Клуба (картинка 1916×821): одно слово, нажатие открывает все игры
             // (решение автора, 2026-09-29), по центру чёрного поля, как на доске второго зала.
             // Названия игр — крупно на ковре перед столами (решение автора): фон зала открыт.

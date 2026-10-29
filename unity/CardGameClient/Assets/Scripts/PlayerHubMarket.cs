@@ -107,7 +107,7 @@ namespace CardGameClient
             PaintMarket();
         }
 
-        private static RectTransform BuildMarketParcel(RectTransform floor, Vector2 at, Vector2 size)
+        private RectTransform BuildMarketParcel(RectTransform floor, Vector2 at, Vector2 size)
         {
             var box = LoanArt(floor, "Market arrived parcel", null, at, size, new Color(.94f, .86f, .7f));
             box.sprite = UiTextures.RoundedRect(64, 64, 14, Color.white);

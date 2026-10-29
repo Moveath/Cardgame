@@ -75,6 +75,8 @@ namespace CardGame.Core.Meta
         public HubShopState Shop = new HubShopState();
         // Рынок Короля бубен (HubMarket.cs, 2026-10-21): что было на витринах Лавки за неделю и заказ с корабля.
         public HubMarketState Market = new HubMarketState();
+        // Казино Тузяры и Дамы треф (HubCasino.cs, 2026-10-22): золотые жетоны, 21, рулетка, слоты и ракета.
+        public HubCasinoState Casino = new HubCasinoState();
         // «Карточный вестник» (киоск на площади, 2026-10-09): номер последнего прочитанного выпуска; выпуск новее — кружок
         // на киоске. 0 — ни одного.
         public int NewsSeen;

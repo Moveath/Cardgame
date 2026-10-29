@@ -55,6 +55,10 @@ ROOMS = {
                 'archive-hall-v2-wide.png', 'archive-hall.png'),
     'market': ('market-hall-v1.png', 'canvases/market-hall-v1-wide-left.png', 'canvases/market-hall-v1-wide-right.png',
                'market-hall-v2-wide.png', 'market-hall.png'),
+    'fountain': ('fountain-close-v1.png', 'canvases/fountain-close-v1-wide-left.png', 'canvases/fountain-close-v1-wide-right.png',
+                 'fountain-close-v2-wide.png', 'fountain-close.png'),
+    'casino': ('casino-hall-v1.png', 'canvases/casino-hall-v1-wide-left.png', 'canvases/casino-hall-v1-wide-right.png',
+               'casino-hall-v2-wide.png', 'casino-hall.png'),
 }
 SOURCE, LEFT, RIGHT, OUT, GAME = None, None, None, None, None
 EXTRA = 262   # (2196 - 1672) / 2: 21:9 при высоте 941; ширина кратна 4

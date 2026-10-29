@@ -18,9 +18,9 @@ namespace CardGameClient
     {
         // Этажи: 0 — улица (лента районов), 1 — подполье, дальше — здания изнутри (PlayerHubInterior.cs):
         // 2 — зал Клуба, 3 — Дом Шестёрки, 4 — Банк Тузяры, 5 — шатёр гадалки, 6 — таверна «Червовая дама», 7 — Лавка Дамы бубен,
-        // 8 — Архив, 9 — Рынок Короля бубен («Бубновые ряды»).
-        private static readonly string[] FloorArt = { null, "UI/Hub/card-city-underground", "UI/Hub/club-hall", "UI/Hub/six-room", "UI/Hub/bank-hall", "UI/Hub/fortune-tent", "UI/Hub/tavern-hall", "UI/Hub/shop-counter", "UI/Hub/archive-hall", "UI/Hub/market-hall" };
-        private static readonly string[] FloorNames = { null, "Underground", "Club hall", "Six house", "Bank hall", "Fortune tent", "Tavern hall", "Shop counter", "Archive hall", "Market hall" };
+        // 8 — Архив, 9 — Рынок Короля бубен («Бубновые ряды»), 10 — Казино Тузяры и Дамы треф («Карточный дворец»).
+        private static readonly string[] FloorArt = { null, null, "UI/Hub/club-hall", "UI/Hub/six-room", "UI/Hub/bank-hall", "UI/Hub/fortune-tent", "UI/Hub/tavern-hall", "UI/Hub/shop-counter", "UI/Hub/archive-hall", "UI/Hub/market-hall", "UI/Hub/casino-hall" };
+        private static readonly string[] FloorNames = { null, "Underground", "Club hall", "Six house", "Bank hall", "Fortune tent", "Tavern hall", "Shop counter", "Archive hall", "Market hall", "Casino hall" };
         // Район, откуда ведёт лестница вниз. Сами лестницы и двери — места с этажом в таблице CityPlaces
         // (PlayerHubPlaces.cs): их контур нажимается, дверь — точка нырка.
         private const string UndergroundFrom = "Главная площадь";
@@ -55,7 +55,8 @@ namespace CardGameClient
         private void BuildDiveLayers(RectTransform background)
         {
             if (_stairsStop < 0) return;
-            for (var level = 1; level < FloorArt.Length; level++) _floorLoads[level] = Resources.LoadAsync<Sprite>(FloorArt[level]);
+            for (var level = 1; level < FloorArt.Length; level++)
+                if (FloorArt[level] != null) _floorLoads[level] = Resources.LoadAsync<Sprite>(FloorArt[level]);
             _diveShade = MakeRect(background, "Dive shade", 0, 0, 0, 0).gameObject.AddComponent<Image>();
             Stretch(_diveShade.rectTransform);
             _diveVignette = DiveLayer(background, "Dive vignette", DiveVignette());
@@ -224,8 +225,7 @@ namespace CardGameClient
             var pressed = vertical != 0 && vertical != _cityVerticalHeld;
             _cityVerticalHeld = vertical;
             if (!pressed || _stairsStop < 0) return;
-            var target = _cityLevel == 0 ? (vertical > 0 ? 1 : -1)
-                : _cityLevel == 1 && vertical < 0 || inside && vertical > 0 ? 0 : -1;
+            var target = inside && vertical > 0 ? 0 : -1;
             if (target < 0) return;
             EventSystem.current?.SetSelectedGameObject(null);
             StartDive(target);

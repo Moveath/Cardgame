@@ -32,7 +32,6 @@ namespace CardGameClient
             { "Старый город", ("♥", true) }, { "Главная площадь", ("♠", false) },
             { "Район Тузяры", ("♣", false) }, { "Порт", ("♦", true) },
         };
-        private const string MapUnderground = "Подполье";
         // Карты в ряд, оборот — посередине; всё в координатах сцены 1600×900. Кнопки оборота высотой 88:
         // на телефоне это около 6 мм — в них попадает палец.
         private const float MapCardW = 288, MapCardH = 412, MapCardGap = 26, MapCardsTop = 232;
@@ -63,13 +62,10 @@ namespace CardGameClient
                 var suit = MapSuits.TryGetValue(title, out var found) ? found : ("♠", false);
                 _mapDistricts.Add(new MapDistrict
                 {
-                    Title = title, Art = art, Suit = suit.Item1, Stop = stop++,
+                    Title = title, Art = art, Suit = suit.Item1, Stop = stop++, Level = 0,
                     SuitColor = suit.Item2 ? new Color(.96f, .4f, .34f) : new Color(.94f, .77f, .46f),
                 });
             }
-            if (_stairsStop >= 0)
-                _mapDistricts.Add(new MapDistrict { Title = MapUnderground, Art = FloorArt[1], Suit = "J", Level = 1,
-                    SuitColor = new Color(.76f, .57f, .94f) });
             for (var i = 0; i < CityPlaces.Length; i++)
             {
                 var place = CityPlaces[i];
@@ -141,7 +137,7 @@ namespace CardGameClient
             // На широком экране край сцены 1600x900 не совпадает с краем окна.
             var size = ((RectTransform)transform).rect.size / Mathf.Max(.01f, _stage.localScale.x);
             _mapButtonLayer.anchoredPosition = new Vector2((1600 - size.x) / 2, (900 - size.y) / 2);
-            var button = !_mapOpen && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && _page == "home" && _diveTarget < 0 && _visitPhase == 0;
+            var button = !_mapOpen && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown && _page == "home" && _diveTarget < 0 && _visitPhase == 0;
             if (_mapButtonLayer.gameObject.activeSelf == button) return;
             _mapButtonLayer.gameObject.SetActive(button);
             if (button) _mapButtonLayer.SetAsLastSibling();
@@ -149,7 +145,7 @@ namespace CardGameClient
 
         private void OpenMap()
         {
-            if (_mapOpen || GiftShown || QuestsShown || BankShown || ShopCardShown || ArchiveShown || MarketShown || _page != "home" || _diveTarget >= 0 || _visitPhase == 1 || _visitPhase == 3) return;
+            if (_mapOpen || GiftShown || QuestsShown || BankShown || ShopCardShown || ArchiveShown || MarketShown || CasinoShown || _page != "home" || _diveTarget >= 0 || _visitPhase == 1 || _visitPhase == 3) return;
             if (_mapLayer == null) BuildMap();
             _mapOpen = true;
             _mapBackFor = _mapFlipCard = -1;

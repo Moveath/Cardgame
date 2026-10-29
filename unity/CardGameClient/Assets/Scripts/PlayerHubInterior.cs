@@ -364,7 +364,7 @@ namespace CardGameClient
         /// <summary>Размер исходной картинки, в пикселях которой заданы места и вывески.</summary>
         private static Vector2 PictureSize(string art) =>
             IsClubArt(art) ? new Vector2(ClubPictureWidth, ClubPictureHeight)
-            : art == SixRoom || art == BankHall || art == TavernHall || art == ShopCounter || art == ArchiveHall || art == MarketHall ? new Vector2(SixPictureWidth, SignPictureHeight)
+            : art == SixRoom || art == BankHall || art == TavernHall || art == ShopCounter || art == ArchiveHall || art == MarketHall || art == CasinoHall ? new Vector2(SixPictureWidth, SignPictureHeight)
             : new Vector2(SignPictureWidth, SignPictureHeight);
 
         // Стол в зале Клуба (пиксели картинки зала): ширина со стульями; середина того, чем он стоит на полу
@@ -576,6 +576,7 @@ namespace CardGameClient
             if (art == ShopCounter) AddShopCounter(floor, width);
             if (art == ArchiveHall) AddArchiveHall(floor, width);
             if (art == MarketHall) AddMarketHall(floor, width);
+            if (art == CasinoHall) AddCasinoHall(floor, width);
             if (art != ClubHall && art != ClubHall2) return;
             var table = Resources.Load<Sprite>("UI/Hub/club-table");
             var felt = Resources.Load<Sprite>("UI/Hub/club-table-felt");
@@ -676,7 +677,7 @@ namespace CardGameClient
                 && !GiftShown && !QuestsShown && !BankShown)
                 Navigate("fortune");
             var show = _page == "home" && IsInterior(_cityLevel) && _diveTarget < 0 && _visitPhase == 0
-                && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown;
+                && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown;
             if (_interiorControls == null)
             {
                 if (!show) return;
@@ -703,7 +704,7 @@ namespace CardGameClient
         private bool LeaveInterior()
         {
             if (!IsInterior(_cityLevel) || _diveTarget >= 0 || _visitPhase != 0 || _mapOpen || _mapFade > 0 || GiftShown || QuestsShown || BankShown
-                || ShopCardShown || ArchiveShown || MarketShown) return false;
+                || ShopCardShown || ArchiveShown || MarketShown || CasinoShown) return false;
             StartDive(0);
             return true;
         }

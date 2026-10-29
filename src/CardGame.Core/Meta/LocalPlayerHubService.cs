@@ -152,6 +152,16 @@ namespace CardGame.Core.Meta
                 case "market_pickup": return PickUpOrder(s);
                 case "market_sell": return SellToKing(s, target);
                 case "market_haggle": return HaggleWithSeven(s, target);
+                // Казино Тузяры и Дамы треф (HubCasino.cs): касса жетонов, 21, рулетка, кости, слоты и ракета.
+                case "casino_daily": return ClaimCasinoDaily(s);
+                case "casino_buy_chips": return BuyCasinoChips(s, c.Amount);
+                case "casino_cashout_chips": return CashoutCasinoChips(s, c.Amount);
+                case "casino_redeem": return RedeemCasinoPrize(s, target);
+                case "casino_blackjack": return PlayCasinoBlackjack(s, target, c.Amount);
+                case "casino_roulette": return SpinCasinoRoulette(s, target, c.Amount);
+                case "casino_dice": return RollCasinoDice(s, target, c.Amount);
+                case "casino_slots": return SpinCasinoSlots(s, c.Amount);
+                case "casino_rocket": return PlayCasinoRocket(s, target, c.Amount);
                 case "tomato_throw":
                     Require(target.Length > 0 && target != s.Profile.Id, "target", "Выбери соперника.");
                     Require(s.People.Any(p => p.Id == target) || s.CurrentRoomId.Length > 0 && Room(s).Members.Any(m => m.PlayerId == target), "target", "Игрок не найден.");
@@ -525,6 +535,7 @@ namespace CardGame.Core.Meta
             HubBankJobs.Refresh(s, Now);
             HubFortunes.Refresh(s);
             HubMarket.Normalize(s, Now);
+            HubCasino.Normalize(s);
             HubShop.Refresh(s, Now);
             // Сегодняшняя витрина — тоже в памяти рынка (и у старых сохранений, где её ещё не запоминали).
             HubMarket.Remember(s, s.Shop.Day, s.Shop.Slots);

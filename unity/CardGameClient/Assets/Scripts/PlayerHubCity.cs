@@ -187,7 +187,7 @@ namespace CardGameClient
             if (_floorDragging && pointer != null && !pointer.press.isPressed) EndFloorDrag();
             PrepareFloors();
             // Под открытой картой город стоит: клавиши — карте (PlayerHubMap.cs).
-            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown)
+            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown)
                 CityKeys(Keyboard.current);
             ClubKeys(typing);
             UpdateMap(Time.unscaledDeltaTime, typing);
