@@ -163,12 +163,12 @@ namespace CardGame.Core.Meta
             HubCasino.Normalize(s);
             Require(chips > 0 && chips <= 1000, "amount", "Выбери количество жетонов.");
             var cost = checked(chips * HubCasino.ChipBuyCoins);
-            Require(cost <= s.Profile.Coins, "coins", "Не хватает коинов: нужно " + cost + ", у тебя " + s.Profile.Coins + ".");
+            Require(cost <= s.Profile.Coins, "coins", "Не хватает тун-тун коинов: нужно " + cost + ", у тебя " + s.Profile.Coins + ".");
             Require(cost <= HubShop.Spendable(s), "debt",
-                "Заёмные деньги Банка в кассе Казино не принимают: свободно " + HubShop.Spendable(s) + " коинов.");
+                "Заёмные деньги Банка в кассе Казино не принимают: свободно " + HubShop.Spendable(s) + " тун-тун коинов.");
             s.Profile.Coins -= cost;
             s.Casino.Chips = checked(s.Casino.Chips + chips);
-            return "Куплено " + chips + " жетонов · −" + cost + " коинов";
+            return "Куплено " + chips + " жетонов · −" + cost + " тун-тун коинов";
         }
 
         private string CashoutCasinoChips(HubSnapshot s, int chips)
@@ -178,7 +178,7 @@ namespace CardGame.Core.Meta
             var coins = checked(chips * HubCasino.ChipCashoutCoins);
             s.Casino.Chips -= chips;
             s.Profile.Coins = checked(s.Profile.Coins + coins);
-            return "Обменяно " + chips + " жетонов · +" + coins + " коинов";
+            return "Обменяно " + chips + " жетонов · +" + coins + " тун-тун коинов";
         }
 
         private string RedeemCasinoPrize(HubSnapshot s, string itemId)

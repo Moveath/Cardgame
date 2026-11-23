@@ -1,0 +1,135 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!319 &31900000
+AvatarMask:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Mask_FanArm
+  m_Mask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+  m_Elements:
+  - m_Path: 
+    m_Weight: 0
+  - m_Path: Arm_Male_L
+    m_Weight: 0
+  - m_Path: Arm_Male_R
+    m_Weight: 0
+  - m_Path: Rig_Hands
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaIndex_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaIndex_L/Index01_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaIndex_L/Index01_L/Index02_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaIndex_L/Index01_L/Index02_L/Index03_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaIndex_L/Index01_L/Index02_L/Index03_L/TipIndex_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaMiddle_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaMiddle_L/Middle01_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaMiddle_L/Middle01_L/Middle02_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaMiddle_L/Middle01_L/Middle02_L/Middle03_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaMiddle_L/Middle01_L/Middle02_L/Middle03_L/TipMiddle_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaPinky_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaPinky_L/Pinky01_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaPinky_L/Pinky01_L/Pinky02_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaPinky_L/Pinky01_L/Pinky02_L/Pinky03_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaPinky_L/Pinky01_L/Pinky02_L/Pinky03_L/TipPinky_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaRing_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaRing_L/Ring01_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaRing_L/Ring01_L/Ring02_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaRing_L/Ring01_L/Ring02_L/Ring03_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/MetaRing_L/Ring01_L/Ring02_L/Ring03_L/TipRing_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/SocketFan_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/Thumb01_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/Thumb01_L/Thumb02_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/Thumb01_L/Thumb02_L/Thumb03_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_L/ForearmTwist_L/Hand_L/Thumb01_L/Thumb02_L/Thumb03_L/TipThumb_L
+    m_Weight: 1
+  - m_Path: Rig_Hands/Root/Forearm_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaIndex_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaIndex_R/Index01_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaIndex_R/Index01_R/Index02_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaIndex_R/Index01_R/Index02_R/Index03_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaIndex_R/Index01_R/Index02_R/Index03_R/TipIndex_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaMiddle_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaMiddle_R/Middle01_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaMiddle_R/Middle01_R/Middle02_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaMiddle_R/Middle01_R/Middle02_R/Middle03_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaMiddle_R/Middle01_R/Middle02_R/Middle03_R/TipMiddle_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaPinky_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaPinky_R/Pinky01_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaPinky_R/Pinky01_R/Pinky02_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaPinky_R/Pinky01_R/Pinky02_R/Pinky03_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaPinky_R/Pinky01_R/Pinky02_R/Pinky03_R/TipPinky_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaRing_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaRing_R/Ring01_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaRing_R/Ring01_R/Ring02_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaRing_R/Ring01_R/Ring02_R/Ring03_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/MetaRing_R/Ring01_R/Ring02_R/Ring03_R/TipRing_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/Thumb01_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/Thumb01_R/Thumb02_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/Thumb01_R/Thumb02_R/Thumb03_R
+    m_Weight: 0
+  - m_Path: Rig_Hands/Root/Forearm_R/ForearmTwist_R/Hand_R/Thumb01_R/Thumb02_R/Thumb03_R/TipThumb_R
+    m_Weight: 0
+  - m_Path: Sleeve_L
+    m_Weight: 0
+  - m_Path: Sleeve_R
+    m_Weight: 0

@@ -186,6 +186,11 @@ namespace CardGameClient
             // сейф и вальты — фон.
             Place("bank-boss", BankHall, "Тузяра", "Тузяра", null, 1100, 520,
                 new float[] { 747, 630, 747, 460, 962, 455, 974, 330, 1024, 250, 1167, 250, 1267, 320, 1267, 455, 1452, 460, 1452, 630 }),
+            // Открытый сейф за его спиной — касса банка: коины за деньги и за ролик (PlayerHubCashWindow.cs, 2026-11-03).
+            // Снизу граница — по голове и плечам Тузяры, чтобы не перехватывать нажатия по нему.
+            Place("bank-vault", BankHall, "Касса", "Тузяра", null, 1160, 120,
+                new float[] { 880, 320, 868, 200, 895, 100, 955, 25, 1010, 0, 1420, 0, 1462, 70, 1470, 200, 1452, 330, 1405, 400,
+                    1310, 415, 1267, 320, 1167, 250, 1024, 250, 974, 330 }),
             // Зал таверны (картинка 2196×941, 21:9): Дама за стойкой и Пятёрка на сцене говорят; любой стол — друзья,
             // почтовые ячейки за стойкой — чаты (PlayerHubTavern.cs).
             Place("tavern-queen", TavernHall, "Дама червей", "Дама червей", null, 1098, 300,
@@ -337,6 +342,7 @@ namespace CardGameClient
             var place = CityPlaces[index];
             if (place.HoverOnly) return;
             if (place.Id == "bank-boss") ShowBankLoan();
+            else if (place.Id == "bank-vault") ShowCashWindow(0);
             else if (place.Id == "six-quests") ShowSixQuests();
             else if (place.Art == ShopCounter) ClickShop(place.Id);
             else if (place.Art == ArchiveHall) ClickArchive(place.Id);
@@ -385,7 +391,8 @@ namespace CardGameClient
                 _visitPhase = 2;
                 _diveShade.gameObject.SetActive(false);
                 _diveVignette.gameObject.SetActive(false);
-                AimCity(CurrentVisitZoom, 1, VisitFocus());
+                if (FountainVisit) FrameFountainWalk(1);
+                else AimCity(CurrentVisitZoom, 1, VisitFocus());
                 FrameTableSigns(1);
                 var place = CityPlaces[_visit];
                 if (OutdoorVisit) ShowOutdoorControls();
@@ -397,7 +404,8 @@ namespace CardGameClient
             }
             if (_visitPhase == 2)
             {
-                AimCity(CurrentVisitZoom, 1, VisitFocus());
+                if (FountainVisit) FrameFountainWalk(1);
+                else AimCity(CurrentVisitZoom, 1, VisitFocus());
                 // Фонтан остаётся частью площади: держим приближение до «Отойти».
                 if (OutdoorVisit) return;
                 // Вернулись на главную («Назад», вкладка) — выезжаем на улицу.
@@ -413,6 +421,7 @@ namespace CardGameClient
                 FrameVisit(FountainVisit ? 1 - q : 1 - Mathf.SmoothStep(0, 1, q));
                 return;
             }
+            if (FountainVisit) HideFountain();
             _cityRig.localScale = Vector3.one;
             _cityRig.anchoredPosition = Vector2.zero;
             FrameTableSigns(0);

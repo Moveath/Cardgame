@@ -291,6 +291,59 @@ namespace CardGameClient
             Rect.localScale = Vector3.one;
         }
 
+        // Opt-in motion for the club table; other games retain their existing behaviour.
+        public void MoveRestTransform(Vector2 position, float rotationDeg, bool animate)
+        {
+            _restPosition = position;
+            _restRotation = rotationDeg;
+            _restSiblingIndex = -1;
+            if (!animate || !Application.isPlaying)
+            {
+                DisableHover();
+                return;
+            }
+            RestartHover(AnimateTo(position, rotationDeg, 1f));
+        }
+
+        public void SetClubSelection(bool selected, bool playable)
+        {
+            _hoverEnabled = false; // Selection is explicit, including on touch screens.
+            _outline.enabled = selected;
+            _outline.effectColor = new Color(1f, .79f, .32f);
+            _outline.effectDistance = new Vector2(3f, 3f);
+            // Opaque faces keep the ranks readable in a dense fan. Alpha dimming
+            // would reveal every card underneath and turn a large hand into ghosts.
+            _group.alpha = 1f;
+            _background.color = playable ? Color.white : new Color(.8f, .78f, .75f, 1f);
+        }
+
+        public void PlayClubFlight(Vector2 fromOffset, bool reducedMotion)
+        {
+            if (reducedMotion || !Application.isPlaying) return;
+            RestartHover(AnimateClubFlight(fromOffset));
+        }
+
+        private IEnumerator AnimateClubFlight(Vector2 fromOffset)
+        {
+            var target = Rect.anchoredPosition;
+            var targetAngle = Rect.localEulerAngles.z;
+            var start = target + fromOffset;
+            var startAngle = targetAngle + (fromOffset.x > 0 ? -14f : 14f);
+            var duration = FlightDuration;
+            for (var t = 0f; t < duration; t += Time.deltaTime)
+            {
+                var p = Mathf.Clamp01(t / duration);
+                var k = 1f - Mathf.Pow(1f - p, 3f);
+                Rect.anchoredPosition = Vector2.Lerp(start, target, k) + Vector2.up * (Mathf.Sin(k * Mathf.PI) * 48f);
+                Rect.localRotation = Quaternion.Euler(0, 0, Mathf.LerpAngle(startAngle, targetAngle, k));
+                Rect.localScale = Vector3.one * (1f + Mathf.Sin(k * Mathf.PI) * .12f);
+                yield return null;
+            }
+            Rect.anchoredPosition = target;
+            Rect.localRotation = Quaternion.Euler(0, 0, targetAngle);
+            Rect.localScale = Vector3.one;
+        }
+
         /// <summary>Лёгкий "пружинящий" наплыв для карты, только что попавшей на стол.</summary>
         public void PlayAppearAnimation()
         {

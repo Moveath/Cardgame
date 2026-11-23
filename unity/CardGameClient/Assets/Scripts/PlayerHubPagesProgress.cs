@@ -20,7 +20,7 @@ namespace CardGameClient
                 Label(entry.Id == "tutorial_skip" ? "Пропусти обучение с Шестёркой" : entry.Description, 18, y + 44, 755, 31, 19);
                 Progress(entry.Progress, Math.Max(1, entry.Goal), 18, y + 84, 650, 10);
                 Label(Math.Min(entry.Progress, entry.Goal) + " / " + entry.Goal, 690, y + 73, 110, 28, 17).color = HubPageMuted;
-                Label("+" + entry.RewardCoins + " коинов · +" + entry.RewardXP + " XP", 815, y + 8, 325, 29, 18).color = HubPageMuted;
+                Label("+" + entry.RewardCoins + " тун-тун коинов · +" + entry.RewardXP + " XP", 815, y + 8, 325, 29, 18).color = HubPageMuted;
                 Button(entry.Claimed ? "Получено" : entry.Unlocked ? "Забрать награду" : "Ещё не открыто", 815, y + 45, 325, 42,
                     () => Send("achievement_claim", entry.Id), entry.Unlocked && !entry.Claimed);
             }
@@ -42,7 +42,7 @@ namespace CardGameClient
                 Label(CardGame.Core.Meta.HubQuests.TierName(entry.Tier) + " · " + (entry.Claimed ? "Новое через " : entry.Progress >= entry.Goal ? "Награда ждёт" : "Осталось ") + (entry.Progress >= entry.Goal && !entry.Claimed ? "" : QuestDuration(Math.Max(0, entry.ExpiresAt - GiftNow))), 18, y + 49, 770, 29, 18).color = HubPageMuted;
                 Progress(entry.Progress, Math.Max(1, entry.Goal), 18, y + 91, 650, 10);
                 Label(Math.Min(entry.Progress, entry.Goal) + " / " + entry.Goal, 690, y + 80, 110, 28, 17).color = HubPageMuted;
-                Label("+" + entry.RewardCoins + " коинов · +" + entry.RewardXP + " XP", 815, y + 14, 325, 30, 18).color = HubPageMuted;
+                Label("+" + entry.RewardCoins + " тун-тун коинов · +" + entry.RewardXP + " XP", 815, y + 14, 325, 30, 18).color = HubPageMuted;
                 Button(entry.Claimed ? "Получено" : entry.Progress >= entry.Goal ? "Забрать награду" : "В процессе", 815, y + 59, 325, 42,
                     () => Send("quest_claim", entry.Id), !entry.Claimed && entry.Progress >= entry.Goal);
             }

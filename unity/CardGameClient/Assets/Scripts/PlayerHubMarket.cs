@@ -396,7 +396,7 @@ namespace CardGameClient
                     NewsFit(LoanText(_marketShipContent, "Item name", "В трюме: «" + item.Name + "»", new Vector2(0, -96), new Vector2(760, 42), 32, LoanInk, true));
                 }
                 LoanText(_marketShipContent, "Timer", "Прибытие через: " + timer, new Vector2(0, -160), new Vector2(820, 42), 30, ShopRed, true);
-                LoanText(_marketShipContent, "Hint", "Один заказ за рейс · оплачено " + _state.Market.Order.Price + " коинов",
+                LoanText(_marketShipContent, "Hint", "Один заказ за рейс · оплачено " + _state.Market.Order.Price + " тун-тун коинов",
                     new Vector2(0, -210), new Vector2(820, 34), 24, ShopMuted);
                 return;
             }
@@ -449,8 +449,8 @@ namespace CardGameClient
             var price = HubMarket.OrderPrice(item, discount);
             var basePrice = HubMarket.BaseOrderPrice(item);
             var priceLabel = LoanText(box, "Price", discount
-                ? price + " коинов  <size=18><color=#8A6A44>" + basePrice + "</color></size>"
-                : price + " коинов", new Vector2(0, -138), new Vector2(260, 34), 25, discount ? ShopRed : LoanInk, true);
+                ? price + " тун-тун коинов  <size=18><color=#8A6A44>" + basePrice + "</color></size>"
+                : price + " тун-тун коинов", new Vector2(0, -138), new Vector2(260, 34), 25, discount ? ShopRed : LoanInk, true);
             priceLabel.supportRichText = true;
 
             var itemId = item.Id;
@@ -509,7 +509,7 @@ namespace CardGameClient
             var equipped = HubMarket.IsEquipped(_state, item.Id);
             var sellPrice = HubMarket.SellPrice(item);
             LoanText(box, "Buy price", "Цена в Лавке: " + item.Price, new Vector2(0, -76), new Vector2(260, 30), 21, ShopMuted);
-            LoanText(box, "Sell price", "Выкуп Короля: +" + sellPrice + " коинов", new Vector2(0, -122), new Vector2(260, 36), 25, LoanInk, true);
+            LoanText(box, "Sell price", "Выкуп Короля: +" + sellPrice + " тун-тун коинов", new Vector2(0, -122), new Vector2(260, 36), 25, LoanInk, true);
 
             var itemId = item.Id;
             var btn = LoanPaperButton(box, equipped ? "СНАЧАЛА СНИМИ" : "ПРОДАТЬ ЗА +" + sellPrice,

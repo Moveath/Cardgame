@@ -55,8 +55,9 @@ ROOMS = {
                 'archive-hall-v2-wide.png', 'archive-hall.png'),
     'market': ('market-hall-v1.png', 'canvases/market-hall-v1-wide-left.png', 'canvases/market-hall-v1-wide-right.png',
                'market-hall-v2-wide.png', 'market-hall.png'),
-    'fountain': ('fountain-close-v1.png', 'canvases/fountain-close-v1-wide-left.png', 'canvases/fountain-close-v1-wide-right.png',
-                 'fountain-close-v2-wide.png', 'fountain-close.png'),
+    # Фонтан (2026-10-31): исходник — нынешний крупный план v4 (1870×841), края — как у залов.
+    'fountain': ('fountain-close-v4.png', 'canvases/fountain-close-v4-wide-left.png', 'canvases/fountain-close-v4-wide-right.png',
+                 'fountain-close-v5-wide.png', 'fountain-close.png'),
     'casino': ('casino-hall-v1.png', 'canvases/casino-hall-v1-wide-left.png', 'canvases/casino-hall-v1-wide-right.png',
                'casino-hall-v2-wide.png', 'casino-hall.png'),
 }

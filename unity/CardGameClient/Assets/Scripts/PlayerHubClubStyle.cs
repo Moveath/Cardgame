@@ -344,6 +344,7 @@ namespace CardGameClient
         private void EndVisitNow()
         {
             if (_visitPhase == 0) return;
+            if (FountainVisit) HideFountain();
             FrameTableSigns(0);
             _cityRig.localScale = Vector3.one;
             _cityRig.anchoredPosition = Vector2.zero;

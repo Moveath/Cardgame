@@ -137,7 +137,7 @@ namespace CardGameClient
             // На широком экране край сцены 1600x900 не совпадает с краем окна.
             var size = ((RectTransform)transform).rect.size / Mathf.Max(.01f, _stage.localScale.x);
             _mapButtonLayer.anchoredPosition = new Vector2((1600 - size.x) / 2, (900 - size.y) / 2);
-            var button = !_mapOpen && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown && _page == "home" && _diveTarget < 0 && _visitPhase == 0;
+            var button = !_mapOpen && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown && !CityWindowShown && _page == "home" && _diveTarget < 0 && _visitPhase == 0;
             if (_mapButtonLayer.gameObject.activeSelf == button) return;
             _mapButtonLayer.gameObject.SetActive(button);
             if (button) _mapButtonLayer.SetAsLastSibling();
@@ -511,6 +511,8 @@ namespace CardGameClient
             var index = _mapTripPlace;
             _mapTripPlace = -1;
             if (place.Id == "bank-boss") ShowBankLoan();
+            // Доска поручений в доме Шестёрки (из окна заданий) — как нажатие по ней.
+            else if (place.Id == "six-quests") ShowSixQuests();
             else if (place.Floor >= 0) StartDive(place.Floor);
             else StartVisit(index);
         }

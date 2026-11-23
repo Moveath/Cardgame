@@ -261,7 +261,7 @@ namespace CardGame.Core.Meta
             s.Profile.Coins -= price;
             s.Market.HaggleDiscount = false;
             s.Market.Order = new HubMarketOrder { ItemId = item!.Id, Price = price, OrderedAt = Now, ArrivesAt = Now + HubMarket.TravelSeconds };
-            return "Заказано: «" + item.Name + "» · −" + price + " коинов · корабль придёт через 2 дня";
+            return "Заказано: «" + item.Name + "» · −" + price + " тун-тун коинов · корабль придёт через 2 дня";
         }
 
         private string PickUpOrder(HubSnapshot s)
@@ -276,7 +276,7 @@ namespace CardGame.Core.Meta
             if (s.Inventory.Any(i => i.ItemId == item.Id && i.Quantity > 0))
             {
                 s.Profile.Coins = checked(s.Profile.Coins + price);
-                return "«" + item.Name + "» у тебя уже есть — Король вернул " + price + " коинов";
+                return "«" + item.Name + "» у тебя уже есть — Король вернул " + price + " тун-тун коинов";
             }
             GrantItem(s, item.Id, 1);
             return "Получено с корабля: «" + item.Name + "»";
@@ -293,7 +293,7 @@ namespace CardGame.Core.Meta
             var price = HubMarket.SellPrice(item);
             s.Inventory.RemoveAll(i => i.ItemId == itemId);
             s.Profile.Coins = checked(s.Profile.Coins + price);
-            return "Продано Королю: «" + item.Name + "» · +" + price + " коинов";
+            return "Продано Королю: «" + item.Name + "» · +" + price + " тун-тун коинов";
         }
 
         private string HaggleWithSeven(HubSnapshot s, string guess)

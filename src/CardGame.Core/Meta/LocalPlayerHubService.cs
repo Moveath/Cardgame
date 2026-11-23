@@ -86,7 +86,7 @@ namespace CardGame.Core.Meta
 
         private async Task Commit(HubSnapshot next)
         {
-            if (next.Profile.Coins < 0 || next.Bank.Debt < 0) throw new InvalidOperationException("Negative economy balance.");
+            if (next.Profile.Coins < 0 || next.Profile.Gold < 0 || next.Bank.Debt < 0) throw new InvalidOperationException("Negative economy balance.");
             next.Revision = checked(next.Revision + 1);
             next.UpdatedAt = Now;
             await _store.SaveAsync(Copy(next)); // Only publish after successful persistence.
@@ -145,6 +145,13 @@ namespace CardGame.Core.Meta
                     s.Equipped.Add(new HubEquipment { Slot = target, ItemId = "" }); return "Предмет снят";
                 case "tomato_buy": GrantItem(s, "tomato_pack", 10); Progress(s, "gardener", 1); return "Демо-пачка: +10 помидоров";
                 // Лавка Дамы бубен (HubShop.cs): покупка с витрины дня и «Покажи другое» (пока без ролика рекламы).
+                // Касса банка Тузяры (HubCash.cs): наборы коинов (демо) и серебро за ролик.
+                case "cash_buy": return BuyCash(s, target);
+                case "cash_ad": return WatchCashAd(s);
+                case "cash_buy_gold": return BuyGoldForSilver(s, c.Amount);
+                // ТЕСТ (2026-11-03, по просьбе автора): обнулить дневные лимиты кассы — золото за серебро и ролики.
+                // Убрать вместе с кнопкой «Тест: сбросить лимит» (PlayerHubCashWindow.cs).
+                case "cash_debug_reset": s.Cash.GoldBought = 0; s.Cash.AdViews = 0; return "Тест: лимиты кассы обнулены";
                 case "shop_buy": return BuyFromShop(s, target);
                 case "shop_reroll": return RerollShop(s);
                 // Рынок Короля бубен (HubMarket.cs): заказ с корабля, получение посылки, скупка и торг.
@@ -206,7 +213,7 @@ namespace CardGame.Core.Meta
                     Require(c.Value >= 0 && c.Value <= 1000000, "stake", "Недопустимая ставка.");
                     Require(c.Value == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     LeaveRoom(s);
-                    var newRoom = new HubRoom { Id = "room-" + c.Id, Code = RoomCode(c.Id), Name = text.Length == 0 ? "Стол " + s.Profile.DisplayName : text.Substring(0, Math.Min(32, text.Length)), GameId = target, GameSettings = createSettings, HostId = s.Profile.Id, MaxPlayers = c.Amount, Private = c.Flag, Stake = c.Value };
+                    var newRoom = new HubRoom { Id = "room-" + c.Id, Code = UniqueRoomCode(s, c.Id), Name = text.Length == 0 ? "Стол " + s.Profile.DisplayName : text.Substring(0, Math.Min(32, text.Length)), GameId = target, GameSettings = createSettings, HostId = s.Profile.Id, MaxPlayers = c.Amount, Private = c.Flag, Stake = c.Value };
                     newRoom.Members.Add(new HubRoomMember { PlayerId = s.Profile.Id });
                     s.Rooms.Add(newRoom); s.CurrentRoomId = newRoom.Id; return "Локальная комната создана";
                 case "join_room": case "room_join": JoinRoom(s, target.Length > 0 ? target : text); return "Ты в локальной комнате";
@@ -283,7 +290,7 @@ namespace CardGame.Core.Meta
                     Require(Games.Contains(target), "game", "Игра не найдена.");
                     Require(s.ActiveMatchId.Length == 0, "active_match", "Сначала заверши текущую партию.");
                     Require(!s.Bank.CollectorPending || HubLoans.Version(s.Bank) >= HubLoans.CurrentTermsVersion, "collector", "Сначала сыграй с коллекторами.");
-                    Require(c.Amount >= 0 && c.Amount <= s.Profile.Coins, "coins", "Недостаточно коинов для входа.");
+                    Require(c.Amount >= 0 && c.Amount <= s.Profile.Coins, "coins", "Недостаточно тун-тун коинов для входа.");
                     Require(c.Amount == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
                     s.Profile.Coins -= c.Amount;
                     s.Matches.Add(new HubMatchEntry { Id = c.Id, Game = target, Stake = c.Amount }); s.ActiveMatchId = c.Id;
@@ -333,7 +340,7 @@ namespace CardGame.Core.Meta
                     Credit(s, HubGift.Coins);
                     s.Gift.Opened = checked(s.Gift.Opened + 1); s.Gift.LastCoins = HubGift.Coins;
                     s.Gift.OpenedAt = Now; s.Gift.ReadyAt = Now + HubGift.Cooldown;
-                    return "Подарок открыт · +" + HubGift.Coins + " коинов";
+                    return "Подарок открыт · +" + HubGift.Coins + " тун-тун коинов";
                 // ТЕСТ (2026-10-07, по просьбе автора): подарок готов сразу, без 12 часов. Убрать вместе с кнопкой
                 // «Тест: подарок сейчас» (PlayerHubSixGift.cs).
                 case "gift_debug_ready": s.Gift.ReadyAt = Now; return "Тест: подарок готов";
@@ -507,7 +514,7 @@ namespace CardGame.Core.Meta
             Require(room.Members.All(m => m.Ready), "ready", "Все игроки должны подтвердить готовность.");
             Require(!s.Bank.CollectorPending || HubLoans.Version(s.Bank) >= HubLoans.CurrentTermsVersion, "collector", "Сначала сыграй с коллекторами.");
             Require(room.Stake == 0 || !HubLoans.HasStakeRestriction(s.Bank, Now), "debt", "По условиям действующего кредита сейчас доступны только столы без ставок.");
-            Require(room.Stake <= s.Profile.Coins, "coins", "Не хватает заработанных коинов для входа.");
+            Require(room.Stake <= s.Profile.Coins, "coins", "Не хватает заработанных тун-тун коинов для входа.");
             s.Profile.Coins -= room.Stake;
             var entry = new HubMatchEntry { Id = "match-" + commandId, Game = room.GameId, Stake = room.Stake };
             s.Matches.Add(entry); s.ActiveMatchId = room.LocalMatchId = entry.Id; room.Started = true;
@@ -537,6 +544,7 @@ namespace CardGame.Core.Meta
             HubMarket.Normalize(s, Now);
             HubCasino.Normalize(s);
             HubShop.Refresh(s, Now);
+            HubCash.Normalize(s, Now);
             // Сегодняшняя витрина — тоже в памяти рынка (и у старых сохранений, где её ещё не запоминали).
             HubMarket.Remember(s, s.Shop.Day, s.Shop.Slots);
             var earningDays = s.IncomeDays.Where(d => d.Day >= day - 6 && d.Day <= day).ToArray();
@@ -906,6 +914,12 @@ namespace CardGame.Core.Meta
         private static string RoomCode(string id)
         {
             unchecked { uint hash = 2166136261; foreach (var c in id) hash = (hash ^ c) * 16777619; return (hash % 1000000).ToString("D6"); }
+        }
+        private static string UniqueRoomCode(HubSnapshot snapshot, string seed)
+        {
+            var candidate = RoomCode(seed);
+            while (snapshot.Rooms.Any(room => room.Code == candidate)) candidate = RoomCode(Guid.NewGuid().ToString("N"));
+            return candidate;
         }
         private static void Require(bool test, string code, string message) { if (!test) throw new HubFailure(code, message); }
         private sealed class HubFailure : Exception { internal string Code; internal HubFailure(string code, string message) : base(message) { Code = code; } }

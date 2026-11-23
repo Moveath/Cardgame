@@ -166,7 +166,7 @@ public static partial class PlayerHubQa
         TapScreen(area, ScreenOf(PlaceById("archive-cabinet")), "cabinet with a reward");
         Frame();
         var reward = ArchiveState.Achievements.Single(a => a.Id == "tutorial_skip");
-        var claim = exhibits.GetComponentsInChildren<Button>().Single(b => ButtonLabel(b) == "ЗАБРАТЬ +" + reward.RewardCoins + " коинов");
+        var claim = exhibits.GetComponentsInChildren<Button>().Single(b => ButtonLabel(b) == "ЗАБРАТЬ +" + reward.RewardCoins + " тун-тун коинов");
         InspectLayout("archive-cabinet");
         Save("archive-cabinet.png");
         var coins = ArchiveState.Profile.Coins;

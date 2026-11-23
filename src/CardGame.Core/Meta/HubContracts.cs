@@ -77,6 +77,8 @@ namespace CardGame.Core.Meta
         public HubMarketState Market = new HubMarketState();
         // Казино Тузяры и Дамы треф (HubCasino.cs, 2026-10-22): золотые жетоны, 21, рулетка, слоты и ракета.
         public HubCasinoState Casino = new HubCasinoState();
+        // Касса банка Тузяры (HubCash.cs, 2026-11-03): ролики за награду сегодня и «Без рекламы».
+        public HubCashState Cash = new HubCashState();
         // «Карточный вестник» (киоск на площади, 2026-10-09): номер последнего прочитанного выпуска; выпуск новее — кружок
         // на киоске. 0 — ни одного.
         public int NewsSeen;
@@ -95,6 +97,8 @@ namespace CardGame.Core.Meta
         public string AvatarName = "avatar_01";
         public string Bio = "";
         public int Coins;
+        // Золотые тун-тун коины (касса банка, HubCash.cs) — отдельный баланс от серебра (Coins).
+        public int Gold;
         public int XP;
         public int Level = 1;
         public int Rating = 1000;

@@ -38,3 +38,13 @@ unity/*/MemoryCaptures/
 *.log
 __pycache__/
 *.py[cod]
+
+# Отслеживание руки по видео (MediaPipe): окружение и модель скачиваются заново
+tools/mocap/.venv/
+tools/mocap/hand_landmarker.task
+
+# Тяжёлые локальные исходники, черновики и бэкапы Blender (сотни МБ, превышают лимит GitHub)
+*.blend1
+art3d/hands/source/
+art3d/hands/backup/
+art3d/hands/test/

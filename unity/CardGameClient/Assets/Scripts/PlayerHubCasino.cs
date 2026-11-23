@@ -391,8 +391,8 @@ namespace CardGameClient
             topBar.GetComponent<Image>().type = Image.Type.Sliced;
 
             LoanText(topBar, "Info",
-                "Баланс жетонов: 🪙 " + chips + " жет.  |  Свободно коинов: " + spendable + " к.\n"
-                + "Курс кассы: покупка 1 жетон = " + HubCasino.ChipBuyCoins + " коинов · вывод 1 жетон = " + HubCasino.ChipCashoutCoins + " коинов",
+                "Баланс жетонов: 🪙 " + chips + " жет.  |  Свободно тун-тун коинов: " + spendable + "\n"
+                + "Курс кассы: 1 жетон = " + HubCasino.ChipBuyCoins + " тун-тун коинов · обратно 1 жетон = " + HubCasino.ChipCashoutCoins,
                 new Vector2(-210, 0), new Vector2(760, 96), 22, Color.white);
 
             var canDaily = HubCasino.CanClaimDaily(_state, now);
@@ -407,22 +407,24 @@ namespace CardGameClient
             exchBar.GetComponent<Image>().sprite = UiTextures.RoundedRect(64, 64, 16, Color.white);
             exchBar.GetComponent<Image>().type = Image.Type.Sliced;
 
-            LoanText(exchBar, "Buy title", "КУПИТЬ ЖЕТОНЫ:", new Vector2(-480, 28), new Vector2(240, 34), 22, CasinoGold, true);
-            MakeCasinoButton(exchBar, "+1 ЖЕТ. (10 к.)", new Vector2(-210, 28), new Vector2(210, 48), true,
+            // Валюта — в заголовке ряда («тун-тун коины» целиком), на кнопках только числа: «к.» не пишем.
+            NewsFit(LoanText(exchBar, "Buy title", "КУПИТЬ ЖЕТОНЫ\nЗА ТУН-ТУН КОИНЫ:", new Vector2(-480, 28), new Vector2(240, 52), 22, CasinoGold, true));
+            MakeCasinoButton(exchBar, "+1 ЖЕТ. ЗА " + HubCasino.ChipBuyCoins, new Vector2(-210, 28), new Vector2(210, 48), true,
                 () => _ = RunCasinoCommand("casino_buy_chips", "", 1));
-            MakeCasinoButton(exchBar, "+5 ЖЕТ. (50 к.)", new Vector2(20, 28), new Vector2(210, 48), true,
+            MakeCasinoButton(exchBar, "+5 ЖЕТ. ЗА " + 5 * HubCasino.ChipBuyCoins, new Vector2(20, 28), new Vector2(210, 48), true,
                 () => _ = RunCasinoCommand("casino_buy_chips", "", 5));
-            MakeCasinoButton(exchBar, "+25 ЖЕТ. (250 к.)", new Vector2(255, 28), new Vector2(230, 48), true,
+            MakeCasinoButton(exchBar, "+25 ЖЕТ. ЗА " + 25 * HubCasino.ChipBuyCoins, new Vector2(255, 28), new Vector2(230, 48), true,
                 () => _ = RunCasinoCommand("casino_buy_chips", "", 25));
 
-            LoanText(exchBar, "Sell title", "ОБМЕНЯТЬ В КОИНЫ:", new Vector2(-480, -30), new Vector2(240, 34), 22, new Color(.85f, .88f, .82f), true);
-            MakeCasinoButton(exchBar, "−1 ЖЕТ. (+9 к.)", new Vector2(-210, -30), new Vector2(210, 46), false,
+            NewsFit(LoanText(exchBar, "Sell title", "ОБМЕНЯТЬ ЖЕТОНЫ\nНА ТУН-ТУН КОИНЫ:", new Vector2(-480, -30), new Vector2(240, 52), 22,
+                new Color(.85f, .88f, .82f), true));
+            MakeCasinoButton(exchBar, "−1 ЖЕТ. → +" + HubCasino.ChipCashoutCoins, new Vector2(-210, -30), new Vector2(210, 46), false,
                 () => _ = RunCasinoCommand("casino_cashout_chips", "", 1));
-            MakeCasinoButton(exchBar, "−5 ЖЕТ. (+45 к.)", new Vector2(20, -30), new Vector2(210, 46), false,
+            MakeCasinoButton(exchBar, "−5 ЖЕТ. → +" + 5 * HubCasino.ChipCashoutCoins, new Vector2(20, -30), new Vector2(210, 46), false,
                 () => _ = RunCasinoCommand("casino_cashout_chips", "", 5));
             if (chips > 0)
             {
-                MakeCasinoButton(exchBar, "ВСЁ (" + chips + " → +" + (chips * HubCasino.ChipCashoutCoins) + " к.)",
+                MakeCasinoButton(exchBar, "ВСЁ: " + chips + " → +" + chips * HubCasino.ChipCashoutCoins,
                     new Vector2(285, -30), new Vector2(290, 46), false,
                     () => _ = RunCasinoCommand("casino_cashout_chips", "", chips));
             }

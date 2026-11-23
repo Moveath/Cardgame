@@ -116,7 +116,7 @@ public sealed partial class MetaHubTests
         f.Store.Write(saved); f.Service = new LocalPlayerHubService(f.Store, f.Clock);
         var s = (await f.Service.LoadAsync()).Snapshot;
         var gold = s.Catalog.Single(i => i.Id == "frame_gold");
-        Assert.Equal(HubShop.Rare, gold.Rarity); Assert.Equal(900, gold.Price); Assert.Equal("900 коинов", gold.PriceLabel);
+        Assert.Equal(HubShop.Rare, gold.Rarity); Assert.Equal(900, gold.Price); Assert.Equal("900 тун-тун коинов", gold.PriceLabel);
         Assert.Equal(0, s.Catalog.Single(i => i.Id == "frame_default").Price);
         Assert.Contains(s.Inventory, i => i.ItemId == "frame_gold");
         Assert.DoesNotContain("frame_gold", s.Shop.Slots);

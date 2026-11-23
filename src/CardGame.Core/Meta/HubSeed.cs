@@ -65,7 +65,7 @@ namespace CardGame.Core.Meta
                 Members = { new HubRoomMember { PlayerId = "bot-aslan", IsBot = true, Ready = true } } });
             s.Invites.Add(new HubInvite { Id = "invite-yegor", FromId = "bot-yegor", ToId = s.Profile.Id, RoomId = "room-demo-durak" });
             Achievement(s, "tutorial_skip", "Дохуя умный", "Пропусти обучение с Тузярой", 1, 25, 10);
-            Achievement(s, "six_seven", "Сикс Севен", "Сыграй партию со ставкой ровно 67 коинов", 1, 67, 25);
+            Achievement(s, "six_seven", "Сикс Севен", "Сыграй партию со ставкой ровно 67 тун-тун коинов", 1, 67, 25);
             Achievement(s, "mentalist", "Менталист", "Собери 5 сундучков за одну партию", 5, 100, 40);
             Achievement(s, "pendalist", "Пендалист", "Закончи партию в «Сундучки», не собрав ни одного сундучка", 1, 30, 15);
             Achievement(s, "gardener", "Садовник", "Получи пачку помидоров или брось помидор", 1, 25, 10);
@@ -75,7 +75,7 @@ namespace CardGame.Core.Meta
             Achievement(s, "ten_matches", "Свой за столом", "Закончи 10 партий", 10, 150, 50);
             for (var level = 1; level <= 10; level++)
             {
-                s.Pass.Rewards.Add(new HubPassReward { Id = "free-" + level, Level = level, Name = (25 + level * 10) + " коинов", Coins = 25 + level * 10 });
+                s.Pass.Rewards.Add(new HubPassReward { Id = "free-" + level, Level = level, Name = (25 + level * 10) + " тун-тун коинов", Coins = 25 + level * 10 });
                 var rewards = new[] { "frame_gold", "cardback_emerald", "table_blue", "eyes_blue", "hair_chestnut", "frame_berry", "cardback_wine", "table_plum", "hat_cap", "outfit_midnight" };
                 var item = s.Catalog.First(i => i.Id == rewards[level - 1]);
                 s.Pass.Rewards.Add(new HubPassReward { Id = "premium-" + level, Level = level, Name = item.Name, ItemId = item.Id, Premium = true });
@@ -107,8 +107,15 @@ namespace CardGame.Core.Meta
             {
                 var saved = existing.Achievements.FirstOrDefault(a => a.Id == achievement.Id);
                 if (saved == null) existing.Achievements.Add(achievement);
-                else if (achievement.Id == "fine_print") saved.Description = achievement.Description;
+                // Название и описание — данные игры, а не прогресс: берутся из нынешней версии.
+                else { saved.Name = achievement.Name; saved.Description = achievement.Description; }
             }
+            if (existing.Pass?.Rewards != null)
+                foreach (var reward in defaults.Pass.Rewards)
+                {
+                    var saved = existing.Pass.Rewards.FirstOrDefault(r => r.Id == reward.Id);
+                    if (saved != null) saved.Name = reward.Name;
+                }
         }
 
         // Each person is added once: removed friends stay removed after a reload.
@@ -145,7 +152,7 @@ namespace CardGame.Core.Meta
         {
             var price = basic || category == "consumable" ? 0 : HubShop.PriceFor(rarity);
             s.Catalog.Add(new HubCatalogItem { Id = id, Name = name, Category = category, Description = description, Color = color, IsDefault = basic,
-                Resource = resource, Rarity = rarity, Price = price, PriceLabel = basic ? "Бесплатно" : price > 0 ? price + " коинов" : "Демо · открыть" });
+                Resource = resource, Rarity = rarity, Price = price, PriceLabel = basic ? "Бесплатно" : price > 0 ? price + " тун-тун коинов" : "Демо · открыть" });
         }
 
         private static void Achievement(HubSnapshot s, string id, string name, string description, int goal, int coins, int xp)

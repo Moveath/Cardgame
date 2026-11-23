@@ -124,7 +124,7 @@ namespace CardGame.Core.Meta
                 "Пока долг Тузяре не закрыт, Дама продаёт только на свободные деньги: " + HubShop.Spendable(s) + " из " + s.Profile.Coins + ".");
             s.Profile.Coins -= price;
             GrantItem(s, itemId, 1);
-            return "Куплено: «" + item.Name + "» · −" + price + " коинов";
+            return "Куплено: «" + item.Name + "» · −" + price + " тун-тун коинов";
         }
 
         private string RerollShop(HubSnapshot s)

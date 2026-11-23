@@ -13,12 +13,14 @@ namespace CardGameClient
             public readonly string GameId;
             public readonly string[] Names;
             public readonly Sprite[] Portraits;
+            public readonly string[] PlayerIds;
 
-            public Roster(string gameId, List<string> names, List<Sprite> portraits)
+            public Roster(string gameId, List<string> names, List<Sprite> portraits, List<string> playerIds = null)
             {
                 GameId = gameId;
                 Names = names.ToArray();
                 Portraits = portraits.ToArray();
+                PlayerIds = playerIds?.ToArray() ?? new string[names.Count];
             }
         }
 
@@ -34,15 +36,17 @@ namespace CardGameClient
             // Core games keep the local player at index zero even when another member owns the room.
             var names = new List<string> { snapshot.Profile.DisplayName };
             var portraits = new List<Sprite> { AvatarCatalog.Find(snapshot.Profile.AvatarName) };
+            var playerIds = new List<string> { snapshot.Profile.Id };
             foreach (var member in room.Members)
             {
                 if (member.PlayerId == snapshot.Profile.Id) continue;
                 var person = snapshot.People.Find(entry => entry.Id == member.PlayerId);
                 names.Add(person == null ? "Бот" : person.Name);
                 portraits.Add(person == null ? null : AvatarCatalog.Find(person.AvatarId));
+                playerIds.Add(member.PlayerId);
             }
 
-            _current = new Roster(room.GameId, names, portraits);
+            _current = new Roster(room.GameId, names, portraits, playerIds);
         }
 
         public static void ConfigureBankJob(HubSnapshot snapshot, HubBankJob job)
@@ -57,6 +61,14 @@ namespace CardGameClient
         }
 
         public static void Clear() => _current = null;
+
+        // Resolve profiles by the room identity, never by a repeated display name or avatar.
+        public static string PlayerIdFor(string gameId, int index, int playerCount)
+        {
+            var roster = _current;
+            return roster != null && roster.GameId == gameId && roster.Names.Length == playerCount
+                && index >= 0 && index < roster.PlayerIds.Length ? roster.PlayerIds[index] : null;
+        }
 
         public static bool TryApply(string gameId, IList<string> names, Sprite[] portraits)
         {

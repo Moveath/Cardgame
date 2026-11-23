@@ -187,7 +187,7 @@ namespace CardGameClient
             if (_floorDragging && pointer != null && !pointer.press.isPressed) EndFloorDrag();
             PrepareFloors();
             // Под открытой картой город стоит: клавиши — карте (PlayerHubMap.cs).
-            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown)
+            if (_page == "home" && !typing && !_cityDragging && !_mapOpen && _mapFade <= 0 && !GiftShown && !QuestsShown && !BankShown && !ShopCardShown && !ArchiveShown && !MarketShown && !CasinoShown && !CityWindowShown)
                 CityKeys(Keyboard.current);
             ClubKeys(typing);
             UpdateMap(Time.unscaledDeltaTime, typing);
@@ -195,6 +195,11 @@ namespace CardGameClient
             UpdateTavern(Time.unscaledDeltaTime);
             UpdateSixGift(Time.unscaledDeltaTime, typing);
             UpdateSixQuests(Time.unscaledDeltaTime, typing);
+            UpdateProfileWindow(Time.unscaledDeltaTime, typing);
+            UpdateSettingsWindow(Time.unscaledDeltaTime, typing);
+            UpdateTasksWindow(Time.unscaledDeltaTime, typing);
+            UpdateCollectionWindow(Time.unscaledDeltaTime, typing);
+            UpdateCashWindow(Time.unscaledDeltaTime, typing);
             UpdateBankLoan(Time.unscaledDeltaTime, typing);
             ContinueTableTrip();
             ContinueMapTrip();
@@ -204,6 +209,7 @@ namespace CardGameClient
             MoveVisit(Time.unscaledDeltaTime);
             UpdatePlaceHover(Time.unscaledDeltaTime);
             UpdateInteriorControls();
+            UpdateCityHud();
         }
 
         private void CityKeys(Keyboard keyboard)

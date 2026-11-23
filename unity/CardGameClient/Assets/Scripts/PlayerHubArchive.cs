@@ -349,7 +349,7 @@ namespace CardGameClient
             about.resizeTextMinSize = 13;
             about.resizeTextMaxSize = 19;
 
-            var reward = "+" + achievement.RewardCoins + " коинов";
+            var reward = "+" + achievement.RewardCoins + " тун-тун коинов";
             if (achievement.Unlocked && !achievement.Claimed)
             {
                 var id = achievement.Id;
@@ -366,7 +366,7 @@ namespace CardGameClient
             var achievement = _state?.Achievements.FirstOrDefault(a => a.Id == id);
             if (achievement == null || _busy) return;
             var coins = achievement.RewardCoins;
-            await ArchiveRun("achievement_claim", id, "Награда твоя: +" + coins + " коинов. Заслужил.");
+            await ArchiveRun("achievement_claim", id, "Награда твоя: +" + coins + " тун-тун коинов. Заслужил.");
         }
 
         /// <summary>Действие в Архиве; отвечает Туз червей в облачке (общая плашка ушла бы под слой).</summary>
@@ -401,7 +401,7 @@ namespace CardGameClient
                 ("Партий сыграно", profile.Matches + " · побед " + profile.Wins + " · поражений " + profile.Losses),
                 ("Любимая игра", favourite == null ? "пока не выбрана" : HubGameName(favourite.Key) + " · "
                     + ArchiveCount(favourite.Count(), "партия", "партии", "партий")),
-                ("Заработано всего", HubMoney(profile.CoinsEarned) + " коинов"),
+                ("Заработано всего", HubMoney(profile.CoinsEarned) + " тун-тун коинов"),
                 ("Кредиты у Тузяры", loans == 0 ? "не брал" : "взято " + loans + (_state.Bank.Debt > 0
                     ? " · долг " + HubMoney(_state.Bank.Debt) : " · долгов нет")),
                 ("Брошено помидоров", profile.TomatoesThrown.ToString()),

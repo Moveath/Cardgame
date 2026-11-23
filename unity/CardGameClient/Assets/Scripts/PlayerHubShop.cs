@@ -326,11 +326,27 @@ namespace CardGameClient
         private static string ShopPriceText(HubCatalogItem item, int slot)
             => slot == 0 ? HubShop.PriceAt(item, slot) + "  <size=18><color=#8A6A44>" + item.Price + "</color></size>" : item.Price.ToString();
 
-        /// <summary>Заглушка вещи до настоящего арта: форма по виду предмета в его цвете.</summary>
+        /// <summary>
+        /// Картинка вещи (Лавка, коллекция): своя — UI/Hub/Items/&lt;id&gt;; у волос и глаз одна на вид, в цвете вещи; рубашка
+        /// и лицо «классика» — карты колоды игры. Нет картинки — заглушка: форма по виду предмета в его цвете.
+        /// </summary>
         private RectTransform ShopItemArt(Transform parent, HubCatalogItem item, Vector2 at, float size)
         {
             var root = LoanRect(parent, "Item " + item.Id, at, new Vector2(size, size));
             if (!ColorUtility.TryParseHtmlString(item.Color, out var color)) color = new Color(.85f, .72f, .4f);
+            var picture = Resources.Load<Sprite>("UI/Hub/Items/" + item.Id);
+            var tinted = picture == null && (item.Category == "hair" || item.Category == "eyes")
+                && (picture = Resources.Load<Sprite>("UI/Hub/Items/" + item.Category)) != null;
+            if (picture == null && item.Id == "cardback_default") picture = Resources.Load<Sprite>("Cards/back");
+            if (picture == null && item.Id == "cardface_default") picture = Resources.Load<Sprite>("Cards/a_spades");
+            if (picture != null)
+            {
+                var image = LoanArt(root, "Picture", null, Vector2.zero, new Vector2(size, size), Color.white);
+                image.sprite = picture;
+                image.color = tinted ? color : Color.white;
+                image.preserveAspect = true;
+                return root;
+            }
             Image Shape(string name, Vector2 box, float radius, Color tint, Color edge)
             {
                 var image = LoanArt(root, name, null, Vector2.zero, box, tint);
@@ -416,7 +432,7 @@ namespace CardGameClient
             var owned = HubOwned(item.Id);
             var equipped = _state.Equipped.Any(entry => entry.ItemId == item.Id);
             var price = HubShop.PriceAt(item, slot);
-            _shopDetailPrice.text = owned ? "Уже твоя" : price + " коинов"
+            _shopDetailPrice.text = owned ? "Уже твоя" : price + " тун-тун коинов"
                 + (slot == 0 ? "  <size=24><color=#8A6A44>вместо " + item.Price + "</color></size>" : "");
             _shopDetailPrice.color = owned ? ShopMuted : slot == 0 ? ShopRed : LoanInk;
             _shopDetailAction.GetComponentInChildren<Text>().text = owned ? equipped ? "НАДЕТО" : "НАДЕТЬ" : "КУПИТЬ ЗА " + price;

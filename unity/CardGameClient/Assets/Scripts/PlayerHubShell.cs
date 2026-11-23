@@ -173,7 +173,7 @@ namespace CardGameClient
             // Весь блок профиля — одна кнопка, без надписи «Профиль».
             OverlayButton(_topBar, "Профиль", 20, 10, 330, 76, () => Navigate("profile"));
 
-            _wallet = CurrencyPill(HubCurrencyArt.Silver, 1012, "Пополнить", () => Navigate("bank"));
+            _wallet = CurrencyPill(HubCurrencyArt.Silver, 1012, "Пополнить", () => Navigate("cash"));
             _gold = CurrencyPill(HubCurrencyArt.Gold, 1246, null, null);
             _gold.text = "0";
             IconButton(_topBar, "Настройки", "settings", 1502, 16, 64, 64, () => Navigate("settings"), iconOnly: true);
@@ -246,9 +246,11 @@ namespace CardGameClient
         {
             _identity.text = _state.Profile.DisplayName;
             _wallet.text = HubMoney(_state.Profile.Coins);
+            _gold.text = HubMoney(_state.Profile.Gold);
             _level.text = _state.Profile.Level.ToString();
             _levelFill.rectTransform.sizeDelta = new Vector2(210 * Mathf.Clamp01((_state.Profile.XP % 100) / 100f), 14);
             _portrait.sprite = PlayerProfile.Avatar;
+            RefreshCityHud();
 
             var lobby = _page == "home";
             // Клуб — внутри города: без вкладок и верхней панели, своя шапка; у стола — только табличка.

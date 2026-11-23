@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using CardGame.Core.Games.Durak;
 using CardGame.Core.Meta;
+using CardGameClient.ThreeD;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 namespace CardGameClient
 {
@@ -112,8 +114,22 @@ namespace CardGameClient
         private void StartHubQuickGame(string game)
         {
             if(_startingHubGame)return;
-            ApplyGameSettings(game,_playerHub.GetGameSetupPlayerCount(),_playerHub.GetGameSetupSettings());
+            var playerCount=_playerHub.GetGameSetupPlayerCount();
+            var rules=_playerHub.GetGameSetupSettings();
+            ApplyGameSettings(game,playerCount,rules);
+            if(game=="durak")
+            {
+                StartConfiguredDurak3D(playerCount,rules);
+                return;
+            }
             StartConfiguredGame(game);
+        }
+
+        private async void StartConfiguredDurak3D(int playerCount,HubGameSettings rules)
+        {
+            if(!await BeginHubMatch("durak"))return;
+            CardTable3DRoomFlow.BeginQuick(PlayerHubRuntime.Current,playerCount,rules);
+            SceneManager.LoadScene("CardTable3D");
         }
 
         private void ApplyGameSettings(string game,int players,HubGameSettings rules)
@@ -610,6 +626,12 @@ namespace CardGameClient
             _returnToBankJobs=!string.IsNullOrEmpty(entry?.BankJobId);
             var room=_returnToBank || _returnToBankJobs?null:snapshot?.Rooms.Find(item=>item.Id==snapshot.CurrentRoomId && item.GameId==game);
             ApplyGameSettings(game,players,_returnToBankJobs?entry.GameSettings:room?.GameSettings??HubGameSettings.DefaultFor(game));
+            if(game=="durak" && room!=null && snapshot!=null)
+            {
+                CardTable3DRoomFlow.Begin(snapshot,room);
+                SceneManager.LoadScene("CardTable3D");
+                return;
+            }
             _launchingHubRoom=true;
             try
             {

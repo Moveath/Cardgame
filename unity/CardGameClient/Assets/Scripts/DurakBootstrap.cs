@@ -1,7 +1,9 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using CardGameClient.ThreeD;
 
 namespace CardGameClient
 {
@@ -14,6 +16,31 @@ namespace CardGameClient
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Launch()
         {
+            // RuntimeInitializeOnLoadMethod runs once. Subscribe as well so returning from
+            // CardTable3D to the empty SampleScene rebuilds the original 2D shell.
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            EnsureShell();
+        }
+
+        private static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => EnsureShell();
+
+        private static void EnsureShell()
+        {
+            if (Object.FindAnyObjectByType<CardTable3DBootstrap>() != null)
+            {
+                return;
+            }
+
+            // The isolated 3D table owns its camera and HUD; do not cover it with the legacy shell.
+            for (var sceneIndex = 0; sceneIndex < SceneManager.sceneCount; sceneIndex++)
+            {
+                if (SceneManager.GetSceneAt(sceneIndex).path == "Assets/Scenes/CardTable3D.unity")
+                {
+                    return;
+                }
+            }
+
             if (Object.FindAnyObjectByType<AppFlowController>() != null)
             {
                 return;

@@ -37,7 +37,7 @@ namespace CardGameClient
             Button("Рейтинг", 295, 473, 270, 48, () => Navigate("ranks"));
             Button("Банк", 590, 473, 270, 48, () => Navigate("bank"));
             Button("Настройки", 885, 473, 275, 48, () => Navigate("settings"));
-            Label("Коины здесь виртуальные. Покерные фишки и кошелёк профиля — отдельные балансы.", 0, 555, 1160, 64, 20).color = HubPageMuted;
+            Label("Тун-тун коины здесь виртуальные. Покерные фишки и кошелёк профиля — отдельные балансы.", 0, 555, 1160, 64, 20).color = HubPageMuted;
         }
 
         private void BuildHubRanks()

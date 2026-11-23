@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CardGame.Core.Meta;
+using CardGameClient.ThreeD;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -51,6 +52,11 @@ namespace CardGameClient
             BuildShell();_built=true;Resize();
             PlayerHubRuntime.Changed+=OnSnapshot;
             await Reload();
+            var returnDestination=CardTable3DRoomFlow.ConsumeReturnDestination(out var returnPage);
+            if(returnDestination==CardTable3DRoomFlow.ReturnDestination.Lobby)
+                Navigate(!string.IsNullOrEmpty(returnPage)?returnPage:!string.IsNullOrEmpty(PlayerHubRuntime.Current?.CurrentRoomId)?"room":"games");
+            else if(returnDestination==CardTable3DRoomFlow.ReturnDestination.Home)
+                Navigate("home");
         }
         private void OnEnable()
         {
@@ -77,7 +83,7 @@ namespace CardGameClient
             _menuScaler.uiScaleMode=CanvasScaler.ScaleMode.ScaleWithScreenSize;
             _menuScaler.referenceResolution=new Vector2(1600,900);
             _menuScaler.screenMatchMode=CanvasScaler.ScreenMatchMode.Expand;
-            _menuCanvas.pixelPerfect=true;
+            _menuCanvas.pixelPerfect=false;
         }
 
         private void RestoreCanvasScaling()
@@ -154,10 +160,19 @@ namespace CardGameClient
         public void Navigate(string page)
         {
             if(_busy)return;
+            if(page!="profile" && ProfileShown)DismissProfileWindow();
             // Normalize the former placeholder before recording navigation history.
             if(page=="place:fortune")page="fortune";
             // Магазин — Лавка Дамы бубен изнутри: не страница, а поездка к её двери и нырок (PlayerHubShop.cs).
             if(page=="shop"){GoToShop();return;}
+            // Профиль, настройки, задания и коллекция — окна поверх текущего экрана: откуда бы ни открыли, они одни
+            // (PlayerHubSettingsWindow.cs, PlayerHubTasksWindow.cs, PlayerHubCollectionWindow.cs).
+            if(page=="profile"){ShowProfileWindow();return;}
+            if(page=="settings"){ShowSettingsWindow();return;}
+            if(page=="quests"){ShowTasksWindow();return;}
+            if(page=="inventory"){ShowCollectionWindow();return;}
+            // Касса банка Тузяры (PlayerHubCashWindow.cs): «cash» — серебро, «cash:gold» — золото.
+            if(page=="cash" || page=="cash:gold"){ShowCashWindow(page=="cash:gold"?1:0);return;}
             CloseOutdoorVisit();
             if(page=="home"){_history.Clear();_tableTrip=-1;}
             else if(page!=_page)
@@ -176,6 +191,12 @@ namespace CardGameClient
         public void Back()
         {
             if(_busy)return;
+            // Окно поверх экрана закрывается первым, что бы ни было под ним.
+            if(ProfileShown){CloseProfileWindow();return;}
+            if(SettingsShown){CloseSettingsWindow();return;}
+            if(TasksShown){CloseTasksWindow();return;}
+            if(CollectionShown){CloseCollectionWindow();return;}
+            if(CashShown){CloseCashWindow();return;}
             if(TryFortuneBack())return;
             if(TryLeaveFortuneInterior())return;
             if(TryNewsBack())return;
@@ -213,7 +234,8 @@ namespace CardGameClient
             if(page.StartsWith("game:",StringComparison.Ordinal) || IsRulesPage(page))return "games";
             if(page.StartsWith("chat:",StringComparison.Ordinal))return "chats";
             if(page.StartsWith("friend:",StringComparison.Ordinal))return "friends";
-            if(page.StartsWith("throw:",StringComparison.Ordinal))return "inventory";
+            // Коллекция — окно, а не страница: из броска — домой.
+            if(page.StartsWith("throw:",StringComparison.Ordinal))return "home";
             switch(page)
             {
                 case "room":case "create-room":return "rooms";
@@ -222,7 +244,7 @@ namespace CardGameClient
                 case "rooms":return string.IsNullOrEmpty(_selectedGame)?"games":"game:"+_selectedGame;
                 case "quests":case "achievements":case "pass":case "ranks":case "tutorial":return "progress";
                 case "inventory":return "profile";
-                case "extras":return "settings";
+                case "extras":return "home";
                 default:return "home";
             }
         }
@@ -413,7 +435,7 @@ namespace CardGameClient
             var room=CurrentRoom();if(room==null){_page="rooms";BuildRooms();return;}
             // Комната — у стола своей игры: из таверны или после партии камера едет к нему сама.
             var table=TablePlace(room.GameId);if(!AtTable(table))GoToTable(table);
-            Title(room.Name,GameTitle(room.GameId)+"   ·   код "+room.Code+"   ·   "+(room.Private?"закрытая":"открытая")+"   ·   ставка "+room.Stake);
+            Title(room.Name,GameTitle(room.GameId)+"   ·   ID комнаты: "+room.Code+"   ·   "+(room.Private?"закрытая":"открытая")+"   ·   ставка "+room.Stake);
             var mine=room.HostId==_state.Profile.Id;
             for(var i=0;i<room.MaxPlayers;i++)
             {
@@ -435,7 +457,7 @@ namespace CardGameClient
             var self=room.Members.FirstOrDefault(m=>m.PlayerId==_state.Profile.Id);
             Button(self!=null && self.Ready?"Не готов":"Я готов",0,527,290,49,()=>Send("room_ready",flag:self==null || !self.Ready),!room.Started);
             var localHost=mine || _state.People.Any(p=>p.Id==room.HostId && p.IsBot);
-            Button("Начать игру",314,527,288,49,()=>Send("start_room"),localHost && !room.Started);
+            Button("Начать игру",314,527,288,49,()=>{if(room.GameId=="durak")StartDurakRoomWithBots();else Send("start_room");},localHost && !room.Started);
             Button("Покинуть комнату",0,593,290,44,()=>Send("leave_room"),!room.Started);
             Button("Правила комнаты",314,593,288,44,()=>Navigate("room-settings"),mine && !room.Started);
             Label("Чат комнаты",650,0,480,35,26);

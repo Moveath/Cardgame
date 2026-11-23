@@ -90,10 +90,13 @@ namespace CardGameClient
             return sprite;
         }
 
-        /// <summary>Мягкое пятно света: в центре плотное, к краю плавно уходит в ноль.</summary>
-        public static Sprite RadialGlow(int diameter, Color color)
+        /// <summary>
+        /// Мягкое пятно света: в центре плотное, к краю плавно уходит в ноль. solid — доля радиуса, до которой свет остаётся
+        /// полным: так свет за круглым портретом начинает гаснуть у его края, а не прячется за ним.
+        /// </summary>
+        public static Sprite RadialGlow(int diameter, Color color, float solid = 0f)
         {
-            var key = "glow_" + diameter + "_" + color;
+            var key = "glow_" + diameter + "_" + color + "_" + solid;
             if (Cache.TryGetValue(key, out var cached) && cached != null)
             {
                 return cached;
@@ -112,7 +115,7 @@ namespace CardGameClient
                 for (var x = 0; x < diameter; x++)
                 {
                     var distance = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(center, center)) / center;
-                    var falloff = Mathf.Clamp01(1f - distance);
+                    var falloff = Mathf.Clamp01((1f - distance) / (1f - solid));
                     pixels[y * diameter + x] = new Color(color.r, color.g, color.b, color.a * falloff * falloff);
                 }
             }

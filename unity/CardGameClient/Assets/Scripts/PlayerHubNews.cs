@@ -293,7 +293,7 @@ namespace CardGameClient
             var issue = CurrentNews;
             var today = DateTimeOffset.FromUnixTimeSeconds(PlayerHubRuntime.Clock.UnixSeconds).ToLocalTime();
             _newsIssueLine.text = "Выпуск № " + issue.Number + " · " + today.ToString("d MMMM yyyy", new System.Globalization.CultureInfo("ru-RU"))
-                + " · Цена — 0 коинов";
+                + " · Цена — 0 тун-тун коинов";
             _newsHeadline.text = issue.Headline;
             _newsStory.text = issue.Story.Replace(" —", " —");
             _newsPicture.sprite = string.IsNullOrEmpty(issue.Picture) ? null : Resources.Load<Sprite>("UI/Hub/" + issue.Picture);
@@ -309,7 +309,7 @@ namespace CardGameClient
             var lines = new System.Collections.Generic.List<string>();
             var bank = _state.Bank;
             if (bank != null && bank.Debt > 0)
-                lines.Add("• Банк Тузяры напоминает: долг " + bank.Debt + " коинов, вернуть до "
+                lines.Add("• Банк Тузяры напоминает: долг " + bank.Debt + " тун-тун коинов, вернуть до "
                     + DateTimeOffset.FromUnixTimeSeconds(bank.DueAt).ToLocalTime().ToString("dd.MM, HH:mm") + ".");
             var fortune = HubFortunes.Find(_state.Fortune?.EffectId);
             if (fortune != null && HubFortunes.Active(_state.Fortune))
