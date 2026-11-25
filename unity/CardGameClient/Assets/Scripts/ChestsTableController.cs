@@ -28,8 +28,6 @@ namespace CardGameClient
         private static string HumanName => PlayerProfile.DisplayName;
         private bool _hubMatchReported;
 
-        private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
-
         private static readonly Color TextColor = new Color(0.94f, 0.95f, 0.93f);
         private static readonly Color DimColor = new Color(0.94f, 0.95f, 0.93f, 0.55f);
         private static readonly Color AccentGlow = new Color(1f, 0.85f, 0.3f);
@@ -1763,32 +1761,10 @@ namespace CardGameClient
         private List<string> BuildPlayerNames(int playerCount)
         {
             var names = new List<string> { HumanName };
-            var fromPool = 0;
 
             for (var player = 1; player < playerCount; player++)
             {
-                var title = AvatarCatalog.PersonalTitleOf(PortraitFor(player));
-                if (title != null)
-                {
-                    var personal = title;
-                    for (var repeat = 2; names.Contains(personal); repeat++)
-                    {
-                        personal = title + " " + repeat;
-                    }
-
-                    names.Add(personal);
-                    continue;
-                }
-
-                var name = BotNamePool[fromPool % BotNamePool.Length];
-                while (names.Contains(name) && fromPool < BotNamePool.Length)
-                {
-                    fromPool++;
-                    name = BotNamePool[fromPool % BotNamePool.Length];
-                }
-
-                fromPool++;
-                names.Add(name);
+                names.Add(AvatarCatalog.NameForAvatar(PortraitFor(player), names));
             }
 
             HubRoster.TryApply("chests", names, _playerPortraits);

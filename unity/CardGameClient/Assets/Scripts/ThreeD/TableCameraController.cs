@@ -9,14 +9,18 @@ namespace CardGameClient.ThreeD
     /// <summary>Look and zoom only: the camera stays seated and cannot walk around the room.</summary>
     public sealed class TableCameraController : MonoBehaviour
     {
-        // Выше — видны лица соперников, ниже — стол. Ниже 38° в кадр попали бы срезы предплечий: тела у рук пока нет.
-        /// <summary>Наклон взгляда при посадке, как в Liar's Bar: стол виден до своего края. В нём заданы поза рук и веер (scripts/3d/hands/in_game.py).</summary>
-        internal const float StartPitch = 32f;
-        private const float MinPitch = 8f, MaxPitch = 38f, MaxYaw = 36f, MaxZoom = .22f;
+        // Золотая середина посадки и угла обзора (EyeY=1.42, StartPitch=20.5°, FOV 62°/57°):
+        // естественный рост (не «великан»), нет узкого туннеля, плашки ниже верхней панели, видны и друзья, и центр стола, и обе руки!
+        internal const float StartPitch = 20.5f;
+        // Расширенный обзор: ±94° по сторонам к ближним соседям; нижний наклон 56°, при повороте вбок мягко поднимается до 38°.
+        private const float MinPitch = 6f, MaxPitch = 56f, SideMaxPitch = 38f, MaxYaw = 94f, MaxZoom = .22f;
+        // Оптическое приближение стола («БЛИЖЕ») от золотого FOV (62°/57° -> 42°/39°) + лёгкий наклон вперёд.
+        private const float ZoomFovFactor = .68f, ZoomLeanShare = .55f, TableZoomPitch = 37.5f;
         // Взгляд догоняет палец: 90 % пути примерно за треть секунды, рывки пальца не доходят до камеры.
         private const float LookSpeed = 8f, ZoomSpeed = 7f;
 
         public event Action<Vector2> Tapped;
+        public event Action<bool> TableZoomChanged;
 
         private Camera _camera;
         private Vector3 _basePosition;
@@ -26,6 +30,12 @@ namespace CardGameClient.ThreeD
         private float _targetPitch = StartPitch;
         private float _targetZoom;
         private float _zoom;
+        private bool _wasTableZoomed;
+
+        /// <summary>Доля приближения к центру стола (0 — обычный обзор, 1 — крупный план карт в центре).</summary>
+        public float ZoomRatio => Mathf.Clamp01(_zoom / MaxZoom);
+
+        public bool IsTableZoomed => _targetZoom > MaxZoom * .5f;
         private Vector2 _pointerStart;
         private Vector2 _lastPointer;
         private bool _pointerActive;
@@ -46,18 +56,49 @@ namespace CardGameClient.ThreeD
             transform.localRotation = Quaternion.Euler(_pitch, _yaw, 0f);
         }
 
+        /// <summary>Плавное приближение к картам в центре стола (кнопка «БЛИЖЕ», двойной тап по пустому сукну или пробел).</summary>
+        public void ToggleTableZoom() => SetTableZoom(!IsTableZoomed);
+
+        public void SetTableZoom(bool zoomed)
+        {
+            _targetZoom = zoomed ? MaxZoom : 0f;
+            _targetYaw = 0f;
+            _targetPitch = zoomed ? TableZoomPitch : StartPitch;
+            NotifyZoomState();
+        }
+
+        private void NotifyZoomState()
+        {
+            var zoomed = IsTableZoomed;
+            if (zoomed == _wasTableZoomed) return;
+            _wasTableZoomed = zoomed;
+            TableZoomChanged?.Invoke(zoomed);
+        }
+
         private void Update()
         {
             if (_camera == null) return;
             ReadMouse();
             ReadTouch();
-            _camera.fieldOfView = Table3DLayout.FieldOfView(_camera.aspect);
+            ReadKeys();
             var look = Follow(LookSpeed);
             _yaw = Mathf.Lerp(_yaw, _targetYaw, look);
+            _targetPitch = Mathf.Clamp(_targetPitch, MinPitch, EffectiveMaxPitch(_targetYaw));
             _pitch = Mathf.Lerp(_pitch, _targetPitch, look);
+            _pitch = Mathf.Min(_pitch, EffectiveMaxPitch(_yaw));
             _zoom = Mathf.Lerp(_zoom, _targetZoom, Follow(ZoomSpeed));
+            var baseFov = Table3DLayout.FieldOfView(_camera.aspect);
+            _camera.fieldOfView = baseFov * Mathf.Lerp(1f, ZoomFovFactor, ZoomRatio);
             transform.localRotation = Quaternion.Euler(_pitch, _yaw, 0f);
-            transform.localPosition = _basePosition + transform.forward * _zoom;
+            transform.localPosition = _basePosition + transform.forward * (_zoom * ZoomLeanShare);
+            NotifyZoomState();
+        }
+
+        private void ReadKeys()
+        {
+            var kb = Keyboard.current;
+            if (kb != null && (kb.spaceKey.wasPressedThisFrame || kb.zKey.wasPressedThisFrame))
+                ToggleTableZoom();
         }
 
         private static float Follow(float speed) =>
@@ -79,7 +120,7 @@ namespace CardGameClient.ThreeD
             {
                 var delta = position - _lastPointer;
                 if ((position - _pointerStart).sqrMagnitude > 64f) _dragged = true;
-                if (_dragged && !_pointerStartedOverUi) Look(delta, 0.11f);
+                if (_dragged && !_pointerStartedOverUi) Look(delta, 0.135f);
                 _lastPointer = position;
             }
             else if (_pointerActive && mouse.leftButton.wasReleasedThisFrame)
@@ -154,7 +195,7 @@ namespace CardGameClient.ThreeD
             {
                 var delta = touchPosition - _lastPointer;
                 if ((touchPosition - _touchStart).sqrMagnitude > 100f) _dragged = true;
-                if (_dragged && !_pointerStartedOverUi) Look(delta, 0.16f);
+                if (_dragged && !_pointerStartedOverUi) Look(delta, 0.19f);
                 _lastPointer = touchPosition;
                 if (touchPhase == UnityEngine.InputSystem.TouchPhase.Ended)
                 {
@@ -164,10 +205,16 @@ namespace CardGameClient.ThreeD
             }
         }
 
+        private static float EffectiveMaxPitch(float yaw)
+        {
+            var sideT = Mathf.Clamp01((Mathf.Abs(yaw) - 40f) / (MaxYaw - 40f));
+            return Mathf.Lerp(MaxPitch, SideMaxPitch, sideT * sideT * (3f - 2f * sideT));
+        }
+
         private void Look(Vector2 delta, float sensitivity)
         {
             _targetYaw = Mathf.Clamp(_targetYaw + delta.x * sensitivity, -MaxYaw, MaxYaw);
-            _targetPitch = Mathf.Clamp(_targetPitch - delta.y * sensitivity, MinPitch, MaxPitch);
+            _targetPitch = Mathf.Clamp(_targetPitch - delta.y * sensitivity, MinPitch, EffectiveMaxPitch(_targetYaw));
         }
     }
 }

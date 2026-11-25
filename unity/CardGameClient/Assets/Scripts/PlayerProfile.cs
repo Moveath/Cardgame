@@ -35,7 +35,7 @@ namespace CardGameClient
             }
         }
 
-        private const string DefaultPerson = "yegor";
+        private const string DefaultPerson = "danil";
 
         private static Sprite FirstOf(string groupId)
         {

@@ -884,6 +884,14 @@ namespace CardGame.Core.Games.Durak
 
         private bool AllAttackersDone()
         {
+            // Пока на столе лежат отбитые карты (даже если подкинуть больше нечего, набралось 6 карт
+            // или у защищающегося закончились карты), раздача не закрывается автоматически: атакующий
+            // обязан явно нажать «БИТО» (Pass), чтобы все видели последнюю карту и могли проверить обман.
+            if (_table.Count > 0 && !DefenderTook && !_players[AttackerIndex].IsOut && !_passed.Contains(AttackerIndex))
+            {
+                return false;
+            }
+
             foreach (var player in _players)
             {
                 if (player.IsOut || player.Index == DefenderIndex)

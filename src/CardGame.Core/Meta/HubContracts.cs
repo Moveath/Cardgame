@@ -94,7 +94,7 @@ namespace CardGame.Core.Meta
     {
         public string Id = "local-player";
         public string DisplayName = "Игрок";
-        public string AvatarName = "avatar_01";
+        public string AvatarName = "danil_01";
         public string Bio = "";
         public int Coins;
         // Золотые тун-тун коины (касса банка, HubCash.cs) — отдельный баланс от серебра (Coins).

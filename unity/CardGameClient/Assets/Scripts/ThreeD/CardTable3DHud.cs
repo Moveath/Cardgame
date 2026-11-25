@@ -18,6 +18,7 @@ namespace CardGameClient.ThreeD
 
         private sealed class SeatMark
         {
+            public Canvas Canvas;
             public RectTransform Root, Chip;
             public Text Name, Role;
             public Image Fill, Icon;
@@ -28,8 +29,8 @@ namespace CardGameClient.ThreeD
         private Font _sign;
         private Text _status, _trumpName;
         private Image _trumpMedal;
-        private Button _take, _pass, _transfer, _restart, _leave;
-        private Text _passLabel;
+        private Button _take, _pass, _transfer, _restart, _leave, _zoom;
+        private Text _passLabel, _zoomLabel;
         private SeatMark[] _seats = Array.Empty<SeatMark>();
         private RectTransform _gestureRow;
         private IReadOnlyList<string> _gestures = Array.Empty<string>();
@@ -88,6 +89,9 @@ namespace CardGameClient.ThreeD
             _playGesture = play;
             var open = PlaqueButton("ЖЕСТЫ", new Vector2(1f, 1f), new Vector2(-123f, -46f));
             open.name = "Gestures";
+            _zoom = PlaqueButton("БЛИЖЕ", new Vector2(1f, 1f), new Vector2(-315f, -46f), null, new Vector2(170f, 72f));
+            _zoom.name = "Table zoom";
+            _zoomLabel = _zoom.GetComponentInChildren<Text>();
             _gestureRow = Panel(_root, "Gesture list", new Vector2(1f, 1f), new Vector2(-123f, -100f - gestures.Count * 31f), new Vector2(190f, gestures.Count * 62f));
             for (var i = 0; i < gestures.Count; i++)
             {
@@ -109,7 +113,7 @@ namespace CardGameClient.ThreeD
         {
             var keyboard = Keyboard.current;
             if (keyboard == null || _gestures.Count == 0) return;
-            for (var i = 0; i < Math.Min(6, _gestures.Count); i++)
+            for (var i = 0; i < Math.Min(9, _gestures.Count); i++)
                 if (keyboard[Key.Digit1 + i].wasPressedThisFrame) Gesture(_gestures[i]);
         }
 
@@ -117,23 +121,30 @@ namespace CardGameClient.ThreeD
         {
             switch (gesture)
             {
-                case "Point": return "НА ТЕБЯ";
+                case "Point": return "УКАЗАТЬ";
                 case "ThumbsUp": return "КЛАСС";
                 case "ThumbsDown": return "ФУ";
                 case "TapTable": return "СТУК";
                 case "Shrug": return "НЕ ЗНАЮ";
                 case "Fist": return "КУЛАК";
+                case "MiddleFinger": return "ФАК";
                 default: return gesture.ToUpperInvariant();
             }
         }
 
-        public void SetCallbacks(Action take, Action pass, Action transfer, Action restart, Action leave)
+        public void SetCallbacks(Action take, Action pass, Action transfer, Action restart, Action leave, Action toggleZoom = null)
         {
             Bind(_take, take);
             Bind(_pass, pass);
             Bind(_transfer, transfer);
             Bind(_restart, restart);
             Bind(_leave, leave);
+            if (_zoom != null) Bind(_zoom, toggleZoom);
+        }
+
+        public void SetTableZoom(bool zoomed)
+        {
+            if (_zoomLabel != null) _zoomLabel.text = zoomed ? "ОБЗОР" : "БЛИЖЕ";
         }
 
         public void SetStatus(string status, bool yours)
@@ -160,11 +171,22 @@ namespace CardGameClient.ThreeD
 
         public void BuildSeats(int count)
         {
-            foreach (var seat in _seats) Destroy(seat.Root.gameObject);
+            foreach (var seat in _seats)
+                if (seat?.Canvas != null) Destroy(seat.Canvas.gameObject);
             _seats = new SeatMark[count];
             for (var i = 0; i < count; i++)
             {
-                var root = Panel(_root, "Seat mark " + i, Middle, Vector2.zero, new Vector2(176f, 76f));
+                // Плашка в WorldSpace (3D с Z-тестом): висит над головой соперника и всегда остаётся ЗА руками, веером и жестами игрока!
+                var go = new GameObject("Seat mark " + i, typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+                go.transform.SetParent(transform, false);
+                var canvas = go.GetComponent<Canvas>();
+                canvas.renderMode = RenderMode.WorldSpace;
+                var scaler = go.GetComponent<CanvasScaler>();
+                scaler.dynamicPixelsPerUnit = 2f;
+                var root = (RectTransform)go.transform;
+                root.sizeDelta = new Vector2(176f, 76f);
+                root.pivot = Middle;
+
                 var plate = Art("UI/Hub/Hud/currency-plate", root, new Vector2(.5f, 1f), new Vector2(0f, -20f), new Vector2(168f, 40f), 109f / 40f);
                 var name = Label(plate.transform, "", Middle, new Vector2(0f, 1f), new Vector2(138f, 32f), 28, Cream);
                 name.resizeTextForBestFit = true; name.resizeTextMinSize = 18; name.resizeTextMaxSize = 28;
@@ -175,7 +197,7 @@ namespace CardGameClient.ThreeD
                 role.resizeTextForBestFit = true; role.resizeTextMinSize = 17; role.resizeTextMaxSize = 24;
                 var icon = Graphic(chip.transform, "Role icon", new Vector2(0f, .5f), new Vector2(2f, 2f), new Vector2(56f, 56f));
                 icon.preserveAspect = true;
-                _seats[i] = new SeatMark { Root = root, Chip = chip.rectTransform, Name = name, Role = role, Fill = chip, Icon = icon };
+                _seats[i] = new SeatMark { Canvas = canvas, Root = root, Chip = chip.rectTransform, Name = name, Role = role, Fill = chip, Icon = icon };
             }
         }
 
@@ -192,16 +214,19 @@ namespace CardGameClient.ThreeD
             if (kind != 0) seat.Icon.sprite = Resources.Load<Sprite>("UI/Hub/Durak/" + (kind == 2 ? "role-defend" : "role-attack"));
         }
 
-        private const float LabelTop = .85f;
+        // Фиксированный физический масштаб 3D-плашки в метрах (176 × 76 ед. → ~41 × 18 см прямо над головой, по ширине плеч).
+        private const float WorldLabelScale = .00235f;
 
         public void PlaceSeat(int index, Camera camera, Vector3 world)
         {
             var seat = _seats[index];
-            var point = camera.WorldToViewportPoint(world);
-            var visible = point.z > 0f && point.x > -.05f && point.x < 1.05f;
-            seat.Root.gameObject.SetActive(visible);
-            // Камера смотрит на стол, головы соперников у верхнего края: табличка не поднимается выше LabelTop, под плашки «В КЛУБ» и «ВАШ ХОД».
-            if (visible) seat.Root.anchoredPosition = new Vector2((point.x - .5f) * _root.rect.width, (Mathf.Min(point.y, LabelTop) - .5f) * _root.rect.height);
+            seat.Canvas.gameObject.SetActive(true);
+            // Плашка жёстко закреплена в 3D-мире строго над головой соперника: не ездит за наклоном/зумом камеры,
+            // не сползает на грудь персонажа и всегда находится в 3D-глубине позади рук, веера и жестов игрока.
+            seat.Root.position = world;
+            var away = new Vector3(world.x, 0f, world.z - Table3DLayout.EyeZ);
+            seat.Root.rotation = away.sqrMagnitude > 1e-5f ? Quaternion.LookRotation(away, Vector3.up) : Quaternion.identity;
+            seat.Root.localScale = Vector3.one * WorldLabelScale;
         }
 
         private Button PlaqueButton(string caption) => PlaqueButton(caption, new Vector2(0f, 1f), new Vector2(123f, -46f));

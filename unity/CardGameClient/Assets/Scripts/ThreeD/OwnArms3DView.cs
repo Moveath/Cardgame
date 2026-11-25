@@ -30,6 +30,7 @@ namespace CardGameClient.ThreeD
     /// рука целиком (предплечье — как при ходе картой, кости пальцев не трогаются) уходит за нижний край кадра и выключается,
     /// модель выезжает в правый нижний угол; U ещё раз (или конец жеста из меню, ход картой, F, J, G) — назад.
     /// </summary>
+    [DefaultExecutionOrder(20)]
     public sealed class OwnArms3DView : MonoBehaviour
     {
         private const string Model = "ThreeD/Hands/CardCity_Hands";
@@ -48,31 +49,34 @@ namespace CardGameClient.ThreeD
         private const string FanSocket = "SocketFan" + FanSide;
         // Слои HandsAnimator: Base — покой свободной руки и жесты, FanHand — рука с веером, Pinch — щипок свободной кисти.
         private const int BaseLayer = 0, PinchLayer = 2;
-        private const string HoldingCards = "HoldingCards", Regrip = "Regrip", GestureState = "Gesture_";
+        private const string HoldingCards = "HoldingCards", Regrip = "Regrip", IdleTap = "IdleTap", GestureState = "Gesture_";
         private static readonly int IdleState = Animator.StringToHash("Idle");
-        private const int ReachStage = 0, GrabStage = 1, CarryStage = 2, ReturnStage = 3;
-        private const float ReachTime = .25f, GrabTime = .12f, CarryTime = .25f, ReturnTime = .3f;
-        // Насколько карта выходит из веера, пока её берут: за верхний край вверх.
-        private const float GrabPull = .03f;
+        private static readonly int IdleTapState = Animator.StringToHash("IdleFingerTap");
+        private const int ReachStage = 0, GrabStage = 1, CarryStage = 2, ReleaseStage = 3, ReturnStage = 4;
+        private const float ReachTime = .42f, GrabTime = .24f, CarryTime = .52f, ReturnTime = .56f;
+        // Полная высота карты в веере = 9,5 см: пред-подъём (2,6 см) + строго плоское вытягивание (7,8 см) = 10,4 см —
+        // нижний край карты гарантированно выходит выше всех соседних карт веера ДО начала разворота и выноса!
+        private const float GrabPull = .078f;
         // Жест, перебитый картой, гаснет за GestureCut. Если аниматор не начал жест за GestureStart, запрос снимается.
         private const float GestureCut = .2f, GestureStart = .5f;
-        // Тело догоняет взгляд по горизонтали: доля угла и скорость (90 % пути примерно за 0,3 с).
-        private const float BodyYawShare = .6f, BodyFollow = 8f;
+        // Корпус и левый веер плавно разворачиваются вместе со взглядом и плечами (до ±48°),
+        // чтобы при повороте к ближним соседям всё тело двигалось цельно и правая рука с жестом никогда не заходила в левую!
+        private const float BodyYawShare = .56f, MaxBodyYaw = 48f, BodyFollow = 8f;
         // Дыхание: тело с руками поднимается и опускается на 1,2 мм раз в четыре секунды.
         private const float BreathLift = .0012f, BreathRate = .25f;
-        private const float GripShare = .32f;                         // За какую высоту от середины карты берёт щипок.
+        // Хват за открытую верхнюю кромку карты чуть правее середины (на стороне свободной руки):
+        // открывает номинал и масть в левом углу и уводит ладонь с рукавом правее и выше соседних карт веера.
+        private const float GripShareY = .46f, GripShareX = .14f;
         private const float FingerRadius = .0085f, PalmRadius = .026f;
-        // Рука несёт карту от веера вперёд к столу, к середине, и там отпускает, в осях тела.
-        private static readonly Vector3 TossShift = new Vector3(.06f * Outward, -.02f, .13f);
-        // Откуда тянется предплечье, когда рука берёт карту из веера: снизу и снаружи, от локтя, в осях тела.
-        private static readonly Vector3 ReachElbow = new Vector3(.2f * Outward, -.42f, .1f);
+        // Максимальный комфортный вынос кисти вперёд от правого плеча над столом при выкладывании карты.
+        private const float MaxPlayReach = .80f;
         private static readonly string[] Fingertips = { "Thumb", "Index", "Middle" };
         // Плечо — рукав свитера от локтя к плечу, на локте шар той же толщины: срез рукава модели у локтя не попадает в кадр
-        // ни при каком повороте головы. Правое плечо в осях тела по горизонтали (без наклона взгляда): на 0,19 м вбок,
-        // на 0,27 м ниже глаз и чуть позади; левое — зеркально. Толщина — как у рукава у локтя.
-        private static readonly Vector3 Shoulder = new Vector3(.19f, -.27f, -.04f);
-        // Рукав модели у локтя ~5,2 см: плечо и шар на локте вровень с ним, чтобы стык у локтя был плавным.
-        private const float UpperArmRadius = .053f;
+        // ни при каком повороте головы. Плечо вынесено шире (0,40 м вбок), чтобы при взятии карты предплечье и плечо
+        // шли единой мягкой линией без резкого выворота локтя в кадре.
+        private static readonly Vector3 Shoulder = new Vector3(.40f, -.25f, -.06f);
+        // Рукав модели у локтя ~5,2 см: плечо и шар на локте полностью перекрывают срез рукава без ступеньки.
+        private const float UpperArmRadius = .052f;
         // Слой рендера своих рук (кожа, рукава, плечи): на него светит только заполняющий свет со стороны глаз.
         private const uint ArmsLayer = 1u << 1;
         // Заполняющий свет: слабее главного, чуть тёплый, падает со стороны глаз вперёд и вниз, в осях тела.
@@ -118,14 +122,14 @@ namespace CardGameClient.ThreeD
         /// <summary>Приписка к имени состояния и клипа жеста проверки: обе руки, только правая, только левая (как TestHandsNames).</summary>
         public static readonly string[] TestHandsSuffix = { "", "_R", "_L" };
 
-        /// <summary>Жесты, которые можно показать соперникам: клипы Take_* из scripts/3d/hands/animations.py.</summary>
-        public static readonly string[] Gestures = { "ThumbsUp", "ThumbsDown", "Fist" };
+        /// <summary>Жесты, которые можно показать соперникам: клипы Take_* из scripts/3d/hands/build_tripo_hands.py.</summary>
+        public static readonly string[] Gestures = { "ThumbsUp", "ThumbsDown", "Fist", "Point", "MiddleFinger" };
 
         // Жест для HUD → триггер HandsAnimator; его состояние в слое Base — Gesture_ + триггер.
         private static readonly Dictionary<string, string> Triggers = new Dictionary<string, string>
         {
             ["Point"] = "Point", ["ThumbsUp"] = "ThumbUp", ["ThumbsDown"] = "ThumbDown",
-            ["TapTable"] = "Knock", ["Shrug"] = "Shrug", ["Fist"] = "Fist",
+            ["TapTable"] = "Knock", ["Shrug"] = "Shrug", ["Fist"] = "Fist", ["MiddleFinger"] = "MiddleFinger",
         };
 
         private Animator _animator;
@@ -133,20 +137,43 @@ namespace CardGameClient.ThreeD
         private bool _gestureSeen, _gestureCut;
         private float _gestureWait;
         private float _fidgetIn = 9f;
+        private float _idleTapIn = 4.5f;
+        private float _currentBreath, _restGroundWeight = 1f, _fanEyeLiftWeight = 1f, _gestureEyeLiftWeight;
         private float _pinchWeight;
-        private Transform _eye, _body, _forearm, _pinch;
+        private TableCameraController _look;
+        private Transform _eye, _body, _forearm, _fanForearm, _pinch;
         private Vector3 _eyeBase, _bodyBase;
         private float _yawBase, _bodyYaw;
-        private Vector3 _restPosition, _pinchInForearm, _pinchAxisInForearm, _wristInForearm;
+        private struct PlayRequest
+        {
+            public Card3DView Card;
+            public Vector3 TargetPos;
+            public Quaternion TargetRot;
+            public float TargetScale;
+        }
+
+        private Vector3 _restPosition, _pinchInForearm, _handForwardInForearm, _handPalmInForearm;
         private Quaternion _restRotation;
-        private readonly Queue<Card3DView> _queue = new Queue<Card3DView>();
+        private readonly Queue<PlayRequest> _queue = new Queue<PlayRequest>();
         private readonly List<Collider> _colliders = new List<Collider>();
         private Card3DView _card;
         private int _stage;
-        private float _time;
-        private Vector3 _fromPosition, _grip, _pull;
-        private Quaternion _fromRotation;
-        private readonly Transform[] _elbows = new Transform[2], _upperArms = new Transform[2], _elbowCaps = new Transform[2];
+        private float _time, _startPinchWeight, _releaseStartPinch;
+        private Vector3 _fromPosition, _fromPinch, _pullTarget, _pullExitVel, _layPinch, _tossVel, _returnStartVel, _cardTargetPos;
+        private Quaternion _fromRotation, _pullRot, _layRot, _cardTargetRot, _carryCardStartWorldRot;
+        private Vector3 _grabGripInCard, _reachCardStartLocalPos, _reachCardLiftLocal;
+        private float _grabCardScale, _cardTargetScale, _reachBuriedRatio, _grabPullDist = GrabPull, _grabDuration = GrabTime, _fanArchTopLocalY;
+        private readonly Transform[] _elbows = new Transform[2], _forearmTwists = new Transform[2], _upperArms = new Transform[2], _elbowCaps = new Transform[2], _shoulderCaps = new Transform[2], _bodyShoulders = new Transform[2];
+        private readonly Mesh[] _sleeveMeshes = new Mesh[2];
+        private readonly Vector3[][] _sleeveVerts = new Vector3[2][];
+        private readonly Vector2[][] _sleeveUvs = new Vector2[2][];
+        private readonly Vector3[] _sleeveBackCenterLocal = new Vector3[2];
+        private readonly float[] _sleeveBackRadius = { .044f, .044f };
+        private readonly Vector3[] _sleeveBackAxisU = { Vector3.right, Vector3.right };
+        private readonly float[] _sleeveBackRadiusU = { .046f, .046f };
+        private readonly float[] _sleeveBackRadiusV = { .044f, .044f };
+        private float _sleeveUpperScale = 1f;
+        private const int SleeveRings = 17, SleeveRadial = 20;
         private int _testLayer = -1;
         private bool _testOn;
         private float _testWeight, _clench, _clenchTarget;
@@ -160,6 +187,7 @@ namespace CardGameClient.ThreeD
         private float _gestureTime, _gestureSwitchWait;
         private SkinnedMeshRenderer _freeArmMesh;
         private int _fistSmoothIdx = -1, _fistThumbIdx = -1, _thumbsSmoothIdx = -1, _thumbsUpSmoothIdx = -1;
+        private int _pointSmoothIdx = -1, _middleFingerSmoothIdx = -1;
         private float _inGameShapeWeight, _gestureLiftWeight;
         // Подмена «класса»: модель, части свободной руки (кожа, рукав, плечо, шар на локте), хотят ли модель в кадре, где рука
         // (0 — где её ставит аниматор, 1 — за краем кадра) и модель (0 — под кадром, 1 — в углу), сколько ещё держать (меню),
@@ -171,6 +199,9 @@ namespace CardGameClient.ThreeD
 
         public Transform FanRoot { get; private set; }
 
+        /// <summary>Пока в начале партии или при доборе карты летят к левой руке, кисть держится поднятой на позиции веера.</summary>
+        public bool KeepFanRaised { get; set; }
+
         public IReadOnlyList<Collider> Colliders => _colliders;
 
         /// <summary>Сколько карт правая рука сыграла сама: для проверки.</summary>
@@ -179,7 +210,20 @@ namespace CardGameClient.ThreeD
         /// <summary>Сколько жестов доиграно до конца: для проверки.</summary>
         public static int GesturesDone { get; private set; }
 
-        public bool Busy => _card != null || _queue.Count > 0;
+        public bool Busy => _card != null || _stage != ReachStage || _queue.Count > 0;
+
+        /// <summary>Вызывается, как только карта полностью вытянута выше веера: оставшиеся карты могут плавно сомкнуть просвет.</summary>
+        public event Action CardPulledFromFan;
+
+        /// <summary>Карта ещё находится внутри веера (ждёт очереди, рука тянется к ней или вытягивает её вверх вдоль плоскости веера).</summary>
+        public bool IsStillInFan(Card3DView card)
+        {
+            if (card == null) return false;
+            if (_card == card && (_stage == ReachStage || _stage == GrabStage)) return true;
+            foreach (var req in _queue)
+                if (req.Card == card) return true;
+            return false;
+        }
 
         /// <summary>Жест, который сейчас играет, или null.</summary>
         public string Gesture { get; private set; }
@@ -228,15 +272,19 @@ namespace CardGameClient.ThreeD
 
         public static OwnArms3DView Create(Transform eye)
         {
-            // Тело сидит на стуле с тем же наклоном, что взгляд при посадке: поза рук и веер заданы в этих осях.
+            // Корпус рук остаётся в базовой посадке над столом (SeatBodyY/Z, SeatBodyPitch = 32°),
+            // в которой запечены позы контакта с сукном: правая кисть всегда лежит точно на ткани.
+            // Левый веер и поднятые жесты мягко переносятся в более высокую камеру игрока (ApplyRaisedSeatRetarget).
             var body = new GameObject("Seated body").transform;
-            body.SetPositionAndRotation(eye.position, Quaternion.Euler(TableCameraController.StartPitch, eye.eulerAngles.y, 0f));
+            body.SetPositionAndRotation(new Vector3(0f, Table3DLayout.SeatBodyY, Table3DLayout.SeatBodyZ),
+                Quaternion.Euler(Table3DLayout.SeatBodyPitch, eye.eulerAngles.y, 0f));
             var arms = Instantiate(Resources.Load<GameObject>(Model), body, false);
             arms.name = "own-arms";
             // Как у всех моделей стола: разворот ставит пальцы вперёд, левую руку слева.
             arms.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             var view = arms.AddComponent<OwnArms3DView>();
             view._eye = eye;
+            view._look = eye.GetComponent<TableCameraController>();
             view._body = body;
             view._eyeBase = eye.position;
             view._bodyBase = body.position;
@@ -253,21 +301,28 @@ namespace CardGameClient.ThreeD
             return view;
         }
 
-        /// <summary>Правая рука сыграет эту карту. Пока рука до неё не дотянулась, карта ждёт в веере и не принимает нажатий.</summary>
-        public void PlayCard(Card3DView card)
+        /// <summary>Правая рука сама вытащит эту карту из веера, понесёт её к targetWorldPos на столе и положит лицом вверх.</summary>
+        public void PlayCard(Card3DView card, Vector3? targetWorldPos = null, Quaternion? targetWorldRot = null, float? targetScale = null)
         {
             card.Hold();
             // Сначала руки выходят из проверки поз; карта ждёт в веере, пока они не вернутся (PlayStep).
             StopPoseTest();
             // Карта важнее жеста: жест быстро гаснет, рука идёт за картой. Модель «класса» уезжает, карта ждёт руку (PlayStep).
             if (Gesture != null) StopGesture();
+            CancelIdleTap(true);
             HideThumbsModel();
             if (ReducedMotion)
             {
                 card.LetGo();
                 return;
             }
-            _queue.Enqueue(card);
+            _queue.Enqueue(new PlayRequest
+            {
+                Card = card,
+                TargetPos = targetWorldPos ?? new Vector3(Table3DLayout.PairShift, Table3DLayout.TableY + .004f, -.08f),
+                TargetRot = targetWorldRot ?? Quaternion.Euler(90f, 0f, 0f),
+                TargetScale = targetScale ?? Table3DLayout.TableCardScale,
+            });
         }
 
         /// <summary>Показать жест соперникам: триггер HandsAnimator. Пока правая рука несёт карту, жест не начинается.</summary>
@@ -283,6 +338,7 @@ namespace CardGameClient.ThreeD
             }
             if (gesture == Gesture) return true;
             foreach (var other in Triggers.Values) _animator.ResetTrigger(other);
+            CancelIdleTap(false);
             _gestureSeen = _gestureCut = false;
             _gestureWait = 0f;
             if (StaticThumbsUp && gesture == "ThumbsUp")
@@ -351,6 +407,8 @@ namespace CardGameClient.ThreeD
             _stage = ReachStage;
             Pinch(0f);
             StopGesture();
+            CancelIdleTap(true);
+            _idleTapIn = UnityEngine.Random.Range(3.5f, 6.5f);
             ResetThumbsModel();
             _forearm.localPosition = _restPosition;
             _forearm.localRotation = _restRotation;
@@ -440,10 +498,38 @@ namespace CardGameClient.ThreeD
                     _fistSmoothIdx = part.sharedMesh.GetBlendShapeIndex("FistSmooth");
                     _fistThumbIdx = part.sharedMesh.GetBlendShapeIndex("FistThumb");
                     _thumbsSmoothIdx = part.sharedMesh.GetBlendShapeIndex("ThumbsSmooth");
-                    // С 2026-11-23 у «класса» своя форма кожи ThumbsUpSmooth (объёмные суставы без коллизий), «фу» — ThumbsSmooth.
+                    // С 2026-11-23 у каждого жеста своя корректирующая форма кожи (объёмные суставы без коллизий).
                     _thumbsUpSmoothIdx = part.sharedMesh.GetBlendShapeIndex("ThumbsUpSmooth");
+                    _pointSmoothIdx = part.sharedMesh.GetBlendShapeIndex("PointSmooth");
+                    _middleFingerSmoothIdx = part.sharedMesh.GetBlendShapeIndex("MiddleFingerSmooth");
                 }
             }
+        }
+
+        /// <summary>
+        /// Подстраивает кожу кистей от первого лица (смуглая для avatar_08, зрелая для 03/06, светлая для женских)
+        /// и полноту плеча рукава под выбранного игроком персонажа!
+        /// </summary>
+        public void ApplyCharacterStyle(string avatarId)
+        {
+            var tone = AvatarCatalog.HandSkinToneOf(avatarId);
+            var arch = AvatarCatalog.BodyArchetypeOf(avatarId);
+            var texPath = AvatarCatalog.HandSkinTextureResourceFor(tone);
+            var tex = Resources.Load<Texture2D>(texPath) ?? Resources.Load<Texture2D>("ThreeD/Hands/TripoHands_BaseColor");
+            if (tex != null)
+            {
+                var smoothness = tone == AvatarCatalog.HandSkinTone.Aged ? .12f : .16f;
+                var skin = Table3DArt.Lit("tripo hand skin " + tone, Color.white, smoothness, 0f, tex);
+                foreach (var part in GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                {
+                    if (!part.name.Contains("Sleeve") && !part.name.Contains("Female"))
+                        part.sharedMaterial = skin;
+                }
+            }
+            _sleeveUpperScale = arch == AvatarCatalog.BodyArchetype.MaleHeavy ? 1.15f
+                : (arch == AvatarCatalog.BodyArchetype.Female || arch == AvatarCatalog.BodyArchetype.FemaleElder) ? .90f
+                : 1f;
+            PlaceUpperArms();
         }
 
         /// <summary>
@@ -457,15 +543,23 @@ namespace CardGameClient.ThreeD
             _animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             var clips = Resources.LoadAll<AnimationClip>(Model);
             _forearm = Bone("Forearm" + FreeSide);
+            _fanForearm = Bone("Forearm" + FanSide);
             var thumb = Bone("TipThumb" + FreeSide);
             var index = Bone("TipIndex" + FreeSide);
             var hand = Bone("Hand" + FreeSide);
-            // Само предплечье ставит этот скрипт, а точка щипка мерится в той же позе, в которой рука потом берёт карту.
+            var midMcp = Bone("Middle01" + FreeSide);
+            var idxMcp = Bone("Index01" + FreeSide);
+            var pkyMcp = Bone("Pinky01" + FreeSide);
+            // Само предплечье ставит этот скрипт, а точка щипка и точные анатомические оси ладони (вдоль пальцев + нормаль ладони)
+            // меряются в позе хвата: рука всегда берёт карту ладонью и большим пальцем спереди, а не тыльной стороной!
             Sample(clips, PinchPose);
             var pinch = (thumb.position + index.position) / 2;
             _pinchInForearm = _forearm.InverseTransformPoint(pinch);
-            _pinchAxisInForearm = _forearm.InverseTransformDirection(index.position - thumb.position).normalized;
-            _wristInForearm = _forearm.InverseTransformDirection(hand.position - _forearm.position).normalized;
+            _handForwardInForearm = _forearm.InverseTransformDirection(midMcp.position - hand.position).normalized;
+            var radial = _forearm.InverseTransformDirection(idxMcp.position - pkyMcp.position).normalized;
+            var palm = Vector3.Cross(_handForwardInForearm, radial).normalized;
+            if (Vector3.Dot(palm, _pinchInForearm - _forearm.InverseTransformPoint(hand.position)) < 0f) palm = -palm;
+            _handPalmInForearm = palm;
             _pinch = new GameObject("Pinch").transform;
             _pinch.SetParent(hand, false);
             _pinch.position = pinch;
@@ -502,6 +596,7 @@ namespace CardGameClient.ThreeD
             _animator.SetBool(HoldingCards, true);
             _testLayer = _animator.GetLayerIndex(PoseTestLayerName);
             _gestureLayer = _animator.GetLayerIndex(GestureTestLayer);
+            _idleTapIn = UnityEngine.Random.Range(3.5f, 6.5f);
             _animator.Update(0f);
         }
 
@@ -679,12 +774,60 @@ namespace CardGameClient.ThreeD
             TrackGesture();
             PoseTestKeysPressed();
             UpdatePoseTest();
-            // Живая рука не стоит как кукла: время от времени левая перехватывает веер.
-            if (Gesture != null || Busy || ReducedMotion || !holding || PoseTestActive) return;
+            PreviewPinchWeight();
+            // Живая рука не стоит как кукла: время от времени левая перехватывает веер, а правая на столе
+            // изредка нетерпеливо постукивает пальцами по сукне (если не играет жест и не идёт ход картой).
+            if (Gesture != null || Busy || ReducedMotion || PoseTestActive || ThumbsSwapActive) return;
+            UpdateIdleFingerTap();
+            if (!holding) return;
             _fidgetIn -= Time.deltaTime;
             if (_fidgetIn > 0f) return;
             _fidgetIn = UnityEngine.Random.Range(10f, 18f);
             _animator.SetTrigger(Regrip);
+        }
+
+        /// <summary>Выставляет вес слоя щипка ДО шага Animator между Update и LateUpdate, убирая 1-кадровую задержку костей пальцев.</summary>
+        private void PreviewPinchWeight()
+        {
+            if (_card == null && _stage == ReachStage) return;
+            var nextTime = _time + Time.deltaTime;
+            float w = _pinchWeight;
+            if (_stage == ReachStage)
+                w = Mathf.Lerp(_startPinchWeight, 1f, Smoother(Mathf.Clamp01((nextTime / ReachTime) / .92f)));
+            else if (_stage == GrabStage)
+                w = 1f;
+            else if (_stage == CarryStage)
+            {
+                var u = Mathf.Clamp01((Mathf.Clamp01(nextTime / CarryTime) - .80f) / .20f);
+                w = Mathf.Lerp(1f, .65f, u * u * (3f - 2f * u));
+            }
+            else
+            {
+                var u = Mathf.Clamp01(nextTime / .22f);
+                w = Mathf.Lerp(_releaseStartPinch, 0f, u * u * (3f - 2f * u));
+            }
+            Pinch(w);
+        }
+
+        private void UpdateIdleFingerTap()
+        {
+            if (_animator.IsInTransition(BaseLayer) || _animator.GetCurrentAnimatorStateInfo(BaseLayer).shortNameHash != IdleState) return;
+            _idleTapIn -= Time.deltaTime;
+            if (_idleTapIn > 0f) return;
+            _idleTapIn = UnityEngine.Random.Range(6.5f, 13f);
+            _animator.SetTrigger(IdleTap);
+        }
+
+        private void CancelIdleTap(bool crossfadeToIdle)
+        {
+            if (_animator == null) return;
+            _animator.ResetTrigger(IdleTap);
+            _idleTapIn = UnityEngine.Random.Range(6f, 11f);
+            if (!crossfadeToIdle) return;
+            var cur = _animator.GetCurrentAnimatorStateInfo(BaseLayer);
+            var nxt = _animator.GetNextAnimatorStateInfo(BaseLayer);
+            if (cur.shortNameHash == IdleTapState || (_animator.IsInTransition(BaseLayer) && nxt.shortNameHash == IdleTapState))
+                _animator.CrossFadeInFixedTime(IdleState, .12f, BaseLayer);
         }
 
         /// <summary>
@@ -745,11 +888,101 @@ namespace CardGameClient.ThreeD
         private void LateUpdate()
         {
             FollowEye(Follow(BodyFollow));
+            GroundRestingFreeHand();
+            ApplyRaisedSeatRetarget();
+            TuckFanDuringZoom();
             PlayStep();
             UpdateThumbsModel();
             ApplyGestureGazeLift();
             PlaceUpperArms();
             ApplyInGameGestureShape();
+        }
+
+        /// <summary>Пока правая рука спокойно лежит на сукне, дыхание не поднимает её со стола, а сильный поворот корпуса оставляет кисть на сукне.</summary>
+        private void GroundRestingFreeHand()
+        {
+            var resting = Gesture == null && !Busy && !PoseTestActive && !ThumbsSwapActive;
+            _restGroundWeight = Mathf.MoveTowards(_restGroundWeight, resting ? 1f : 0f, Time.deltaTime * 6f);
+            if (_restGroundWeight > 1e-4f && _forearm != null)
+            {
+                if (Mathf.Abs(_currentBreath) > 1e-6f)
+                    _forearm.position -= Vector3.up * (_currentBreath * _restGroundWeight);
+                var excessYaw = _bodyYaw - Mathf.Clamp(_bodyYaw, -12f, 12f);
+                if (Mathf.Abs(excessYaw) > .05f)
+                {
+                    var undo = Quaternion.AngleAxis(-excessYaw * _restGroundWeight, Vector3.up);
+                    _forearm.position = _body.position + undo * (_forearm.position - _body.position);
+                    _forearm.rotation = undo * _forearm.rotation;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Камера игрока посажена выше базового корпуса (EyeY/EyeZ, StartPitch) для лучшего обзора карт на столе.
+        /// Левую руку с веером и поднятые жесты мягко переносим в кадр приподнятых глаз, а отдыхающая правая рука
+        /// остаётся в координатах стола (weight = 0) — всегда плотно на сукне.
+        /// </summary>
+        private void ApplyRaisedSeatRetarget()
+        {
+            var holdingFan = !PoseTestActive && FanRoot != null && (FanRoot.childCount > 0 || KeepFanRaised);
+            _fanEyeLiftWeight = Mathf.MoveTowards(_fanEyeLiftWeight, holdingFan ? 1f : 0f, Time.deltaTime * 5f);
+            if (_fanForearm != null && _fanEyeLiftWeight > 1e-4f)
+            {
+                RetargetBoneToRaisedEye(_fanForearm, _fanEyeLiftWeight);
+                // Спокойная посадка веера в нижнем левом углу под золотой FOV (62°/57°):
+                // все карты чёткие и удобно нажимаются, но рука не лезет на соседа напротив!
+                var eyeRestRot = Quaternion.Euler(TableCameraController.StartPitch, _yawBase + _bodyYaw, 0f);
+                _fanForearm.position += eyeRestRot * new Vector3(-.030f * Outward, -.058f, .084f) * _fanEyeLiftWeight;
+            }
+
+            var gestureTarget = 0f;
+            if (Gesture != null && !_gestureCut && !PoseTestActive && !Busy && !ThumbsSwapActive && Gesture != "TapTable")
+            {
+                var current = _animator.GetCurrentAnimatorStateInfo(BaseLayer);
+                if (current.shortNameHash == _gestureState)
+                {
+                    var t = Mathf.Clamp01(current.normalizedTime);
+                    if (t > .02f && t < .96f)
+                        gestureTarget = Mathf.SmoothStep(0f, 1f, t < .16f ? (t - .02f) / .14f : t > .82f ? (.96f - t) / .14f : 1f);
+                }
+            }
+            _gestureEyeLiftWeight = Mathf.MoveTowards(_gestureEyeLiftWeight, gestureTarget, Time.deltaTime * 6f);
+            if (_forearm != null && _gestureEyeLiftWeight > 1e-4f)
+            {
+                RetargetBoneToRaisedEye(_forearm, _gestureEyeLiftWeight);
+                // Умеренный плотный вынос жеста вперёд (+6.0 см) и чуть ниже линии взгляда (не закрывает лица друзей напротив)!
+                var gestureFwd = Quaternion.Euler(TableCameraController.StartPitch * .65f, _yawBase + _bodyYaw, 0f) * Vector3.forward;
+                _forearm.position += (gestureFwd * .060f + Vector3.down * .022f) * _gestureEyeLiftWeight;
+            }
+        }
+
+        private void RetargetBoneToRaisedEye(Transform bone, float weight)
+        {
+            var oldRot = _body.rotation;
+            var oldPos = _body.position;
+            var turn = Quaternion.Euler(0f, _yawBase + _bodyYaw, 0f);
+            var eyeDelta = new Vector3(0f, Table3DLayout.EyeY - Table3DLayout.SeatBodyY, Table3DLayout.EyeZ - Table3DLayout.SeatBodyZ);
+            var newPos = oldPos + turn * eyeDelta;
+            var newRot = Quaternion.Euler(TableCameraController.StartPitch, _yawBase + _bodyYaw, 0f);
+
+            var localPos = Quaternion.Inverse(oldRot) * (bone.position - oldPos);
+            var localRot = Quaternion.Inverse(oldRot) * bone.rotation;
+            var liftedPos = newPos + newRot * localPos;
+            var liftedRot = newRot * localRot;
+            bone.SetPositionAndRotation(Vector3.Lerp(bone.position, liftedPos, weight), Quaternion.Slerp(bone.rotation, liftedRot, weight));
+        }
+
+        /// <summary>При приближении камеры к центру стола («БЛИЖЕ») веер в левой руке мягко опускается в нижний угол,
+        /// освобождая обзор всех карт на столе, но оставаясь на экране для выбора и хода.</summary>
+        private void TuckFanDuringZoom()
+        {
+            if (_look == null || _fanForearm == null || PoseTestActive) return;
+            var zoom = _look.ZoomRatio;
+            if (zoom <= 1e-4f) return;
+            var eyeDelta = _eye.position - _eyeBase;
+            var bodyHoriz = Vector3.ProjectOnPlane(eyeDelta, Vector3.up) * (1f - zoom);
+            var shift = (eyeDelta - bodyHoriz) + _eye.TransformDirection(new Vector3(0f, -.068f, .105f)) * zoom;
+            _fanForearm.position += shift;
         }
 
         /// <summary>
@@ -774,16 +1007,24 @@ namespace CardGameClient.ThreeD
             if (_gestureLiftWeight <= 1e-4f || _forearm == null || _eye == null) return;
             var eyePitch = Mathf.DeltaAngle(0f, _eye.eulerAngles.x);
             var upPitch = Mathf.Clamp(TableCameraController.StartPitch - eyePitch, 0f, 28f);
-            var extraYaw = Mathf.Clamp(Mathf.DeltaAngle(_yawBase + _bodyYaw, _eye.eulerAngles.y), -24f, 24f);
+            // Симметричная доводка жеста в обе стороны (и вправо на Ельнура, и влево на Аслана!):
+            // при взгляде влево левый веер чуть мягко сдвигается влево-вниз, открывая чистое место для правой руки прямо напротив соседа!
+            var extraYaw = Mathf.Clamp(Mathf.DeltaAngle(_yawBase + _bodyYaw, _eye.eulerAngles.y), -48f, 44f);
             if (upPitch <= .05f && Mathf.Abs(extraYaw) <= .05f) return;
             var w = _gestureLiftWeight;
             var pivot = _eye.position + Vector3.down * .18f;
-            // Позицию руки плавно поднимаем вслед за взглядом вверх на соперников (на 68% угла),
-            // а наклон самого кулака меняем мягко (22%), чтобы большой палец оставался строго вертикальным (~90°)!
-            var posRot = Quaternion.AngleAxis(extraYaw * .45f * w, Vector3.up) * Quaternion.AngleAxis(-upPitch * .68f * w, _eye.right);
-            var handRot = Quaternion.AngleAxis(extraYaw * .45f * w, Vector3.up) * Quaternion.AngleAxis(-upPitch * .22f * w, _eye.right);
+            var yawShare = extraYaw < 0f ? .82f : .66f;
+            var posRot = Quaternion.AngleAxis(extraYaw * yawShare * w, Vector3.up) * Quaternion.AngleAxis(-upPitch * .68f * w, _eye.right);
+            var handRot = Quaternion.AngleAxis(extraYaw * .78f * w, Vector3.up) * Quaternion.AngleAxis(-upPitch * .22f * w, _eye.right);
             _forearm.position = pivot + posRot * (_forearm.position - pivot);
             _forearm.rotation = handRot * _forearm.rotation;
+            if (extraYaw < -6f && _fanForearm != null)
+            {
+                var leftFactor = Mathf.Clamp01((-extraYaw - 6f) / 34f) * w;
+                // При жесте влево мягко отводим левую руку с веером чуть ниже и левее — правая рука докручивается прямо на Аслана и не задевает карты!
+                _fanForearm.position += (-_eye.right * .068f - Vector3.up * .048f) * leftFactor;
+                _forearm.position += (-_eye.right * .028f + Vector3.up * .014f) * leftFactor;
+            }
         }
 
         /// <summary>
@@ -840,7 +1081,8 @@ namespace CardGameClient.ThreeD
             if (_upperArms[free] != null && _upperArms[free].gameObject.activeSelf != show)
             {
                 _upperArms[free].gameObject.SetActive(show);
-                _elbowCaps[free].gameObject.SetActive(show);
+                if (_elbowCaps[free] != null) _elbowCaps[free].gameObject.SetActive(show);
+                if (_shoulderCaps[free] != null) _shoulderCaps[free].gameObject.SetActive(show);
             }
         }
 
@@ -885,6 +1127,8 @@ namespace CardGameClient.ThreeD
             if (target <= 0f && _inGameShapeWeight <= 0f) return;
             _inGameShapeWeight = Mathf.MoveTowards(_inGameShapeWeight, target, Time.deltaTime * 600f);
             var isFist = Gesture == "Fist";
+            var isPoint = Gesture == "Point";
+            var isMiddleFinger = Gesture == "MiddleFinger";
             // «Класс» ведёт свою форму ThumbsUpSmooth (в модели без неё — общую ThumbsSmooth, как раньше), «фу» — ThumbsSmooth.
             var thumbsUpOwn = Gesture == "ThumbsUp" && _thumbsUpSmoothIdx >= 0;
             var isThumbs = (Gesture == "ThumbsUp" && !thumbsUpOwn) || Gesture == "ThumbsDown";
@@ -892,54 +1136,298 @@ namespace CardGameClient.ThreeD
             if (_fistThumbIdx >= 0) _freeArmMesh.SetBlendShapeWeight(_fistThumbIdx, isFist ? _inGameShapeWeight : 0f);
             if (_thumbsSmoothIdx >= 0) _freeArmMesh.SetBlendShapeWeight(_thumbsSmoothIdx, isThumbs ? _inGameShapeWeight : 0f);
             if (_thumbsUpSmoothIdx >= 0) _freeArmMesh.SetBlendShapeWeight(_thumbsUpSmoothIdx, thumbsUpOwn ? _inGameShapeWeight : 0f);
+            if (_pointSmoothIdx >= 0) _freeArmMesh.SetBlendShapeWeight(_pointSmoothIdx, isPoint ? _inGameShapeWeight : 0f);
+            if (_middleFingerSmoothIdx >= 0) _freeArmMesh.SetBlendShapeWeight(_middleFingerSmoothIdx, isMiddleFinger ? _inGameShapeWeight : 0f);
+        }
+
+        /// <summary>Пристыковывает верхние рукава первого лица прямо к реальным плечам сидящего тела игрока (0 оторванных цилиндров!).</summary>
+        public void AttachBodyShoulders(Transform leftShoulder, Transform rightShoulder)
+        {
+            _bodyShoulders[0] = leftShoulder;
+            _bodyShoulders[1] = rightShoulder;
+            PlaceUpperArms();
         }
 
         private void BuildUpperArms()
         {
-            // Плечо и локоть одеты в ту же бесшовную вязаную текстуру свитера TripoSweater_Tile, что и предплечье!
-            var upperMat = MakeSweaterTile("tripo upper sweater", 3f, 2.8f);
-            var elbowMat = MakeSweaterTile("tripo elbow sweater", 3f, 1.5f);
+            // Плавный эластичный вязаный рукав от плеча через мягкую дугу локтя прямо внутрь Sleeve_L/R:
+            // тот же материал и точный шаг вязки (u_reps=3, v_scale=5), без жёсткого цилиндра, шара и ступеньки на локте!
+            var sleeveMat = MakeSweaterTile("tripo hand sweater", 1f, 1f);
+            var elbowCapMat = MakeSweaterTile("tripo elbow sweater", 3f, 1.5f);
+            var smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+
+            var tris = new int[(SleeveRings - 1) * SleeveRadial * 6];
+            var ti = 0;
+            var stride = SleeveRadial + 1;
+            for (var r = 0; r < SleeveRings - 1; r++)
+            {
+                for (var s = 0; s < SleeveRadial; s++)
+                {
+                    var a = r * stride + s;
+                    var b = a + 1;
+                    var c = (r + 1) * stride + s;
+                    var d = c + 1;
+                    tris[ti++] = a; tris[ti++] = b; tris[ti++] = c;
+                    tris[ti++] = b; tris[ti++] = d; tris[ti++] = c;
+                }
+            }
+
             for (var i = 0; i < 2; i++)
             {
                 var side = i == 0 ? "_L" : "_R";
                 _elbows[i] = Bone("Forearm" + side);
-                _upperArms[i] = Table3DArt.Limb(_body, Vector3.zero, Vector3.up, UpperArmRadius, upperMat).transform;
-                _upperArms[i].name = "Upper arm" + side;
-                _elbowCaps[i] = Table3DArt.Ball(_body, Vector3.zero, Vector3.one * UpperArmRadius * 2, elbowMat).transform;
-                _elbowCaps[i].name = "Elbow" + side;
-                _upperArms[i].GetComponent<Renderer>().renderingLayerMask |= ArmsLayer;
-                _elbowCaps[i].GetComponent<Renderer>().renderingLayerMask |= ArmsLayer;
+                _forearmTwists[i] = Bone("ForearmTwist" + side);
+                MeasureSleeveBackRing(i, smrs, "Sleeve" + side);
+
+                var mesh = new Mesh { name = "ElasticSleeve" + side };
+                mesh.MarkDynamic();
+                var vCount = SleeveRings * stride;
+                _sleeveVerts[i] = new Vector3[vCount];
+                _sleeveUvs[i] = new Vector2[vCount];
+                mesh.vertices = _sleeveVerts[i];
+                mesh.uv = _sleeveUvs[i];
+                mesh.triangles = tris;
+                _sleeveMeshes[i] = mesh;
+
+                var go = new GameObject("Upper arm" + side);
+                go.transform.SetParent(_body, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var mr = go.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = sleeveMat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.renderingLayerMask |= ArmsLayer;
+                _upperArms[i] = go.transform;
+                // Отдельные накладные шары на плечах убраны — эластичный рукав выходит прямо из глубины плечевого сустава свитера!
             }
             PlaceUpperArms();
         }
 
-        /// <summary>Плечо тянется от локтя, где его сейчас поставили клип или рука с картой, к плечу тела.</summary>
+        /// <summary>Измеряет точный центр и радиус заднего среза Sleeve_L/R в локальных координатах кости Forearm, чтобы стык был бесшовным.</summary>
+        private void MeasureSleeveBackRing(int idx, SkinnedMeshRenderer[] smrs, string sleeveName)
+        {
+            _sleeveBackCenterLocal[idx] = Vector3.zero;
+            _sleeveBackRadius[idx] = .044f;
+            var elbow = _elbows[idx];
+            var twist = _forearmTwists[idx];
+            if (elbow == null || twist == null) return;
+            var smr = smrs.FirstOrDefault(s => s != null && s.name == sleeveName);
+            if (smr == null) return;
+
+            var baked = new Mesh();
+            try
+            {
+                smr.BakeMesh(baked, true);
+                var verts = baked.vertices;
+                if (verts == null || verts.Length == 0) return;
+                var axisLocal = elbow.InverseTransformDirection(twist.position - elbow.position).normalized;
+                var minProj = float.MaxValue;
+                var locals = new Vector3[verts.Length];
+                for (var v = 0; v < verts.Length; v++)
+                {
+                    var p = elbow.InverseTransformPoint(smr.transform.TransformPoint(verts[v]));
+                    locals[v] = p;
+                    var proj = Vector3.Dot(p, axisLocal);
+                    if (proj < minProj) minProj = proj;
+                }
+                var sum = Vector3.zero;
+                var count = 0;
+                for (var v = 0; v < locals.Length; v++)
+                {
+                    if (Vector3.Dot(locals[v], axisLocal) <= minProj + .016f)
+                    {
+                        sum += locals[v];
+                        count++;
+                    }
+                }
+                if (count < 4) return;
+                var center = sum / count;
+                var refU = Vector3.ProjectOnPlane(Vector3.right, axisLocal);
+                if (refU.sqrMagnitude < 1e-4f) refU = Vector3.ProjectOnPlane(Vector3.up, axisLocal);
+                refU.Normalize();
+                var refV = Vector3.Cross(axisLocal, refU).normalized;
+                float rSum = 0f, uSq = 0f, vSq = 0f;
+                for (var v = 0; v < locals.Length; v++)
+                {
+                    if (Vector3.Dot(locals[v], axisLocal) <= minProj + .016f)
+                    {
+                        var d = Vector3.ProjectOnPlane(locals[v] - center, axisLocal);
+                        rSum += d.magnitude;
+                        var du = Vector3.Dot(d, refU);
+                        var dv = Vector3.Dot(d, refV);
+                        uSq += du * du;
+                        vSq += dv * dv;
+                    }
+                }
+                _sleeveBackCenterLocal[idx] = center;
+                _sleeveBackRadius[idx] = Mathf.Clamp(rSum / count, .036f, .054f);
+                _sleeveBackAxisU[idx] = refU;
+                // Для эллипса RMS вдоль главной оси = r / sqrt(2) -> умножаем на sqrt(2) для точного радиуса края рукава!
+                _sleeveBackRadiusU[idx] = Mathf.Clamp(Mathf.Sqrt(2f * uSq / count), .036f, .056f);
+                _sleeveBackRadiusV[idx] = Mathf.Clamp(Mathf.Sqrt(2f * vSq / count), .036f, .056f);
+            }
+            finally
+            {
+                Destroy(baked);
+            }
+        }
+
+        /// <summary>Эластичный изогнутый рукав плавно перетекает от плеча через естественную дугу локтя прямо по касательной в предплечье.</summary>
         private void PlaceUpperArms()
         {
             if (_upperArms[0] == null) return;
             var turn = Quaternion.Euler(0f, _yawBase + _bodyYaw, 0f);
+            var seatLift = new Vector3(0f, Table3DLayout.EyeY - Table3DLayout.SeatBodyY, Table3DLayout.EyeZ - Table3DLayout.SeatBodyZ);
+            var stride = SleeveRadial + 1;
+            const int curveRings = SleeveRings - 3; // 0..13 — кубическая дуга Безье, 14..16 — плавный заход внутрь Sleeve_L/R
+
             for (var i = 0; i < 2; i++)
             {
-                var shoulder = _body.position + turn * new Vector3(i == 0 ? -Shoulder.x : Shoulder.x, Shoulder.y, Shoulder.z);
-                var elbow = _elbows[i].position;
-                var along = shoulder - elbow;
-                _upperArms[i].SetPositionAndRotation((elbow + shoulder) / 2, Quaternion.FromToRotation(Vector3.up, along.normalized));
-                _upperArms[i].localScale = new Vector3(UpperArmRadius * 2, along.magnitude / 2, UpperArmRadius * 2);
-                _elbowCaps[i].position = elbow;
+                if (_sleeveMeshes[i] == null || _elbows[i] == null || _forearmTwists[i] == null) continue;
+                var isFanArm = (i == 0 && FanSide == "_L") || (i == 1 && FanSide == "_R");
+                var elbowBone = _elbows[i];
+                var sleeveEndW = elbowBone.TransformPoint(_sleeveBackCenterLocal[i]);
+                var forearmDirW = (_forearmTwists[i].position - elbowBone.position).normalized;
+                if (forearmDirW.sqrMagnitude < 1e-5f) forearmDirW = elbowBone.forward;
+
+                Vector3 shoulderW;
+                Vector3 toChestW = i == 0 ? Vector3.right : Vector3.left;
+                if (_bodyShoulders[0] != null && _bodyShoulders[1] != null)
+                {
+                    // Якорь строго в осях ПОВЁРНУТОГО туловища (к центру груди между плечами), на 5.5 см вглубь дельты свитера:
+                    // рука анатомично выходит прямо из туловища без шара-накладки и без отрыва при любом повороте!
+                    var midShoulder = (_bodyShoulders[0].position + _bodyShoulders[1].position) * .5f;
+                    var rawIn = midShoulder - _bodyShoulders[i].position;
+                    if (rawIn.sqrMagnitude > 1e-4f) toChestW = rawIn.normalized;
+                    shoulderW = _bodyShoulders[i].position + toChestW * .055f + Vector3.down * .022f;
+                }
+                else
+                {
+                    var liftW = isFanArm ? _fanEyeLiftWeight * .85f : _gestureEyeLiftWeight * .65f;
+                    if (!isFanArm && _eye != null)
+                    {
+                        var freeLift = Mathf.InverseLerp(Table3DLayout.TableY + .18f, _eye.position.y - .18f, sleeveEndW.y);
+                        liftW = Mathf.Max(liftW, freeLift * .72f);
+                    }
+                    shoulderW = _body.position + turn * (new Vector3(i == 0 ? -Shoulder.x : Shoulder.x, Shoulder.y, Shoulder.z) + seatLift * liftW);
+                }
+
+                // Строим C1-гладкую кривую в локальных координатах _body, касательная в sleeveEnd строго совпадает с forearmDir!
+                var p0 = _body.InverseTransformPoint(shoulderW);
+                var p3 = _body.InverseTransformPoint(sleeveEndW);
+                var fDir = _body.InverseTransformDirection(forearmDirW).normalized;
+                var downLocal = _body.InverseTransformDirection(Vector3.down).normalized;
+                var outShoulderLocal = -_body.InverseTransformDirection(toChestW).normalized;
+                var dist = Vector3.Distance(p0, p3);
+
+                var elbowLead = Mathf.Clamp(dist * .40f, .050f, .145f);
+                var p2 = p3 - fDir * elbowLead;
+                var shoulderToP2 = p2 - p0;
+                var sDir = shoulderToP2.sqrMagnitude > 1e-5f
+                    ? (shoulderToP2.normalized * .78f + outShoulderLocal * .14f + downLocal * .18f).normalized
+                    : (outShoulderLocal * .5f + downLocal * .5f).normalized;
+                var p1 = p0 + sDir * Mathf.Clamp(dist * .34f, .045f, .130f);
+
+                var baseR = _sleeveBackRadius[i];
+                var baseRU = _sleeveBackRadiusU[i];
+                var baseRV = _sleeveBackRadiusV[i];
+                var seamUW = elbowBone.TransformDirection(_sleeveBackAxisU[i]);
+                var seamU = Vector3.ProjectOnPlane(_body.InverseTransformDirection(seamUW), fDir);
+                seamU = seamU.sqrMagnitude > 1e-4f ? seamU.normalized : Vector3.ProjectOnPlane(Vector3.up, fDir).normalized;
+
+                var centers = new Vector3[SleeveRings];
+                var tangents = new Vector3[SleeveRings];
+                var radUs = new float[SleeveRings];
+                var radVs = new float[SleeveRings];
+                var arcLens = new float[SleeveRings];
+
+                for (var r = 0; r < curveRings; r++)
+                {
+                    var u = r / (float)(curveRings - 1);
+                    var inv = 1f - u;
+                    centers[r] = inv * inv * inv * p0 + 3f * inv * inv * u * p1 + 3f * inv * u * u * p2 + u * u * u * p3;
+                    var tan = 3f * inv * inv * (p1 - p0) + 6f * inv * u * (p2 - p1) + 3f * u * u * (p3 - p2);
+                    tangents[r] = tan.sqrMagnitude > 1e-6f ? tan.normalized : fDir;
+                    // Плавное перетекание от плотного плеча и наполненного бицепса/локтя к точному эллиптическому профилю края Sleeve_L/R:
+                    // рукав выглядит объёмным, вязаным и естественным (не «тонкой трубкой» при жестах!).
+                    var s = u * u * (3f - 2f * u);
+                    var shoulderScale = Mathf.Lerp(_sleeveUpperScale, 1f, s);
+                    var midBulk = Mathf.Sin(u * Mathf.PI) * baseR * .09f * shoulderScale;
+                    radUs[r] = Mathf.Lerp(baseR * 1.24f * shoulderScale, baseRU * 1.002f, s) + midBulk;
+                    radVs[r] = Mathf.Lerp(baseR * 1.24f * shoulderScale, baseRV * 1.002f, s) + midBulk;
+                }
+                // 3 кольца плавного перекрытия (3,8 см вдоль предплечья внутрь Sleeve_L/R) — 0 щелей и 0 ступеньки!
+                float[] overDist = { .010f, .024f, .038f };
+                float[] overMul = { .994f, .945f, .865f };
+                for (var k = 0; k < 3; k++)
+                {
+                    var r = curveRings + k;
+                    centers[r] = p3 + fDir * overDist[k];
+                    tangents[r] = fDir;
+                    radUs[r] = baseRU * overMul[k];
+                    radVs[r] = baseRV * overMul[k];
+                }
+
+                arcLens[0] = 0f;
+                for (var r = 1; r < SleeveRings; r++)
+                    arcLens[r] = arcLens[r - 1] + Vector3.Distance(centers[r - 1], centers[r]);
+                var totalLen = arcLens[SleeveRings - 1];
+
+                // Параллельный перенос базиса НАЗАД от точного эллиптического среза Sleeve_L/R к плечу — оси эллипса совпадают идеально!
+                var ringNormals = new Vector3[SleeveRings];
+                ringNormals[curveRings - 1] = seamU;
+                for (var r = curveRings; r < SleeveRings; r++) ringNormals[r] = seamU;
+                for (var r = curveRings - 2; r >= 0; r--)
+                {
+                    var n = Quaternion.FromToRotation(tangents[r + 1], tangents[r]) * ringNormals[r + 1];
+                    n = Vector3.ProjectOnPlane(n, tangents[r]);
+                    ringNormals[r] = n.sqrMagnitude > 1e-5f ? n.normalized : Vector3.Cross(tangents[r], Vector3.up).normalized;
+                }
+
+                var verts = _sleeveVerts[i];
+                var uvs = _sleeveUvs[i];
+                for (var r = 0; r < SleeveRings; r++)
+                {
+                    var normal = ringNormals[r];
+                    var binormal = Vector3.Cross(tangents[r], normal).normalized;
+                    var rU = radUs[r];
+                    var rV = radVs[r];
+                    var vCoord = (totalLen - arcLens[r]) * 5.0f;
+                    var row = r * stride;
+                    for (var s = 0; s <= SleeveRadial; s++)
+                    {
+                        var ang = (s / (float)SleeveRadial) * Mathf.PI * 2f;
+                        verts[row + s] = centers[r] + normal * (Mathf.Cos(ang) * rU) + binormal * (Mathf.Sin(ang) * rV);
+                        uvs[row + s] = new Vector2((s / (float)SleeveRadial) * 3.0f, vCoord);
+                    }
+                }
+
+                var mesh = _sleeveMeshes[i];
+                mesh.vertices = verts;
+                mesh.uv = uvs;
+                mesh.RecalculateNormals();
+                mesh.RecalculateBounds();
             }
         }
 
-        /// <summary>Сыгранная карта: Reach → Grab → Carry → Return.</summary>
+        /// <summary>Сыгранная карта: непрерывное C1-движение без зависаний (Reach → Grab → Carry → плавный Return).</summary>
         private void PlayStep()
         {
-            if (_card == null && _stage != ReachStage) Clear();
-            if (_card == null)
+            if (_card == null && _stage != ReachStage && _stage != ReleaseStage && _stage != ReturnStage) Clear();
+            if (_card == null && _stage == ReachStage)
             {
                 // Пока руки в позе проверки или выходят из неё, карта ждёт: рука идёт за ней из обычного покоя. Так же, пока
                 // вместо свободной руки модель «класса»: рука сначала возвращается.
                 if (_queue.Count == 0 || PoseTestActive || ThumbsSwapActive) return;
-                _card = _queue.Dequeue();
-                if (_card == null) return;
+                var req = _queue.Dequeue();
+                if (req.Card == null) return;
+                _card = req.Card;
+                _cardTargetPos = req.TargetPos;
+                _cardTargetRot = req.TargetRot;
+                _cardTargetScale = req.TargetScale > .1f ? req.TargetScale : Table3DLayout.TableCardScale;
+                // Пока правая рука идёт сверху к вееру, большой палец левой мягко подталкивает выбранную карту вверх из веера
+                // ровно настолько, чтобы её верхняя кромка, ладонь и рукав прошли гарантированно выше всех соседних карт!
+                PrepareReachGeometry();
+                _startPinchWeight = _pinchWeight;
                 Begin(ReachStage);
             }
             _time += Time.deltaTime;
@@ -962,12 +1450,17 @@ namespace CardGameClient.ThreeD
         /// </summary>
         private void FollowEye(float k)
         {
-            var turn = Mathf.DeltaAngle(_yawBase, _eye.eulerAngles.y) * BodyYawShare;
+            var limit = Busy ? 16f : MaxBodyYaw;
+            var turn = Mathf.Clamp(Mathf.DeltaAngle(_yawBase, _eye.eulerAngles.y) * BodyYawShare, -limit, limit);
             _bodyYaw = Mathf.LerpAngle(_bodyYaw, turn, k);
             var breath = ReducedMotion ? 0f : Mathf.Sin(Time.time * BreathRate * 2f * Mathf.PI) * BreathLift;
+            _currentBreath = breath;
+            // При зуме к столу корпус остаётся на месте на стуле, чтобы правая рука не уезжала по сукну в центр карт.
+            var zoom = _look != null ? _look.ZoomRatio : 0f;
+            var leanOffset = Vector3.ProjectOnPlane(_eye.position - _eyeBase, Vector3.up) * (1f - zoom);
             _body.SetPositionAndRotation(
-                _bodyBase + Vector3.ProjectOnPlane(_eye.position - _eyeBase, Vector3.up) + Vector3.up * breath,
-                Quaternion.Euler(TableCameraController.StartPitch, _yawBase + _bodyYaw, 0f));
+                _bodyBase + leanOffset + Vector3.up * breath,
+                Quaternion.Euler(Table3DLayout.SeatBodyPitch, _yawBase + _bodyYaw, 0f));
             PlaceUpperArms();
         }
 
@@ -978,75 +1471,296 @@ namespace CardGameClient.ThreeD
             _animator.SetLayerWeight(PinchLayer, weight);
         }
 
-        private void Begin(int stage)
+        private void Begin(int stage, float carryOver = 0f)
         {
             _stage = stage;
-            _time = 0f;
+            _time = Mathf.Max(0f, carryOver);
             _fromPosition = _forearm.position;
             _fromRotation = _forearm.rotation;
+            _fromPinch = _forearm.position + _forearm.rotation * Vector3.Scale(_forearm.lossyScale, _pinchInForearm);
         }
 
         private Quaternion RestRotation => _forearm.parent.rotation * _restRotation;
 
         private Vector3 RestPosition => _forearm.parent.TransformPoint(_restPosition);
 
-        /// <summary>Предплечье с поворотом rotation так, чтобы щипок оказался в point.</summary>
-        private void Aim(Vector3 point, Quaternion rotation, float k)
+        /// <summary>Точное мировое вращение предплечья: пальцы смотрят по wantForward, внутренняя ладонь (щипок) — по wantPalm.</summary>
+        private Quaternion ForearmOrientation(Vector3 wantForward, Vector3 wantPalm)
         {
-            var targetPosition = point - rotation * Vector3.Scale(_forearm.lossyScale, _pinchInForearm);
-            _forearm.SetPositionAndRotation(Vector3.Lerp(_fromPosition, targetPosition, k), Quaternion.Slerp(_fromRotation, rotation, k));
+            var wf = wantForward.normalized;
+            var wp = Vector3.ProjectOnPlane(wantPalm, wf);
+            if (wp.sqrMagnitude < 1e-5f) wp = Vector3.ProjectOnPlane(Vector3.up, wf);
+            var lf = _handForwardInForearm;
+            var lp = Vector3.ProjectOnPlane(_handPalmInForearm, lf).normalized;
+            return Quaternion.LookRotation(wf, wp.normalized) * Quaternion.Inverse(Quaternion.LookRotation(lf, lp));
+        }
+
+        private static Vector3 HermitePos(Vector3 p0, Vector3 v0, Vector3 p1, Vector3 v1, float dur, float t)
+        {
+            var t2 = t * t;
+            var t3 = t2 * t;
+            return (2f * t3 - 3f * t2 + 1f) * p0
+                + (t3 - 2f * t2 + t) * (v0 * dur)
+                + (-2f * t3 + 3f * t2) * p1
+                + (t3 - t2) * (v1 * dur);
+        }
+
+        /// <summary>Ставит предплечье по кубическому сплайну Эрмита с точным сохранением входной и выходной скорости (без остановок на стыках фаз!).</summary>
+        private void MovePinchHermite(Vector3 v0, Vector3 targetPinch, Vector3 v1, float dur, Quaternion targetRotation, float posT, float rotK, Vector3 extraArc = default)
+        {
+            var curPinch = HermitePos(_fromPinch, v0, targetPinch, v1, dur, posT) + extraArc;
+            var curRot = Quaternion.Slerp(_fromRotation, targetRotation, rotK);
+            var forearmPos = curPinch - curRot * Vector3.Scale(_forearm.lossyScale, _pinchInForearm);
+            _forearm.SetPositionAndRotation(forearmPos, curRot);
+        }
+
+        /// <summary>Ставит предплечье так, чтобы точка щипка прошла по гладкой квадратичной кривой Безье (обходя веер сверху!).</summary>
+        private void MovePinchBezier(Vector3 ctrlPinch, Vector3 targetPinch, Quaternion targetRotation, float k, float rotK = -1f)
+        {
+            var inv = 1f - k;
+            var curPinch = inv * inv * _fromPinch + 2f * inv * k * ctrlPinch + k * k * targetPinch;
+            var curRot = Quaternion.Slerp(_fromRotation, targetRotation, rotK >= 0f ? rotK : k);
+            var forearmPos = curPinch - curRot * Vector3.Scale(_forearm.lossyScale, _pinchInForearm);
+            _forearm.SetPositionAndRotation(forearmPos, curRot);
+        }
+
+        private static Vector3 EndGripLocal => new Vector3(CardMesh3D.Width * .28f * Outward, CardMesh3D.Height * .06f, 0f);
+
+        private void ComputeCarryPose(Quaternion turn, out Vector3 layPinch, out Quaternion layRot)
+        {
+            var shoulder = _body.position + turn * new Vector3(Shoulder.x * Outward, -.20f, Shoulder.z);
+            var releaseScale = Mathf.Lerp(_grabCardScale, _cardTargetScale, .90f);
+            var gripWorldOffset = _cardTargetRot * (EndGripLocal * releaseScale);
+            var ideal = _cardTargetPos + gripWorldOffset + Vector3.up * .054f;
+            var toGoal = ideal - shoulder;
+            layPinch = toGoal.magnitude > MaxPlayReach ? shoulder + toGoal.normalized * MaxPlayReach : ideal;
+            // Запас над сукном и над нижней картой, чтобы при выкладывании ни пальцы, ни плоская карта не цепляли карты на столе.
+            layPinch.y = Mathf.Max(layPinch.y, Table3DLayout.TableY + .060f);
+            var layFwd = ((_cardTargetPos + Vector3.up * .02f) - (shoulder + Vector3.down * .07f)).normalized;
+            // Естественный нейтральный разворот кисти (боком-внутрь, без неестественного выворота ладонью к потолку!):
+            // большой палец остаётся сверху-сбоку карты, указательный снизу, а возврат на сукно происходит короткой плавной пронацией.
+            var layPalm = (Vector3.up * .40f - turn * Vector3.right * (.84f * Outward) - turn * Vector3.forward * .36f).normalized;
+            layRot = ForearmOrientation(layFwd, layPalm);
+        }
+
+        /// <summary>Квинтическое сглаживание (нулевое ускорение на старте и финише) — движение руки мягкое, без рывков.</summary>
+        private static float Smoother(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * t * (t * (t * 6f - 15f) + 10f);
+        }
+
+        /// <summary>
+        /// По реальной геометрии оставшихся карт в веере вычисляет безопасный пред-подъём выбранной карты вдоль её плоскости
+        /// и степень её перекрытия правыми/передними картами, чтобы ни пальцы, ни ладонь, ни рукав не проходили сквозь веер.
+        /// </summary>
+        private void PrepareReachGeometry()
+        {
+            _reachCardStartLocalPos = _card.transform.localPosition;
+            _reachBuriedRatio = 0f;
+            _fanArchTopLocalY = _reachCardStartLocalPos.y + CardMesh3D.Height * .5f * _card.transform.localScale.y;
+            var cardLocalRot = _card.transform.localRotation;
+            var cardUpLocal = cardLocalRot * Vector3.up;
+            var minLift = _reachCardStartLocalPos.magnitude > Table3DLayout.HandFanRadius + .010f ? .012f : .020f;
+            var extraLift = minLift;
+
+            if (FanRoot != null && _card.transform.parent == FanRoot)
+            {
+                var scale = _card.transform.localScale.x;
+                var gripOffsetLocal = cardLocalRot * new Vector3(
+                    CardMesh3D.Width * GripShareX * Outward * scale,
+                    CardMesh3D.Height * GripShareY * scale,
+                    0f);
+                var baseGripLocal = _reachCardStartLocalPos + gripOffsetLocal;
+
+                var fanArchTopY = baseGripLocal.y;
+                var blockingRightY = float.NegativeInfinity;
+                var maxRightReach = 0f;
+
+                for (var i = 0; i < FanRoot.childCount; i++)
+                {
+                    var child = FanRoot.GetChild(i);
+                    if (child == _card.transform || !child.gameObject.activeInHierarchy) continue;
+                    if (child.GetComponent<Card3DView>() == null) continue;
+                    var hw = CardMesh3D.Width * .5f * child.localScale.x;
+                    var hh = CardMesh3D.Height * .5f * child.localScale.y;
+                    var inFront = child.localPosition.z < _reachCardStartLocalPos.z - .0002f;
+                    for (var sx = -1; sx <= 1; sx += 2)
+                    {
+                        var corner = child.localPosition + child.localRotation * new Vector3(sx * hw, hh, 0f);
+                        if (corner.y > fanArchTopY) fanArchTopY = corner.y;
+                        var rightDelta = (corner.x - baseGripLocal.x) * Outward;
+                        if (inFront || rightDelta > -.015f)
+                        {
+                            if (corner.y > blockingRightY) blockingRightY = corner.y;
+                            if (rightDelta > maxRightReach) maxRightReach = rightDelta;
+                        }
+                    }
+                }
+
+                _reachBuriedRatio = Mathf.Clamp01(maxRightReach / .135f);
+                if (blockingRightY > float.NegativeInfinity)
+                {
+                    var clearanceY = Mathf.Lerp(.018f, .044f, _reachBuriedRatio);
+                    var neededLift = (blockingRightY + clearanceY - baseGripLocal.y) / Mathf.Max(.55f, cardUpLocal.y);
+                    extraLift = Mathf.Clamp(Mathf.Max(minLift, neededLift), minLift, .064f);
+                }
+                _fanArchTopLocalY = Mathf.Max(fanArchTopY, (baseGripLocal + cardUpLocal * extraLift).y);
+            }
+
+            _reachCardLiftLocal = cardUpLocal * extraLift;
+            var startOut = Mathf.Max(0f, _reachCardStartLocalPos.magnitude - Table3DLayout.HandFanRadius);
+            // Суммарный вытяг из базового слота веера всегда ≥ 10,6 см (> 9,5 см высоты карты) — 0 столкновений карт при выходе!
+            _grabPullDist = Mathf.Max(.044f, .106f - (startOut + extraLift));
+            _grabDuration = Mathf.Lerp(.19f, .24f, Mathf.InverseLerp(.044f, .084f, _grabPullDist));
         }
 
         private void Reach()
         {
-            var k = Mathf.SmoothStep(0f, 1f, _time / ReachTime);
-            // Карту берут за верх, у видимой полоски: большой палец перед картой, указательный за ней.
-            // Предплечье тянется к ней снизу и снаружи, поэтому ладонь разворачивается к игроку.
-            var grip = _card.transform.TransformPoint(new Vector3(0f, CardMesh3D.Height * GripShare, 0f));
-            var reach = (grip - _body.TransformPoint(ReachElbow)).normalized;
-            var restReach = RestRotation * _wristInForearm;
-            var restAxis = RestRotation * _pinchAxisInForearm;
-            var turn = Quaternion.LookRotation(reach, Vector3.ProjectOnPlane(_card.transform.forward, reach))
-                * Quaternion.Inverse(Quaternion.LookRotation(restReach, Vector3.ProjectOnPlane(restAxis, restReach)));
-            var rotation = turn * RestRotation;
-            // Пальцы сводит слой щипка, предплечье ставится так, чтобы точка щипка пришла на карту.
-            Pinch(k);
-            Aim(grip, rotation, k);
+            if (_card == null) { _releaseStartPinch = _pinchWeight; _returnStartVel = Vector3.zero; Begin(ReturnStage); return; }
+            var t = Mathf.Clamp01(_time / ReachTime);
+            var k = Smoother(t);
+            var rotK = Smoother(Mathf.Clamp01(t / .82f));
+            var turn = Quaternion.Euler(0f, _yawBase + _bodyYaw, 0f);
+            // Левая рука чуть с опережением плавно подаёт выбранную карту вверх строго вдоль её плоскости (в её же Z-слое!).
+            if (_card.transform.parent == FanRoot)
+            {
+                var uPop = Mathf.Clamp01(t / .68f);
+                var popK = uPop * uPop * (3f - 2f * uPop);
+                _card.transform.localPosition = _reachCardStartLocalPos + _reachCardLiftLocal * popK;
+            }
+
+            // Целимся сразу в итоговую приподнятую кромку карты, чтобы рука на подходе не проваливалась вниз к вееру!
+            Vector3 grip;
+            if (FanRoot != null && _card.transform.parent == FanRoot)
+            {
+                var s = _card.transform.localScale.x;
+                var localGripOffset = _card.transform.localRotation * new Vector3(
+                    CardMesh3D.Width * GripShareX * Outward * s,
+                    CardMesh3D.Height * GripShareY * s,
+                    0f);
+                grip = FanRoot.TransformPoint(_reachCardStartLocalPos + _reachCardLiftLocal + localGripOffset);
+            }
+            else
+            {
+                grip = _card.transform.TransformPoint(new Vector3(CardMesh3D.Width * GripShareX * Outward, CardMesh3D.Height * GripShareY, 0f));
+            }
+            var cardFace = -_card.transform.forward;
+            var cardUp = _card.transform.up;
+            var cardRight = _card.transform.right;
+            // Когда берём левую/среднюю карту за веером, локоть идёт чуть ниже и ближе к естественной дуге плеча,
+            // чтобы рукав плавно и мягко заходил в кадр без резкого горизонтального перегиба.
+            var elbowY = Mathf.Lerp(-.39f, -.34f, _reachBuriedRatio);
+            var elbowZ = Mathf.Lerp(.02f, .06f, _reachBuriedRatio);
+            var approachElbow = _eye.position + turn * new Vector3(.36f * Outward, elbowY, elbowZ);
+            var grabFwd = (grip - approachElbow).normalized;
+            // Уменьшенный наклон ладони вниз убирает согнутые безымянный/мизинец и основание ладони выше соседних карт веера.
+            var grabPalm = (cardFace * .84f - cardRight * (.48f * Outward) - cardUp * .14f).normalized;
+            var grabRot = ForearmOrientation(grabFwd, grabPalm);
+
+            // Дуга Безье проходит строго выше наивысшей точки дуги веера (обход по воздуху, без касания правых карт!).
+            var fanArchWorld = FanRoot != null ? FanRoot.TransformPoint(new Vector3(0f, _fanArchTopLocalY, 0f)) : grip;
+            var overFanCtrl = grip + cardUp * .068f + turn * new Vector3(Mathf.Lerp(.095f, .135f, _reachBuriedRatio) * Outward, .032f, .028f);
+            overFanCtrl.y = Mathf.Max(overFanCtrl.y, fanArchWorld.y + .062f);
+            // Пальцы плавно собираются от 0 до полного щипка без скачка на первом кадре!
+            Pinch(Mathf.Lerp(_startPinchWeight, 1f, Smoother(Mathf.Clamp01(t / .92f))));
+            MovePinchBezier(overFanCtrl, grip, grabRot, k, rotK);
             if (_time < ReachTime) return;
-            _pull = _card.transform.up * GrabPull;
+
+            var over = _time - ReachTime;
+            // Фиксируем карту в щипке строго по её средней плоскости (z=0 между подушечками большого и указательного пальцев!).
             _card.Grip(_pinch);
-            _grip = grip;
-            Begin(GrabStage);
+            _grabGripInCard = _card.transform.InverseTransformPoint(_pinch.position);
+            _grabGripInCard.z = 0f;
+            _grabCardScale = _card.transform.localScale.x;
+            ComputeCarryPose(turn, out _layPinch, out _layRot);
+            // КРИТИЧНО против прохождения карты через карту в веере:
+            // всё вытягивание Grab идёт СТРОГО по прямой вдоль cardUp без бокового/переднего смещения и без поворота кисти (_pullRot = grabRot),
+            // пока нижний край карты полностью не выйдет выше всех остальных карт веера (≥ 10,6 см > 9,5 см)!
+            _pullTarget = grip + cardUp * _grabPullDist;
+            _pullExitVel = cardUp * (_grabPullDist / _grabDuration * 1.15f);
+            _pullRot = grabRot;
+            Begin(GrabStage, over);
+            if (over > 1e-5f) Grab();
         }
 
-        /// <summary>Щипок закрыт на верхнем крае карты: рука вытягивает её из веера вверх, вдоль самой карты.</summary>
+        /// <summary>Щипок сомкнут: рука вытягивает карту строго вдоль её плоскости из веера (0 мм отклонения по глубине!) до полного выхода.</summary>
         private void Grab()
         {
-            var k = Mathf.SmoothStep(0f, 1f, _time / GrabTime);
+            if (_card == null) { _releaseStartPinch = _pinchWeight; _returnStartVel = Vector3.zero; Begin(ReturnStage); return; }
+            var t = Mathf.Clamp01(_time / _grabDuration);
             Pinch(1f);
-            Aim(_grip + _pull, _fromRotation, k);
-            if (_time < GrabTime) return;
-            _grip += _pull;
-            Begin(CarryStage);
+            // Вращение предплечья на протяжении Grab строго фиксировано (_pullRot == _fromRotation): карта скользит строго в своей Z-плоскости!
+            MovePinchHermite(Vector3.zero, _pullTarget, _pullExitVel, _grabDuration, _pullRot, t, 0f);
+            if (_time < _grabDuration) return;
+            var over = _time - _grabDuration;
+            // Карта полностью вышла выше веера — теперь оставшиеся карты в левой руке могут плавно сомкнуть просвет!
+            CardPulledFromFan?.Invoke();
+            _carryCardStartWorldRot = _card.transform.rotation;
+            var turn = Quaternion.Euler(0f, _yawBase + _bodyYaw, 0f);
+            var toSlot = (_cardTargetPos + _cardTargetRot * (EndGripLocal * _cardTargetScale)) - _layPinch;
+            // Мягкая живая скорость скольжения карты вперёд-вниз к слоту в момент разжатия пальцев (без нырка ниже стола).
+            _tossVel = (toSlot / .28f) * .48f + turn * new Vector3(.015f * Outward, 0f, .035f);
+            Begin(CarryStage, over);
+            if (over > 1e-5f) Carry();
         }
 
+        /// <summary>Рука единой плавной дугой выносит уже вышедшую из веера карту к слоту на столе и мягко отпускает её полностью плоской.</summary>
         private void Carry()
         {
-            var k = Mathf.SmoothStep(0f, 1f, _time / CarryTime);
-            Pinch(1f);
-            Aim(_grip + _body.TransformDirection(TossShift), _fromRotation, k);
+            if (_card == null) { _releaseStartPinch = _pinchWeight; _returnStartVel = Vector3.zero; Begin(ReturnStage); return; }
+            var t = Mathf.Clamp01(_time / CarryTime);
+            // В конце проноса пальцы начинают мягко приоткрываться, выпуская карту на живом ходу.
+            var openU = Mathf.Clamp01((t - .82f) / .18f);
+            Pinch(Mathf.Lerp(1f, .62f, openU * openU * (3f - 2f * openU)));
+
+            var bell = Mathf.Sin(Mathf.PI * t);
+            var carryArc = Vector3.up * (.032f * bell * bell);
+            var rotK = Smoother(t);
+            MovePinchHermite(_pullExitVel, _layPinch, _tossVel, CarryTime, _layRot, t, rotK, carryArc);
+
+            // Карта довыравнивается в 100% горизонтальную плоскость ДО отпускания (t = 0.86), чтобы наклонный угол никогда не задел нижнюю карту,
+            // а рост масштаба начинается только после отхода от веера (t > 0.16), чтобы не раздуваться рядом с веером!
+            var rotU = Mathf.Clamp01((t - .05f) / .81f);
+            var rotFlatT = Smoother(rotU);
+            var scaleU = Mathf.Clamp01((t - .16f) / .84f);
+            var scaleT = Smoother(scaleU);
+            var gripT = Smoother(t);
+
+            var curScale = Mathf.Lerp(_grabCardScale, _cardTargetScale, scaleT * .90f);
+            _card.transform.rotation = Quaternion.Slerp(_carryCardStartWorldRot, _cardTargetRot, rotFlatT);
+            _card.transform.localScale = Vector3.one * curScale;
+            var curGripLocal = Vector3.Lerp(_grabGripInCard, EndGripLocal, gripT);
+            _card.transform.position = _pinch.position - _card.transform.TransformVector(curGripLocal);
+
             if (_time < CarryTime) return;
-            _card.LetGo();
+            var over = _time - CarryTime;
+            // Карта уже 100% горизонтальная на высоте ~5.5 см прямо над слотом и плавно скользит вниз с живой скоростью руки.
+            _card.ReleaseToTable(_tossVel);
+            _card = null;
             Played++;
-            Begin(ReturnStage);
+
+            _releaseStartPinch = _pinchWeight;
+            _returnStartVel = _tossVel * .45f + Vector3.up * .075f;
+            Begin(ReturnStage, over);
+            if (over > 1e-5f) Return();
         }
 
+        /// <summary>Единый непрерывный возврат: кисть сразу мягко доворачивается ладонью вниз, пальцы разжимаются и ложатся на сукно.</summary>
         private void Return()
         {
-            var k = Mathf.SmoothStep(0f, 1f, _time / ReturnTime);
-            Pinch(1f - k);
-            _forearm.SetPositionAndRotation(Vector3.Lerp(_fromPosition, RestPosition, k), Quaternion.Slerp(_fromRotation, RestRotation, k));
+            var t = Mathf.Clamp01(_time / ReturnTime);
+            var openU = Mathf.Clamp01(_time / .20f);
+            Pinch(Mathf.Lerp(_releaseStartPinch, 0f, openU * openU * (3f - 2f * openU)));
+
+            var bell = Mathf.Sin(Mathf.PI * t);
+            var liftArc = Vector3.up * (.022f * bell * bell);
+            var pos = HermitePos(_fromPosition, _returnStartVel, RestPosition, Vector3.zero, ReturnTime, t) + liftArc;
+            // Кисть сразу мягко переходит в естественное положение ладонью вниз (не зависает раскрытой в воздухе!).
+            var rotK = Smoother(t);
+            _forearm.SetPositionAndRotation(pos, Quaternion.Slerp(_fromRotation, RestRotation, rotK));
             if (_time < ReturnTime) return;
+            Pinch(0f);
             _card = null;
             _stage = ReachStage;
             _forearm.localPosition = _restPosition;
@@ -1055,6 +1769,8 @@ namespace CardGameClient.ThreeD
 
         private void OnDestroy()
         {
+            for (var i = 0; i < _sleeveMeshes.Length; i++)
+                if (_sleeveMeshes[i] != null) Destroy(_sleeveMeshes[i]);
             if (_body != null) Destroy(_body.gameObject);
             if (_thumbsModel != null) Destroy(_thumbsModel.gameObject);
         }

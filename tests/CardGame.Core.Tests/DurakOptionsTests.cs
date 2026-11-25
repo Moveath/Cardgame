@@ -519,14 +519,19 @@ public class DurakOptionsTests
     }
 
     [Fact]
-    public void Cheating_UncaughtLastCardClosesTheBoutWhenTheWindowExpires()
+    public void Cheating_UncaughtLastCardClosesTheBoutWhenAttackerPasses()
     {
         var game = CreateGame(new DurakOptions(false, ThrowInMode.All, true), LoneAttacker, Defender, QuietBystander);
         Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
         Assert.True(game.TryApplyMove(1, DurakMove.CheatDefend(new Card(Rank.Seven, Suit.Diamonds), 0), out var e2), e2);
 
-        // Никто не среагировал — раздача закрывается, обман прошёл.
+        // Даже если у атакующего нет карт на подкид и окно оспаривания закрыто, стол ждёт явного «БИТО» (Pass).
         game.CloseChallengeWindow();
+        Assert.Single(game.Table);
+        Assert.Equal(0, game.BoutsFinished);
+
+        // Атакующий нажимает «БИТО» — только после этого карты уходят в биту, обман прошёл.
+        Assert.True(game.TryApplyMove(0, DurakMove.Pass(), out var e3), e3);
 
         Assert.Empty(game.Table);
         Assert.Equal(1, game.BoutsFinished);

@@ -74,7 +74,7 @@ namespace CardGame.Core.Meta
                 ExpiresAt = expires, Goal = 1, RewardCoins = 180, RewardXP = 70 };
             if (template == "named_opponent")
             {
-                job.Name = "Проучи нахала"; job.BotName = "Феликс Наглый"; job.AvatarId = "avatar_04";
+                job.Name = "Проучи нахала"; job.BotName = "Феликс Наглый"; job.AvatarId = "avatar_09";
                 job.Quote = "Этот тип решил, что за моим столом можно задирать нос. Напомни ему правила приличия.";
                 job.Description = "Выиграй у Феликса Наглого в дурака. Стол без ставок и обмана. Открывается кнопкой «К делу».";
             }
@@ -87,7 +87,7 @@ namespace CardGame.Core.Meta
             }
             else
             {
-                job.Name = "Работа без шума"; job.BotName = "Марк Осторожный"; job.AvatarId = "avatar_10";
+                job.Name = "Работа без шума"; job.BotName = "Марк Осторожный"; job.AvatarId = "avatar_11";
                 job.Quote = "Выиграть мало. Сделай один тихий ход так, чтобы никто не поднял шум. И доведи дело до конца.";
                 job.Description = "Выиграй у Марка Осторожного, сыграв хотя бы одну карту с обманом. За всю эту партию тебя ни разу не должны поймать. Стол без ставок.";
                 job.RewardCoins = 320; job.RewardXP = 130;

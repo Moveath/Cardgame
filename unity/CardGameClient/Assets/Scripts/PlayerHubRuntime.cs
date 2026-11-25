@@ -27,7 +27,9 @@ namespace CardGameClient
         public static string LastMessage { get; private set; } = "";
         public static event Action<HubSnapshot> Changed;
 
-        public static string AvatarName => Current?.Profile.AvatarName ?? UnityHubStore.LegacyAvatar;
+        public static string AvatarName => !string.IsNullOrEmpty(Current?.Profile?.AvatarName)
+            ? Current.Profile.AvatarName
+            : UnityHubStore.ReadSavedAvatar();
         public static string DisplayName => Current?.Profile.DisplayName ?? "Игрок";
 
         public static void UseService(IPlayerHubService service,IHubClock clock=null)
@@ -73,6 +75,15 @@ namespace CardGameClient
                     if(migration.Success)result=migration;
                     _legacyAvatar=null;
                 }
+                // Если игрок ещё ни разу явно не выбирал персонажа, ставим дефолтного Данила (вместо старого yegor_01/avatar_01).
+                if(result.Success && PlayerPrefs.GetInt(UnityHubStore.ChosenAvatarKey,0)==0
+                    && result.Snapshot?.Profile!=null
+                    && (result.Snapshot.Profile.AvatarName=="yegor_01" || result.Snapshot.Profile.AvatarName=="avatar_01"))
+                {
+                    var migration=await _service.ExecuteAsync(new HubCommand
+                    {Id="default-danil-v1",Action="set_avatar",Target="danil_01"});
+                    if(migration.Success)result=migration;
+                }
                 // A process restart cannot resume a live table. Release its room and settle the forfeit once.
                 if(result.Success && !string.IsNullOrEmpty(result.Snapshot.ActiveMatchId))
                     result=await _service.ExecuteAsync(new HubCommand{Id="recover:"+result.Snapshot.ActiveMatchId,
@@ -94,7 +105,20 @@ namespace CardGameClient
             var loaded=await LoadAsync();
             if(!loaded.Success)return loaded;
             if(string.IsNullOrEmpty(command.Id))command.Id=Guid.NewGuid().ToString("N");
-            try {var result=await _service.ExecuteAsync(command);Publish(result);return result;}
+            try
+            {
+                var result=await _service.ExecuteAsync(command);
+                if(result.Success && (command.Action=="set_avatar"
+                    || (command.Action=="equip" && result.Snapshot?.Profile!=null
+                        && string.Equals(result.Snapshot.Profile.AvatarName,command.Target,StringComparison.Ordinal))))
+                {
+                    PlayerPrefs.SetInt(UnityHubStore.ChosenAvatarKey,1);
+                    PlayerPrefs.SetString("player.avatar",result.Snapshot.Profile.AvatarName);
+                    PlayerPrefs.Save();
+                }
+                Publish(result);
+                return result;
+            }
             catch(Exception error){return Failure(error);}
         }
 
@@ -109,6 +133,11 @@ namespace CardGameClient
             LastMessage=result.Success?result.Message:ErrorText(result);
             if(!result.Success)return;
             Current=result.Snapshot;
+            if(!string.IsNullOrEmpty(Current?.Profile?.AvatarName))
+            {
+                PlayerPrefs.SetString("player.avatar",Current.Profile.AvatarName);
+                PlayerPrefs.Save();
+            }
             AudioListener.volume=Current.Settings.Sound?Mathf.Clamp01(Current.Settings.Volume/100f):0;
             var listeners=Changed;
             if(listeners!=null)
@@ -214,15 +243,34 @@ namespace CardGameClient
     {
         private readonly string _path=Path.Combine(Application.persistentDataPath,"player-hub-local-v1.json");
         internal bool Exists=>File.Exists(_path);
+        internal const string ChosenAvatarKey="player.avatar.chosen";
         internal static string LegacyAvatar
         {
             get
             {
-                var name=PlayerPrefs.GetString("player.avatar","yegor_01");
+                var name=PlayerPrefs.GetString("player.avatar","danil_01");
                 foreach(var person in new[]{"ali","aslan","danil","marat","yegor","yelnur"})
                     if(name.StartsWith(person+"_",StringComparison.Ordinal))return person+"_01";
-                return name;
+                return string.IsNullOrEmpty(name)?"danil_01":name;
             }
+        }
+        internal static string ReadSavedAvatar()
+        {
+            if(PlayerPrefs.GetInt(ChosenAvatarKey,0)==0)
+                return "danil_01";
+            var pref=PlayerPrefs.GetString("player.avatar","");
+            if(!string.IsNullOrEmpty(pref))return pref;
+            try
+            {
+                var path=Path.Combine(Application.persistentDataPath,"player-hub-local-v1.json");
+                if(File.Exists(path))
+                {
+                    var snapshot=JsonUtility.FromJson<HubSnapshot>(File.ReadAllText(path,Encoding.UTF8));
+                    if(!string.IsNullOrEmpty(snapshot?.Profile?.AvatarName))return snapshot.Profile.AvatarName;
+                }
+            }
+            catch{}
+            return LegacyAvatar;
         }
         public Task<HubSnapshot> LoadAsync()
         {

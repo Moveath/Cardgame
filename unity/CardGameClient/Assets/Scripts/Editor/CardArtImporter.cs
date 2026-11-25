@@ -27,7 +27,8 @@ namespace CardGameClient.EditorTools
             // (колода/бита/карты в руках соперников показывают карту мельче оригинала) —
             // без них плотный узор превращается в шум вместо гладкого уменьшения.
             importer.mipmapEnabled = true;
-            importer.filterMode = FilterMode.Bilinear;
+            importer.filterMode = FilterMode.Trilinear;
+            importer.anisoLevel = 8;
             importer.alphaIsTransparency = true;
             importer.spritePixelsPerUnit = 100f;
 

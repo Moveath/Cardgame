@@ -45,7 +45,7 @@ public static class HandsAnimatorBuilder
     private const string ControllerPath = Folder + "/HandsAnimator.controller";
     private const string OwnClips = Folder + "/Clips";
     // Вход в жест и в перехват веера; выход из жеста, переключение «держит карты / на столе».
-    private const float BlendIn = .15f, BlendOut = .2f;
+    private const float BlendIn = .16f, BlendOut = .2f;
     private static readonly string[] Loops = { "Take_Idle", "Take_TableRest" };
     // Проверка базовых поз: слой, его состояние, клип и параметр времени клипа (OwnArms3DView.PoseTestLayer, TestClench).
     private const string TestLayer = "PoseTest", TestState = "Clench", TestClip = "Take_TestClench", TestTime = "TestClench";
@@ -61,6 +61,7 @@ public static class HandsAnimatorBuilder
         ("Knock", "Take_TapTable"),
         ("Shrug", "Take_Shrug"),
         ("Fist", "Take_Fist"),
+        ("MiddleFinger", "Take_MiddleFinger"),
     };
 
     public static void Build()
@@ -86,6 +87,7 @@ public static class HandsAnimatorBuilder
         controller.AddParameter(new AnimatorControllerParameter { name = "HoldingCards", type = AnimatorControllerParameterType.Bool, defaultBool = true });
         foreach (var gesture in Gestures) controller.AddParameter(gesture.Trigger, AnimatorControllerParameterType.Trigger);
         controller.AddParameter("Regrip", AnimatorControllerParameterType.Trigger);
+        controller.AddParameter("IdleTap", AnimatorControllerParameterType.Trigger);
         controller.AddParameter(TestTime, AnimatorControllerParameterType.Float);
         controller.AddParameter(GestureId, AnimatorControllerParameterType.Int);
         controller.AddParameter(GestureTime, AnimatorControllerParameterType.Float);
@@ -107,10 +109,16 @@ public static class HandsAnimatorBuilder
         layers[4].defaultWeight = 0f;
         controller.layers = layers;
 
-        // Base: покой свободной руки и жесты.
+        // Base: покой свободной руки, фоновое постукивание пальцами в ожидании и жесты.
         var body = controller.layers[0].stateMachine;
         var idle = State(body, "Idle", Clip("Take_Idle"), new Vector3(300f, 0f));
         body.defaultState = idle;
+        var idleTapClip = Clip("Take_IdleFingerTap");
+        var idleTap = State(body, "IdleFingerTap", idleTapClip, new Vector3(300f, 120f));
+        var toIdleTap = idle.AddTransition(idleTap);
+        toIdleTap.AddCondition(AnimatorConditionMode.If, 0f, "IdleTap");
+        Blend(toIdleTap, BlendIn);
+        Blend(idleTap.AddTransition(idle), BlendOut, idleTapClip);
         var gestures = body.AddStateMachine("Gestures", new Vector3(620f, 0f));
         for (var i = 0; i < Gestures.Length; i++)
         {
@@ -194,6 +202,14 @@ public static class HandsAnimatorBuilder
     private static void LoopRestClips()
     {
         var importer = (ModelImporter)AssetImporter.GetAtPath(Model);
+        // Корректирующие BlendShapes заданы обратной LBS-дельтой в позе покоя: расчёт нормалей по позе покоя
+        // (Calculate) давал ложные тёмные заломы 50–66° на всех согнутых фалангах. Режим None сохраняет гладкие нормали!
+        importer.importBlendShapeNormals = ModelImporterNormals.None;
+        // Плотные допуски сжатия кривых сохраняют плавность 60-кадровых сплайнов Blender без ступенчатой аппроксимации.
+        importer.animationCompression = ModelImporterAnimationCompression.Optimal;
+        importer.animationRotationError = .08f;
+        importer.animationPositionError = .08f;
+        importer.animationScaleError = .08f;
         var clips = importer.defaultClipAnimations;
         foreach (var clip in clips)
             clip.loopTime = Loops.Any(name => clip.takeName.EndsWith("|" + name) || clip.takeName == name);

@@ -17,6 +17,7 @@ namespace CardGameClient.ThreeD
             public string RoomId;
             public string RoomCode;
             public string[] PlayerNames;
+            public string[] AvatarIds;
             public bool[] IsBot;
             public HubGameSettings Settings;
             public string ReturnPage;
@@ -41,11 +42,15 @@ namespace CardGameClient.ThreeD
             var names = members.Select(member => member.PlayerId == snapshot.Profile.Id
                 ? snapshot.Profile.DisplayName
                 : snapshot.People.FirstOrDefault(person => person.Id == member.PlayerId)?.Name ?? "Бот").ToArray();
+            var avatars = members.Select(member => member.PlayerId == snapshot.Profile.Id
+                ? snapshot.Profile.AvatarName
+                : snapshot.People.FirstOrDefault(person => person.Id == member.PlayerId)?.AvatarId ?? "").ToArray();
             Current = new RoomContext
             {
                 RoomId = room.Id,
                 RoomCode = room.Code,
                 PlayerNames = names,
+                AvatarIds = avatars,
                 IsBot = members.Select(member => member.IsBot).ToArray(),
                 Settings = (room.GameSettings ?? HubGameSettings.DefaultFor(room.GameId)).Copy(),
                 ReturnPage = "room"
@@ -56,16 +61,45 @@ namespace CardGameClient.ThreeD
 
         public static void BeginQuick(HubSnapshot snapshot, int playerCount, HubGameSettings settings)
         {
+            var ownAvatar = !string.IsNullOrEmpty(snapshot?.Profile?.AvatarName)
+                ? snapshot.Profile.AvatarName
+                : PlayerHubRuntime.AvatarName;
             var names = new System.Collections.Generic.List<string> { snapshot?.Profile?.DisplayName ?? PlayerHubRuntime.DisplayName };
-            var bots = snapshot?.People?.Where(person => person.IsBot).Select(person => person.Name).ToArray()
-                ?? Array.Empty<string>();
+            var avatars = new System.Collections.Generic.List<string> { ownAvatar };
+            var ownFriend = AvatarCatalog.PersonalTitleOfId(ownAvatar);
+            var eligible = snapshot?.People?
+                .Where(person => person.IsBot && (string.IsNullOrEmpty(ownFriend)
+                    || !string.Equals(AvatarCatalog.PersonalTitleOfId(person.AvatarId), ownFriend, StringComparison.OrdinalIgnoreCase)))
+                .ToList()
+                ?? new System.Collections.Generic.List<HubPerson>();
+            // Сначала друзья (Али, Аслан, Егор, Ельнур, Марат и т.д. в случайном порядке мест), затем остальные боты.
+            var friendBots = eligible.Where(p => !string.IsNullOrEmpty(AvatarCatalog.PersonalTitleOfId(p.AvatarId))).ToList();
+            var otherBots = eligible.Where(p => string.IsNullOrEmpty(AvatarCatalog.PersonalTitleOfId(p.AvatarId))).ToList();
+            for (var i = friendBots.Count - 1; i > 0; i--)
+            {
+                var j = UnityEngine.Random.Range(0, i + 1);
+                (friendBots[i], friendBots[j]) = (friendBots[j], friendBots[i]);
+            }
+            var bots = friendBots.Concat(otherBots).ToArray();
             for (var i = 0; names.Count < Mathf.Clamp(playerCount, 2, 6); i++)
-                names.Add(i < bots.Length && !string.IsNullOrEmpty(bots[i]) ? bots[i] : "Бот " + (i + 1));
+            {
+                var person = i < bots.Length ? bots[i] : null;
+                var avId = person?.AvatarId ?? "";
+                avatars.Add(avId);
+                var personal = AvatarCatalog.PersonalTitleOfId(avId);
+                if (!string.IsNullOrEmpty(personal))
+                    names.Add(AvatarCatalog.NameForAvatar(avId, names));
+                else if (person != null && !string.IsNullOrEmpty(person.Name))
+                    names.Add(person.Name);
+                else
+                    names.Add(AvatarCatalog.NameForAvatar(avId, names));
+            }
             Current = new RoomContext
             {
                 RoomId = "",
                 RoomCode = "",
                 PlayerNames = names.ToArray(),
+                AvatarIds = avatars.ToArray(),
                 IsBot = names.Select((name, index) => index > 0).ToArray(),
                 Settings = (settings ?? HubGameSettings.DefaultFor("durak")).Copy(),
                 ReturnPage = "game:durak"

@@ -78,14 +78,11 @@ namespace CardGameClient
             if(_portraits[0]==null) _portraits[0]=Resources.Load<Sprite>("PlayerAvatars/yegor/yegor_01");
             var pool=AvatarCatalog.OpponentPortraits(_portraits[0],count-1);
             var names=new List<string>{PlayerProfile.DisplayName};
-            var fallback=new[]{"Алексей","Вера","Борис","Ольга","Пётр"};
             for(var i=1;i<count;i++)
             {
                 if(pool.Count>0)_portraits[i]=pool[(i-1)%pool.Count];
-                var title=AvatarCatalog.PersonalTitleOf(_portraits[i])??fallback[i-1];
-                var name=title;
-                for(var suffix=2;names.Contains(name);suffix++)name=title+" "+suffix;
-                names.Add(name);_bots[i]=new SimplePokerBot(unchecked(seed+i*7919));
+                names.Add(AvatarCatalog.NameForAvatar(_portraits[i],names));
+                _bots[i]=new SimplePokerBot(unchecked(seed+i*7919));
             }
             HubRoster.TryApply("poker",names,_portraits);
             _game=new PokerGame(names,seed,_settings.StartingStack,_settings.SmallBlind,_settings.BigBlind);

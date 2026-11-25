@@ -25,6 +25,125 @@ namespace CardGameClient
             { "danil", "Данил" }
         };
 
+        /// <summary>Стартовые женские аватары (чётные avatar_02..avatar_12) — им никогда не достаются мужские имена.</summary>
+        private static readonly HashSet<string> FemaleAvatarIds = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "avatar_02", "avatar_04", "avatar_06", "avatar_08", "avatar_10", "avatar_12",
+            "Head_Avatar02", "Head_Avatar04", "Head_Avatar06", "Head_Avatar08", "Head_Avatar10", "Head_Avatar12"
+        };
+
+        /// <summary>Тип телосложения 3D-персонажа (обычное мужское, плотное, женское, пожилое мужское/женское).</summary>
+        public enum BodyArchetype { Male, MaleHeavy, Female, MaleElder, FemaleElder }
+
+        /// <summary>Оттенок и фактура кожи кистей рук персонажа (соперника и вида от первого лица).</summary>
+        public enum HandSkinTone { Default, Fair, Aged, Dark }
+
+        public static BodyArchetype BodyArchetypeOf(string avatarOrHeadId)
+        {
+            if (string.IsNullOrEmpty(avatarOrHeadId)) return BodyArchetype.Male;
+            var id = avatarOrHeadId.Trim();
+            if (string.Equals(id, "avatar_05", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar05", System.StringComparison.OrdinalIgnoreCase))
+                return BodyArchetype.MaleHeavy;
+            if (string.Equals(id, "avatar_03", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar03", System.StringComparison.OrdinalIgnoreCase))
+                return BodyArchetype.MaleElder;
+            if (string.Equals(id, "avatar_06", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar06", System.StringComparison.OrdinalIgnoreCase))
+                return BodyArchetype.FemaleElder;
+            if (IsFemale(id)) return BodyArchetype.Female;
+            return BodyArchetype.Male;
+        }
+
+        public static HandSkinTone HandSkinToneOf(string avatarOrHeadId)
+        {
+            if (string.IsNullOrEmpty(avatarOrHeadId)) return HandSkinTone.Default;
+            var id = avatarOrHeadId.Trim();
+            if (string.Equals(id, "avatar_08", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar08", System.StringComparison.OrdinalIgnoreCase))
+                return HandSkinTone.Dark;
+            if (string.Equals(id, "avatar_03", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar03", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "avatar_06", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(id, "Head_Avatar06", System.StringComparison.OrdinalIgnoreCase))
+                return HandSkinTone.Aged;
+            if (IsFemale(id)) return HandSkinTone.Fair;
+            return HandSkinTone.Default;
+        }
+
+        public static string HeadlessBodyResourceFor(BodyArchetype archetype)
+        {
+            switch (archetype)
+            {
+                case BodyArchetype.Female:
+                case BodyArchetype.FemaleElder:
+                    return "ThreeD/Characters/BaseFemale_Headless";
+                case BodyArchetype.MaleHeavy:
+                    return "ThreeD/Characters/BaseMaleHeavy_Headless";
+                default:
+                    return "ThreeD/Characters/BaseMale_Headless";
+            }
+        }
+
+        public static string FpsBodyResourceFor(BodyArchetype archetype)
+        {
+            switch (archetype)
+            {
+                case BodyArchetype.Female:
+                case BodyArchetype.FemaleElder:
+                    return "ThreeD/Characters/BaseFemale_FpsBody";
+                case BodyArchetype.MaleHeavy:
+                    return "ThreeD/Characters/BaseMaleHeavy_FpsBody";
+                default:
+                    return "ThreeD/Characters/BaseMale_FpsBody";
+            }
+        }
+
+        public static string OpponentHandsMaterialFor(HandSkinTone tone)
+        {
+            switch (tone)
+            {
+                case HandSkinTone.Dark: return "ThreeD/Materials/OpponentHands_Dark";
+                case HandSkinTone.Aged: return "ThreeD/Materials/OpponentHands_Aged";
+                case HandSkinTone.Fair: return "ThreeD/Materials/OpponentHands_Fair";
+                default: return "ThreeD/Materials/OpponentHands";
+            }
+        }
+
+        public static string HandSkinTextureResourceFor(HandSkinTone tone)
+        {
+            switch (tone)
+            {
+                case HandSkinTone.Dark: return "ThreeD/Hands/TripoHands_Dark_BaseColor";
+                case HandSkinTone.Aged: return "ThreeD/Hands/TripoHands_Aged_BaseColor";
+                case HandSkinTone.Fair: return "ThreeD/Hands/TripoHands_Fair_BaseColor";
+                default: return "ThreeD/Hands/TripoHands_BaseColor";
+            }
+        }
+
+        private static readonly string[] MaleBotNames =
+        {
+            "Борис", "Игорь", "Пётр", "Сергей", "Алексей", "Максим", "Тимур", "Артур", "Виктор", "Роман"
+        };
+
+        private static readonly string[] FemaleBotNames =
+        {
+            "Вера", "Ольга", "Марина", "Лера", "Соня", "Ника", "Алина", "Елена", "Дарья", "Ирина"
+        };
+
+        /// <summary>Связь ID друга/аватара с именем его 3D-головы в Resources/ThreeD/Characters/Heads/.</summary>
+        private static readonly (string PersonId, string AvatarId, string HeadId)[] KnownFriendHeads =
+        {
+            ("marat", "marat_01", "Head_Marat"),
+            ("ali", "ali_01", "Head_Ali"),
+            ("aslan", "aslan_01", "Head_Aslan"),
+            ("danil", "danil_01", "Head_Danil"),
+            ("yegor", "yegor_01", "Head_Yegor"),
+            ("yelnur", "yelnur_01", "Head_Yelnur"),
+        };
+
+        private static readonly Dictionary<string, bool> HeadExistsCache = new Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
+
         private static List<AvatarGroup> _groups;
 
         public sealed class AvatarGroup
@@ -192,6 +311,133 @@ namespace CardGameClient
             }
 
             return null;
+        }
+
+        /// <summary>Возвращает имя друга по строковому avatarId (например "marat_01" или "Head_Marat" -> "Марат"), либо null для выдуманных персонажей.</summary>
+        public static string PersonalTitleOfId(string avatarOrHeadId)
+        {
+            if (string.IsNullOrEmpty(avatarOrHeadId)) return null;
+            for (var i = 0; i < KnownFriendHeads.Length; i++)
+            {
+                var entry = KnownFriendHeads[i];
+                if (string.Equals(avatarOrHeadId, entry.HeadId, System.StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(avatarOrHeadId, entry.PersonId, System.StringComparison.OrdinalIgnoreCase)
+                    || avatarOrHeadId.StartsWith(entry.PersonId + "_", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return TitleFor(entry.PersonId);
+                }
+            }
+
+            var personId = PersonIdFrom(avatarOrHeadId);
+            if (!string.IsNullOrEmpty(personId) && !string.Equals(personId, "avatar", System.StringComparison.OrdinalIgnoreCase)
+                && GroupTitles.TryGetValue(personId, out var title) && !string.Equals(personId, CommonGroupId, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return title;
+            }
+
+            return null;
+        }
+
+        /// <summary>True для женских стартовых персонажей (avatar_02, 04, 06, 08, 10, 12).</summary>
+        public static bool IsFemale(string avatarOrHeadId) =>
+            !string.IsNullOrEmpty(avatarOrHeadId) && FemaleAvatarIds.Contains(avatarOrHeadId);
+
+        public static bool IsFemale(Sprite sprite) => sprite != null && IsFemale(sprite.name);
+
+        /// <summary>
+        /// Подбирает точное имя под аватар бота:
+        /// - для друзей (Марат, Аслан, Али, Данил, Егор, Ельнур) ВСЕГДА возвращает имя этого друга;
+        /// - для стартовых персонажей — случайное незанятое имя СТРОГО соответствующего пола.
+        /// </summary>
+        public static string NameForAvatar(Sprite sprite, ICollection<string> usedNames)
+        {
+            var personal = PersonalTitleOf(sprite) ?? (sprite != null ? PersonalTitleOfId(sprite.name) : null);
+            return NameForIdInternal(personal, sprite != null && IsFemale(sprite), usedNames);
+        }
+
+        public static string NameForAvatar(string avatarOrHeadId, ICollection<string> usedNames)
+        {
+            var personal = PersonalTitleOfId(avatarOrHeadId);
+            return NameForIdInternal(personal, IsFemale(avatarOrHeadId), usedNames);
+        }
+
+        private static string NameForIdInternal(string personalTitle, bool female, ICollection<string> usedNames)
+        {
+            if (!string.IsNullOrEmpty(personalTitle))
+            {
+                var candidate = personalTitle;
+                for (var repeat = 2; usedNames != null && usedNames.Contains(candidate); repeat++)
+                    candidate = personalTitle + " " + repeat;
+                return candidate;
+            }
+
+            var pool = female ? FemaleBotNames : MaleBotNames;
+            var available = new List<string>(pool.Length);
+            for (var i = 0; i < pool.Length; i++)
+            {
+                if (usedNames == null || !usedNames.Contains(pool[i]))
+                    available.Add(pool[i]);
+            }
+
+            if (available.Count > 0)
+                return available[Random.Range(0, available.Count)];
+
+            var fallback = pool[Random.Range(0, pool.Length)];
+            var unique = fallback;
+            for (var repeat = 2; usedNames != null && usedNames.Contains(unique); repeat++)
+                unique = fallback + " " + repeat;
+            return unique;
+        }
+
+        /// <summary>Преобразует avatarId (например "marat_01" или "avatar_05") в имя 3D-головы ("Head_Marat", "Head_Avatar05").</summary>
+        public static string HeadIdForAvatar(string avatarId)
+        {
+            if (string.IsNullOrEmpty(avatarId)) return null;
+            if (avatarId.StartsWith("Head_", System.StringComparison.OrdinalIgnoreCase)) return avatarId;
+            for (var i = 0; i < KnownFriendHeads.Length; i++)
+            {
+                var entry = KnownFriendHeads[i];
+                if (string.Equals(avatarId, entry.PersonId, System.StringComparison.OrdinalIgnoreCase)
+                    || avatarId.StartsWith(entry.PersonId + "_", System.StringComparison.OrdinalIgnoreCase))
+                    return entry.HeadId;
+            }
+
+            if (avatarId.StartsWith("avatar_", System.StringComparison.OrdinalIgnoreCase) && avatarId.Length >= 9)
+                return "Head_Avatar" + avatarId.Substring(7);
+            return null;
+        }
+
+        /// <summary>Возвращает имя 3D-головы только если её FBX уже реально добавлен в Resources/ThreeD/Characters/Heads/.</summary>
+        public static string Available3DHeadForAvatar(string avatarId)
+        {
+            var headId = HeadIdForAvatar(avatarId);
+            return !string.IsNullOrEmpty(headId) && Has3DHead(headId) ? headId : null;
+        }
+
+        public static bool Has3DHead(string headId)
+        {
+            if (string.IsNullOrEmpty(headId)) return false;
+            if (HeadExistsCache.TryGetValue(headId, out var exists)) return exists;
+            exists = Resources.Load<GameObject>("ThreeD/Characters/Heads/" + headId) != null;
+            HeadExistsCache[headId] = exists;
+            return exists;
+        }
+
+        /// <summary>Список всех друзей, для которых уже готовы 3D-головы (исключая выбранного самим игроком).</summary>
+        public static List<(string AvatarId, string HeadId)> AvailableFriend3DHeads(string excludeAvatarId = null)
+        {
+            var excludeTitle = PersonalTitleOfId(excludeAvatarId);
+            var list = new List<(string AvatarId, string HeadId)>();
+            for (var i = 0; i < KnownFriendHeads.Length; i++)
+            {
+                var entry = KnownFriendHeads[i];
+                if (!string.IsNullOrEmpty(excludeTitle)
+                    && string.Equals(TitleFor(entry.PersonId), excludeTitle, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (Has3DHead(entry.HeadId))
+                    list.Add((entry.AvatarId, entry.HeadId));
+            }
+            return list;
         }
 
         public static string GroupIdOf(Sprite sprite)

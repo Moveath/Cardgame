@@ -129,6 +129,75 @@ public class DurakGameTests
         Assert.DoesNotContain(game.GetLegalMoves(attacker), m => m.Type == DurakMoveType.Attack);
     }
 
+    [Fact]
+    public void Defend_WhenAttackerHasNoMatchingCards_WaitsForExplicitPass()
+    {
+        var p0 = new[]
+        {
+            new Card(Rank.Six, Suit.Clubs), new Card(Rank.Eight, Suit.Spades), new Card(Rank.Nine, Suit.Clubs),
+            new Card(Rank.Ten, Suit.Clubs), new Card(Rank.Queen, Suit.Clubs), new Card(Rank.King, Suit.Clubs)
+        };
+        var p1 = new[]
+        {
+            new Card(Rank.Seven, Suit.Clubs), new Card(Rank.Eight, Suit.Diamonds), new Card(Rank.Nine, Suit.Diamonds),
+            new Card(Rank.Ten, Suit.Diamonds), new Card(Rank.Queen, Suit.Diamonds), new Card(Rank.King, Suit.Diamonds)
+        };
+        var cards = new List<Card>();
+        for (var i = 0; i < 6; i++) { cards.Add(p0[i]); cards.Add(p1[i]); }
+        cards.Add(new Card(Rank.Ace, Suit.Spades));
+        var game = DurakGame.Create(new[] { "A", "B" }, new Deck(cards), DurakOptions.Classic);
+
+        Assert.Equal(0, game.AttackerIndex);
+        Assert.True(game.TryApplyMove(0, DurakMove.Attack(new Card(Rank.Six, Suit.Clubs)), out var e1), e1);
+        Assert.True(game.TryApplyMove(1, DurakMove.Defend(new Card(Rank.Seven, Suit.Clubs), 0), out var e2), e2);
+
+        // У атакующего нет ни 6, ни 7 — но карты остаются на столе, пока не нажато «БИТО» (Pass).
+        Assert.Single(game.Table);
+        Assert.Equal(0, game.BoutsFinished);
+        Assert.Equal(0, DurakTurnOrder.GetActingPlayer(game));
+        Assert.Contains(game.GetLegalMoves(0), m => m.Type == DurakMoveType.Pass);
+
+        Assert.True(game.TryApplyMove(0, DurakMove.Pass(), out var e3), e3);
+        Assert.Empty(game.Table);
+        Assert.Equal(1, game.BoutsFinished);
+    }
+
+    [Fact]
+    public void Defend_SixthCardOnTable_WaitsForExplicitPass()
+    {
+        var p0 = new[]
+        {
+            new Card(Rank.Six, Suit.Clubs), new Card(Rank.Six, Suit.Diamonds), new Card(Rank.Six, Suit.Hearts),
+            new Card(Rank.Seven, Suit.Clubs), new Card(Rank.Seven, Suit.Spades), new Card(Rank.Seven, Suit.Diamonds)
+        };
+        var p1 = new[]
+        {
+            new Card(Rank.Eight, Suit.Clubs), new Card(Rank.Eight, Suit.Diamonds), new Card(Rank.Seven, Suit.Hearts),
+            new Card(Rank.Nine, Suit.Clubs), new Card(Rank.Nine, Suit.Spades), new Card(Rank.Ten, Suit.Diamonds)
+        };
+        var cards = new List<Card>();
+        for (var i = 0; i < 6; i++) { cards.Add(p0[i]); cards.Add(p1[i]); }
+        cards.Add(new Card(Rank.Ace, Suit.Spades));
+        var game = DurakGame.Create(new[] { "A", "B" }, new Deck(cards), DurakOptions.Classic);
+
+        Assert.Equal(0, game.AttackerIndex);
+        for (var i = 0; i < 6; i++)
+        {
+            Assert.True(game.TryApplyMove(0, DurakMove.Attack(p0[i]), out var ea), ea);
+            Assert.True(game.TryApplyMove(1, DurakMove.Defend(p1[i], i), out var ed), ed);
+        }
+
+        // Все 6 карт на столе отбиты — но карты остаются на столе, пока атакующий не нажмёт «БИТО» (Pass)!
+        Assert.Equal(6, game.Table.Count);
+        Assert.Equal(0, game.BoutsFinished);
+        Assert.Equal(0, DurakTurnOrder.GetActingPlayer(game));
+        Assert.Contains(game.GetLegalMoves(0), m => m.Type == DurakMoveType.Pass);
+
+        Assert.True(game.TryApplyMove(0, DurakMove.Pass(), out var ep), ep);
+        Assert.Empty(game.Table);
+        Assert.Equal(1, game.BoutsFinished);
+    }
+
     [Theory]
     [InlineData(2)]
     [InlineData(3)]

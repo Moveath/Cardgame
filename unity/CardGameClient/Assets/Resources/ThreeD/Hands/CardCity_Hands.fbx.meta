@@ -23,10 +23,10 @@ ModelImporter:
     animationDoRetargetingWarnings: 0
     importAnimatedCustomProperties: 0
     importConstraints: 0
-    animationCompression: 1
-    animationRotationError: 0.5
-    animationPositionError: 0.5
-    animationScaleError: 0.5
+    animationCompression: 3
+    animationRotationError: 0.08
+    animationPositionError: 0.08
+    animationScaleError: 0.08
     animationWrapMode: 0
     extraExposedTransformPaths: []
     extraUserProperties: []
@@ -122,6 +122,35 @@ ModelImporter:
       name: Rig_Hands|Pose_InGame
       takeName: Rig_Hands|Pose_InGame
       internalID: -3036940754916691478
+      firstFrame: 0
+      lastFrame: 1
+      wrapMode: 0
+      orientationOffsetY: 0
+      level: 0
+      cycleOffset: 0
+      loop: 0
+      hasAdditiveReferencePose: 0
+      loopTime: 0
+      loopBlend: 0
+      loopBlendOrientation: 0
+      loopBlendPositionY: 0
+      loopBlendPositionXZ: 0
+      keepOriginalOrientation: 0
+      keepOriginalPositionY: 1
+      keepOriginalPositionXZ: 0
+      heightFromFeet: 0
+      mirror: 0
+      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+      curves: []
+      events: []
+      transformMask: []
+      maskType: 3
+      maskSource: {instanceID: 0}
+      additiveReferencePoseFrame: 0
+    - serializedVersion: 16
+      name: Rig_Hands|Pose_MiddleFinger
+      takeName: Rig_Hands|Pose_MiddleFinger
+      internalID: -8234997665936392337
       firstFrame: 0
       lastFrame: 1
       wrapMode: 0
@@ -297,7 +326,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_DrawCard
       internalID: -5927032753716231491
       firstFrame: 0
-      lastFrame: 64
+      lastFrame: 140
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -326,7 +355,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_Fist
       internalID: -4759723062225525022
       firstFrame: 0
-      lastFrame: 108
+      lastFrame: 228
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -355,7 +384,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_HoldCards
       internalID: -1648675140002564772
       firstFrame: 0
-      lastFrame: 72
+      lastFrame: 160
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -384,7 +413,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_Idle
       internalID: -8473898598156729242
       firstFrame: 0
-      lastFrame: 120
+      lastFrame: 240
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -409,11 +438,69 @@ ModelImporter:
       maskSource: {instanceID: 0}
       additiveReferencePoseFrame: 0
     - serializedVersion: 16
+      name: Rig_Hands|Take_IdleFingerTap
+      takeName: Rig_Hands|Take_IdleFingerTap
+      internalID: 353530389669565890
+      firstFrame: 0
+      lastFrame: 160
+      wrapMode: 0
+      orientationOffsetY: 0
+      level: 0
+      cycleOffset: 0
+      loop: 0
+      hasAdditiveReferencePose: 0
+      loopTime: 0
+      loopBlend: 0
+      loopBlendOrientation: 0
+      loopBlendPositionY: 0
+      loopBlendPositionXZ: 0
+      keepOriginalOrientation: 0
+      keepOriginalPositionY: 1
+      keepOriginalPositionXZ: 0
+      heightFromFeet: 0
+      mirror: 0
+      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+      curves: []
+      events: []
+      transformMask: []
+      maskType: 3
+      maskSource: {instanceID: 0}
+      additiveReferencePoseFrame: 0
+    - serializedVersion: 16
+      name: Rig_Hands|Take_MiddleFinger
+      takeName: Rig_Hands|Take_MiddleFinger
+      internalID: 1860273389581467644
+      firstFrame: 0
+      lastFrame: 228
+      wrapMode: 0
+      orientationOffsetY: 0
+      level: 0
+      cycleOffset: 0
+      loop: 0
+      hasAdditiveReferencePose: 0
+      loopTime: 0
+      loopBlend: 0
+      loopBlendOrientation: 0
+      loopBlendPositionY: 0
+      loopBlendPositionXZ: 0
+      keepOriginalOrientation: 0
+      keepOriginalPositionY: 1
+      keepOriginalPositionXZ: 0
+      heightFromFeet: 0
+      mirror: 0
+      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+      curves: []
+      events: []
+      transformMask: []
+      maskType: 3
+      maskSource: {instanceID: 0}
+      additiveReferencePoseFrame: 0
+    - serializedVersion: 16
       name: Rig_Hands|Take_PlayCard
       takeName: Rig_Hands|Take_PlayCard
       internalID: 1161193903048805168
       firstFrame: 0
-      lastFrame: 54
+      lastFrame: 120
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -442,7 +529,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_Point
       internalID: 1604354863126567742
       firstFrame: 0
-      lastFrame: 66
+      lastFrame: 212
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -471,7 +558,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_Shrug
       internalID: 3739532469649040294
       firstFrame: 0
-      lastFrame: 54
+      lastFrame: 116
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -500,7 +587,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TableRest
       internalID: 6046783643248750955
       firstFrame: 0
-      lastFrame: 120
+      lastFrame: 240
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -529,7 +616,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TapTable
       internalID: -9173055003660719394
       firstFrame: 0
-      lastFrame: 44
+      lastFrame: 96
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -558,7 +645,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestClench
       internalID: -1918036226272302370
       firstFrame: 0
-      lastFrame: 18
+      lastFrame: 36
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -587,7 +674,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsDown
       internalID: 8324176184113755518
       firstFrame: 0
-      lastFrame: 24
+      lastFrame: 48
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -616,7 +703,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsDown_L
       internalID: 5492733098180106378
       firstFrame: 0
-      lastFrame: 24
+      lastFrame: 48
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -645,7 +732,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsDown_R
       internalID: 2472183735866008378
       firstFrame: 0
-      lastFrame: 24
+      lastFrame: 48
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -674,7 +761,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsUp
       internalID: -3984819559211907649
       firstFrame: 0
-      lastFrame: 20
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -703,7 +790,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsUp_L
       internalID: -3981145743353206036
       firstFrame: 0
-      lastFrame: 20
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -732,7 +819,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_TestThumbsUp_R
       internalID: 2967550935584076541
       firstFrame: 0
-      lastFrame: 20
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -761,7 +848,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_ThumbsDown
       internalID: 6943396444671751638
       firstFrame: 0
-      lastFrame: 108
+      lastFrame: 226
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -790,7 +877,7 @@ ModelImporter:
       takeName: Rig_Hands|Take_ThumbsUp
       internalID: -1502921588689619418
       firstFrame: 0
-      lastFrame: 110
+      lastFrame: 230
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -864,7 +951,7 @@ ModelImporter:
     tangentImportMode: 3
     normalCalculationMode: 4
     legacyComputeAllNormalsFromSmoothingGroupsWhenMeshHasBlendShapes: 0
-    blendShapeNormalImportMode: 1
+    blendShapeNormalImportMode: 2
     normalSmoothingSource: 0
     calculateBlendshapeNormalsDeltaFromImportedNormals: 0
   referencedClips: []

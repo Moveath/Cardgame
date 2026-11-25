@@ -37,7 +37,8 @@ OUT_FBX = os.path.join(source.ROOT, "art3d", "hands", "TripoHands.fbx")
 SCALE = 0.190 / 0.715
 WRIST_TRIPO = np.array([-0.042, 0.028, 0.285], dtype=np.float64)
 REST_SHIFT_X = 0.15  # Покой: правая кисть в +0.15 м по X, левая зеркально в -0.15 м.
-FPS = 30
+FPS = 60  # Запекаем все клипы на 60 кадрах/с (вдвое плотнее по времени) для абсолютно плавной анимации без покадровости.
+FPS_SUB = FPS // 30
 
 # Суставы правой руки в координатах Tripo (X=+Большой, Y=+Тыл/-Ладонь, Z=+Пальцы).
 # Точные 3D-центры поперечных сечений каждого пальца по сетке Tripo (ошибка < 0.5 мм, без смещения осей сгиба!).
@@ -432,7 +433,8 @@ def assign_hand_weights(ob, arm_ob, side):
     best_f = np.argmin(all_d, axis=1)
 
     W = {name: np.zeros(n_v, dtype=np.float64) for name in segs}
-    J_MCP, J_PIP, J_DIP = 0.014, 0.010, 0.0085
+    # Мягкие радиусы переходов в суставах: при сгибе на 90° костяшка складывается плавной дугой, а не «квадратным» шарниром.
+    J_MCP, J_PIP, J_DIP = 0.015, 0.013, 0.0105
     J_TMCP, J_TIP = 0.012, 0.0095
 
     for fi, f in enumerate(f_names):
@@ -478,16 +480,22 @@ def assign_hand_weights(ob, arm_ob, side):
     W[f"Hand{side}"] += rem * np.clip(1.0 - w_mp - w_mr, 0.0, 1.0) * w_hand
     W[f"ForearmTwist{side}"] += rem * w_tw
 
-    # Сглаживание весов строго внутри каждого пальца и ладони (без перетекания между соседними пальцами!)
+    # Сглаживание весов строго внутри каждого пальца и ладони (плюс мягкий переход строго на нижней перепонке между пальцами,
+    # чтобы поднятый средний палец рядом с согнутым безымянным не рвал шов перепонки!)
     f_tag = np.full(n_v, -1, dtype=np.int32)
+    web_zone = np.zeros(n_v, dtype=bool)
     for fi, f in enumerate(f_names):
-        if (W[f"{f}01{side}"] + W[f"{f}02{side}"] + W[f"{f}03{side}"] > 0.4).any():
-            f_tag[(W[f"{f}01{side}"] + W[f"{f}02{side}"] + W[f"{f}03{side}"]) > 0.4] = fi
-    same = (f_tag[ea] == f_tag[eb]) | (f_tag[ea] == -1) | (f_tag[eb] == -1)
+        f_w = W[f"{f}01{side}"] + W[f"{f}02{side}"] + W[f"{f}03{side}"]
+        if (f_w > 0.4).any():
+            f_tag[f_w > 0.4] = fi
+        if f != "Thumb":
+            _, _, p1, _ = pt_seg_param_dist(co, *segs[f"{f}01{side}"])
+            web_zone |= (best_f == fi) & (p1 > -0.012) & (p1 < 0.009)
+    same = (f_tag[ea] == f_tag[eb]) | (f_tag[ea] == -1) | (f_tag[eb] == -1) | (web_zone[ea] & web_zone[eb])
     ea_s, eb_s = ea[same], eb[same]
     deg_s = np.zeros(n_v, dtype=np.float64)
     np.add.at(deg_s, ea_s, 1.0); np.add.at(deg_s, eb_s, 1.0)
-    for _ in range(4):
+    for _ in range(5):
         for name in W:
             arr = W[name]
             s = np.zeros(n_v, dtype=np.float64)
@@ -546,25 +554,26 @@ def assign_sleeve_weights(sleeve_ob, arm_ob, side):
 
 HAND_RELAXED = {
     "fingers": {
-        "Index":  (18, 22, 10, -4, 0),
-        "Middle": (22, 26, 12,  0, 0),
-        "Ring":   (26, 30, 14,  5, 0),
-        "Pinky":  (30, 34, 16, 12, 0),
+        "Index":  (18, 22, 10, -2.5, 0),
+        "Middle": (22, 26, 12,  0.0, 0),
+        "Ring":   (26, 30, 14,  2.0, 0),
+        "Pinky":  (30, 34, 16,  4.0, 0),
     },
     "thumb": (-12, 18, -14, -8, 0, -6),
-    "cup": 2.0,
+    "cup": 1.8,
 }
 
-# Лежащая на сукне расслабленная правая кисть: пальцы мягко собраны вместе и слегка вытянуты вдоль сукна.
+# Лежащая на сукне расслабленная правая кисть: основание ладони, большой палец и подушечки всех 4 пальцев
+# плотно и статично лежат прямо на красном сукне (~0.5–1.5 мм, без «парения» в воздухе и без проваливания в стол, 0 мм нахлёста пальцев).
 HAND_TABLE = {
     "fingers": {
-        "Index":  (10, 14,  6, -7, 0),
-        "Middle": (12, 16,  8, -1, 0),
-        "Ring":   (15, 18, 10,  5, 0),
-        "Pinky":  (18, 20, 12, 14, 0),
+        "Index":  ( 6, 12,  5, -3.0, 0),
+        "Middle": ( 6, 13,  5, -0.5, 0),
+        "Ring":   ( 7, 14,  6,  2.5, 0),
+        "Pinky":  ( 8, 12,  5,  6.5, 0),
     },
-    "thumb": (14, 4, 2, 8, 0, 6),
-    "cup": 1.0,
+    "thumb": (14, 6, 1, 5, 0, 4),
+    "cup": 0.8,
 }
 
 # «Класс» — ровно по 3D-модели автора Hand_Right_ThumbsUp.fbx / картинка-gemini.jpg:
@@ -620,40 +629,55 @@ HAND_FIST = {
     "cup": 3.5,
 }
 
-# Щипок (взятие карты из веера): подушечки большого и указательного пальцев смыкаются, остальные мягко поджаты.
+# Щипок (взятие карты из веера): подушечки большого и указательного пальцев оставляют чистый зазор ~0.7 мм под картон карты
+# (0.00 мм проникновения пальца в палец!), а средний, безымянный и мизинец лежат параллельным каскадом без пересечений.
 HAND_TAKE_CARD = {
     "fingers": {
-        "Index":  (46, 56, 36,  -4, 0),
-        "Middle": (64, 72, 46,   2, 0),
-        "Ring":   (74, 80, 52,   9, 0),
-        "Pinky":  (80, 84, 56,  20, 2),
+        "Index":  (44, 54, 32, -2.5, 0),
+        "Middle": (56, 66, 38,  0.0, 0),
+        "Ring":   (64, 72, 42,  1.5, 0),
+        "Pinky":  (68, 74, 40,  2.0, 0),
     },
-    "thumb": (-50, -68, 31, -19, 6, -25),
-    "cup": 6.0,
+    "thumb": (-42.6, -55.8, 26.2, -14.2, 4.0, -18.2),
+    "cup": 2.8,
 }
 
-# Хват веера (левая рука): большой палец уверенно прижимает веер спереди, остальные мягко поддерживают карты сзади.
+# Хват веера (левая рука): большой палец уверенно прижимает веер спереди, 4 пальца мягко и раздельно поддерживают карты сзади (0 мм коллизий).
 HAND_HOLD_FAN = {
     "fingers": {
-        "Index":  (38, 42, 22, -8, 0),
-        "Middle": (46, 52, 28,  1, 0),
-        "Ring":   (56, 62, 34,  8, 0),
-        "Pinky":  (66, 70, 40, 18, 2),
+        "Index":  (38, 42, 22, -4.5, 0),
+        "Middle": (46, 52, 28,  0.0, 0),
+        "Ring":   (55, 60, 32,  1.8, 0),
+        "Pinky":  (62, 66, 36,  2.5, 0),
     },
     "thumb": (-11, -22, -7, -6, 0, -6),
-    "cup": 6.0,
+    "cup": 3.2,
 }
 
-# Указание пальцем через стол.
+# Указание пальцем через стол («Указать» — прямой указательный стрелой, расслабленный естественный большой палец
+# вперёд-влево как на референсе, средний/безымянный/мизинец аккуратно собраны под ладонью; 0 вывернутых граней!).
 HAND_POINT = {
     "fingers": {
-        "Index":  ( 6,  8,  4, -8, 0),
-        "Middle": (94, 110, 74,  2, 0),
-        "Ring":   (96, 110, 75, 10, 2),
-        "Pinky":  (98, 110, 75, 22, 4),
+        "Index":  (-8, -6, -4, -4, 0),
+        "Middle": (80, 94, 48,  1, 0),
+        "Ring":   (80, 94, 46,  4, 0),
+        "Pinky":  (76, 88, 40,  5, 0),
     },
-    "thumb": (-48, -68, 42, -38, 12, -44),
-    "cup": 10.0,
+    "thumb": anat_thumb(-14, -18, 10, -12, -14),
+    "cup": 3.0,
+}
+
+# «Фак» (средний палец естественно и без переразгибания вверх, слегка укорочен в MiddleFingerSmooth до живой пропорции ~85 мм,
+# указательный/безымянный/мизинец мягко лежат на ладони без острой ступеньки у основания, ровное прямое запястье!).
+HAND_MIDDLE_FINGER = {
+    "fingers": {
+        "Index":  (75, 93, 46, -2, 0),
+        "Middle": ( 3,  5,  3,  0, 0),
+        "Ring":   (75, 93, 44,  2, 0),
+        "Pinky":  (73, 87, 38,  4, 0),
+    },
+    "thumb": anat_thumb(-40, -36, 26, -34, -26),
+    "cup": 2.5,
 }
 
 
@@ -709,12 +733,18 @@ def set_arm(armature, spec, side):
     elbow = wrist + spec["elbow_from_wrist"].normalized() * fore_len
     forward = (wrist - elbow).normalized()
     back_hand = spec["back"].normalized()
-    # Предплечье у локтя меньше крутится (половина угла — как живая рука, остальное докручивает ForearmTwist!)
+    # Предплечье у локтя меньше крутится (половина угла — как живая рука, остальное докручивает ForearmTwist;
+    # при вертикальной кисти с twist_blend=0.0 локоть выровнен по кисти, чтобы рукав не скручивался спиралью!).
     back_fore = (back_hand - forward * back_hand.dot(forward)).normalized()
+    twist_blend = float(spec.get("twist_blend", 0.4))
     up_ref = Vector((0, 0, 1))
-    up_perp = (up_ref - forward * up_ref.dot(forward)).normalized()
-    back_elbow = (up_perp * 0.4 + back_fore * 0.6).normalized()
-    back_elbow = (back_elbow - forward * back_elbow.dot(forward)).normalized()
+    up_perp = up_ref - forward * up_ref.dot(forward)
+    if twist_blend > 1e-4 and up_perp.length > 0.25:
+        up_perp = up_perp.normalized()
+        back_elbow = (up_perp * twist_blend + back_fore * (1.0 - twist_blend)).normalized()
+        back_elbow = (back_elbow - forward * back_elbow.dot(forward)).normalized()
+    else:
+        back_elbow = back_fore
 
     pb["Forearm" + side].matrix = bone_frame(elbow, forward, back_elbow)
     bpy.context.view_layer.update()
@@ -789,7 +819,11 @@ def mix_spec(a, b, t):
         if isinstance(x, dict):
             return {k: lerp(x[k], y[k], k) for k in x}
         return x.lerp(y, t)
-    res = {k: lerp(a[k], b[k], k) for k in a}
+    res = {k: lerp(a[k], b[k], k) for k in a if k in b}
+    if "twist_blend" in a or "twist_blend" in b:
+        ta = float(a.get("twist_blend", 0.4))
+        tb = float(b.get("twist_blend", 0.4))
+        res["twist_blend"] = ta + (tb - ta) * t
     for k in ("along", "back", "elbow_from_wrist"):
         res[k] = res[k].normalized()
     return res
@@ -828,12 +862,12 @@ LEFT_FAN = dict(
         in_game.on_fan( 0.029,  0.017, -0.0235),
     ),
 )
-# Правая рука лежит на сукне
+# Правая рука статично и плотно лежит на сукне: основание ладони и подушечки пальцев на ткани, рукав — на золотом ободе.
 RIGHT_TABLE = {
-    "wrist": in_game.on_table(0.19, 0.47, 0.044),
-    "along": in_game.table_dir(-0.36, 0.93, -0.04).normalized(),
-    "back": in_game.table_dir(-0.14, 0.05, 1.0).normalized(),
-    "elbow_from_wrist": in_game.table_dir(0.18, -0.34, 0.03).normalized(),
+    "wrist": in_game.on_table(0.195, 0.485, 0.0352),
+    "along": in_game.table_dir(-0.34, 0.94, 0.000).normalized(),
+    "back": in_game.table_dir(-0.12, 0.03, 1.0).normalized(),
+    "elbow_from_wrist": in_game.table_dir(0.19, -0.34, 0.058).normalized(),
     "hand": HAND_TABLE,
 }
 LEFT_TABLE = mirror_spec(RIGHT_TABLE)
@@ -849,14 +883,36 @@ THUMBS_DOWN_R = free_arm_spec((0.148, 0.392, -0.025), (0.270, 0.232, -0.142), -1
 # Кулак: рука вынесена вперёд над столом в 3/4, ясно видны костяшки и вся верхняя фаланга большого пальца с ногтем!
 FIST_R = free_arm_spec((0.145, 0.395, -0.055), (0.285, 0.250, -0.180), 72, 8, 6, HAND_FIST)
 
-# Вспомогательные позы для остальных жестов меню
-POINT_R = {
-    "wrist": in_game.on_table(0.15, 0.44, 0.14),
-    "along": in_game.table_dir(-0.15, 0.97, 0.18).normalized(),
-    "back": in_game.table_dir(0.25, -0.05, 1.0).normalized(),
-    "elbow_from_wrist": in_game.table_dir(0.25, -0.9, -0.35).normalized(),
-    "hand": HAND_POINT,
-}
+def orient_arm_spec(wrist, elbow, along, back, hand_pose):
+    """Задаёт точную позу руки по запястью, локтю, направлению кисти along и тылу back (ортогонализуя back к along)."""
+    wrist, elbow = Vector(wrist), Vector(elbow)
+    along = Vector(along).normalized()
+    back = Vector(back).normalized()
+    back = (back - along * back.dot(along)).normalized()
+    return {
+        "wrist": wrist, "along": along, "back": back,
+        "elbow_from_wrist": (elbow - wrist).normalized(),
+        "hand": hand_pose,
+    }
+
+
+# «Указать»: правая рука тылом вверх (как на референсе), прямой указательный стрелой на соперника, плавная перепонка к большому пальцу!
+POINT_R = orient_arm_spec(
+    (0.145, 0.370, -0.055), (0.290, 0.220, -0.175),
+    (-0.42, 0.83, 0.36), (0.28, -0.16, 0.94), HAND_POINT,
+)
+# «Фак»: строго вертикально к столу с почти соосным запястьем (~2,5° вместо 22°), чтобы вязаная манжета
+# сидела ровно по кругу без перекоса и не врезалась в основание кисти!
+MIDDLE_FINGER_R = dict(
+    orient_arm_spec(
+        in_game.on_table(0.115, 0.355, 0.242),
+        in_game.on_table(0.128, 0.338, 0.015),
+        in_game.table_dir(-0.02, 0.05, 0.998),
+        in_game.table_dir(0.05, 0.998, -0.05),
+        HAND_MIDDLE_FINGER,
+    ),
+    twist_blend=0.0,
+)
 TAP_UP_R = moved_spec(curl_spec(RIGHT_TABLE, 4), in_game.table_dir(0, 0, 0.025))
 TAP_DOWN_R = moved_spec(RIGHT_TABLE, in_game.table_dir(0, 0, 0.004))
 SHRUG_R = {
@@ -927,6 +983,8 @@ ALL_SHAPE_PROPS = (
     "thumbsup_smooth_L", "thumbsup_smooth_R",
     "fist_smooth_L", "fist_smooth_R",
     "thumbs_smooth_L", "thumbs_smooth_R",
+    "point_smooth_L", "point_smooth_R",
+    "middlefinger_smooth_L", "middlefinger_smooth_R",
 )
 
 
@@ -962,7 +1020,24 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
 
     v_part = ["Palm"] * n_v
     v_shaft = np.zeros(n_v, dtype=bool)
+    v_shaft_w = np.ones(n_v, dtype=np.float64)
+    v_thumb_distal_w = np.zeros(n_v, dtype=np.float64)
     joint_blend = np.zeros(n_v, dtype=np.float64)
+    extra_smooth_w = np.zeros(n_v, dtype=np.float64)
+    mf_web_w = np.zeros(n_v, dtype=np.float64)
+    mf_mid_w = np.zeros(n_v, dtype=np.float64)
+    mf_mid_proj = np.zeros(n_v, dtype=np.float64)
+    pip_rest_map = {f: np.array(arm_ob.data.bones[f"{f}02_R"].head_local, dtype=np.float64)
+                    for f in ("Index", "Middle", "Ring", "Pinky")}
+    dip_rest_map = {f: np.array(arm_ob.data.bones[f"{f}03_R"].head_local, dtype=np.float64)
+                    for f in ("Index", "Middle", "Ring", "Pinky")}
+    mid_b01 = arm_ob.data.bones["Middle01_R"]
+    mid_mcp_rest = np.array(mid_b01.head_local, dtype=np.float64)
+    mid_tip_rest = np.array(arm_ob.data.bones["TipMiddle_R"].tail_local, dtype=np.float64)
+    mid_axis_rest = mid_tip_rest - mid_mcp_rest
+    mid_len_rest = max(float(np.linalg.norm(mid_axis_rest)), 1e-6)
+    mid_axis_rest /= mid_len_rest
+    is_mf_pose = label == "MiddleFingerSmooth"
     for i, v in enumerate(hand_r.data.vertices):
         if not v.groups:
             continue
@@ -971,6 +1046,19 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
         ws = sorted([g.weight for g in v.groups], reverse=True)
         if len(ws) >= 2 and ws[1] > 0.12:
             joint_blend[i] = min(1.0, (ws[1] - 0.12) / 0.30)
+        if is_mf_pose:
+            w_m = sum(g.weight for g in v.groups if vg_names[g.group].startswith("Middle0"))
+            mf_mid_w[i] = w_m
+            rel_m = co_rest[i] - mid_mcp_rest
+            pm = float(rel_m @ mid_axis_rest)
+            mf_mid_proj[i] = pm
+            rm = float(np.linalg.norm(rel_m - pm * mid_axis_rest))
+            # Широкая плавная зона основания среднего пальца и обеих межпальцевых перепонок (Index-Middle и Ring-Middle):
+            # захватывает всю складку от -10 мм до +28 мм по оси пальца и до 24 мм в стороны — без резких границ!
+            if -0.012 < pm < 0.032 and rm < 0.026:
+                w_ax = float(smoothstep(-0.012, 0.002, pm)) * (1.0 - float(smoothstep(0.016, 0.032, pm)))
+                w_rad = 1.0 - float(smoothstep(0.011, 0.026, rm))
+                mf_web_w[i] = w_ax * w_rad
         for f in ("Index", "Middle", "Ring", "Pinky", "Thumb"):
             if bn.startswith(f):
                 v_part[i] = f
@@ -978,9 +1066,35 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
                 h = np.array(b01.head_local, dtype=np.float64)
                 u = np.array(b01.tail_local, dtype=np.float64) - h
                 u /= max(np.linalg.norm(u), 1e-9)
-                if (co_rest[i] - h) @ u > (0.022 if f == "Thumb" else 0.016):
-                    v_shaft[i] = True
+                proj = (co_rest[i] - h) @ u
+                if f == "Thumb":
+                    # Разводим только фаланги Thumb02/Thumb03 (плавно с 36 до 48 мм от основания Thumb01),
+                    # чтобы никогда не рвать основание большого пальца от ладони треугольной ступенькой!
+                    if proj > 0.036:
+                        v_shaft[i] = True
+                        v_thumb_distal_w[i] = min(1.0, (proj - 0.036) / 0.012)
+                else:
+                    if is_mf_pose:
+                        # Плавный вход без жёсткой ступеньки на 16 мм у основания среднего пальца!
+                        if proj > 0.012:
+                            v_shaft[i] = True
+                            v_shaft_w[i] = float(smoothstep(0.012, 0.028, proj))
+                    else:
+                        if proj > 0.016:
+                            v_shaft[i] = True
+                    # Плавное объёмное сглаживание на согнутых суставах PIP и DIP ВСЕХ пальцев
+                    mcp_a, pip_a, dip_a, _, _ = hand_pose["fingers"][f]
+                    if pip_a > 45:
+                        d_pip = np.linalg.norm(co_rest[i] - pip_rest_map[f])
+                        if d_pip < 0.015:
+                            extra_smooth_w[i] = max(extra_smooth_w[i], 1.0 - d_pip / 0.015)
+                    if dip_a > 30:
+                        d_dip = np.linalg.norm(co_rest[i] - dip_rest_map[f])
+                        if d_dip < 0.012:
+                            extra_smooth_w[i] = max(extra_smooth_w[i], 0.85 * (1.0 - d_dip / 0.012))
                 break
+        if is_mf_pose and mf_web_w[i] > 0.0:
+            extra_smooth_w[i] = max(extra_smooth_w[i], 0.95 * mf_web_w[i])
 
     ea = np.array([e.vertices[0] for e in hand_r.data.edges], dtype=np.int32)
     eb = np.array([e.vertices[1] for e in hand_r.data.edges], dtype=np.int32)
@@ -1032,6 +1146,18 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
         np.add.at(avg2, ea, co_tgt[eb]); np.add.at(avg2, eb, co_tgt[ea])
         avg2 /= deg_safe[:, None]
         co_tgt = co_tgt - (w * 0.92) * (avg2 - co_tgt)
+    if extra_smooth_w.any():
+        # Дополнительное сохраняющее объём Таубин-сглаживание на костяшке мизинца (PIP) и перепонке среднего пальца
+        for _ in range(8):
+            avg = np.zeros_like(co_tgt)
+            np.add.at(avg, ea, co_tgt[eb]); np.add.at(avg, eb, co_tgt[ea])
+            avg /= deg_safe[:, None]
+            wp = (extra_smooth_w * 0.55)[:, None]
+            co_tgt = co_tgt + wp * (avg - co_tgt)
+            avg2 = np.zeros_like(co_tgt)
+            np.add.at(avg2, ea, co_tgt[eb]); np.add.at(avg2, eb, co_tgt[ea])
+            avg2 /= deg_safe[:, None]
+            co_tgt = co_tgt - (wp * 0.96) * (avg2 - co_tgt)
 
     # 2. Физическое разведение наложений ПОСЛЕ сглаживания (5 проходов; 8 для кулака, чтобы большой палец лёг ровно с 0 мм коллизий)
     finger_clr = 0.0004
@@ -1049,7 +1175,7 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
                     if loc is not None:
                         signed = (pt - loc).dot(norm)
                         if signed < finger_clr and dist < 0.008:
-                            push[vi] += np.array(norm, dtype=np.float64) * ((finger_clr - signed) * 0.55)
+                            push[vi] += np.array(norm, dtype=np.float64) * ((finger_clr - signed) * 0.55 * v_shaft_w[vi])
         bvh_palm = bvhs["Palm"]
         for f in ("Index", "Middle", "Ring", "Pinky"):
             for vi in idx_map[f]:
@@ -1060,21 +1186,55 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
                     if signed < palm_clr and dist < 0.009:
                         push[vi] += np.array(norm, dtype=np.float64) * ((palm_clr - signed) * 0.90)
         if resolve_thumb:
-            # В кулаке большой палец мягко прилегает поверх указательного и среднего, никогда не проваливаясь внутрь них!
-            for dst_p in ("Index", "Middle", "Palm"):
+            # Разводим только верхние фаланги большого пальца (Thumb02/Thumb03) от указательного и среднего,
+            # НЕ трогая основание Thumb01 у ладони (никаких острых треугольных выступов!).
+            for dst_p in ("Index", "Middle"):
                 bvh_dst = bvhs[dst_p]
-                clr_t = 0.0014 if dst_p != "Palm" else 0.0015
+                clr_t = 0.0013
                 for vi in idx_map["Thumb"]:
+                    w_t = v_thumb_distal_w[vi]
+                    if w_t <= 0.0:
+                        continue
                     pt = Vector(co_tgt[vi])
                     loc, norm, _, dist = bvh_dst.find_nearest(pt)
                     if loc is not None:
                         signed = (pt - loc).dot(norm)
                         if signed < clr_t and dist < 0.012:
-                            push[vi] += np.array(norm, dtype=np.float64) * ((clr_t - signed) * 0.90)
-        s = np.zeros_like(push)
-        np.add.at(s, ea, push[eb]); np.add.at(s, eb, push[ea])
-        push = 0.72 * push + 0.28 * (s / deg_safe[:, None])
+                            push[vi] += np.array(norm, dtype=np.float64) * ((clr_t - signed) * 0.85 * w_t)
+        for _ in range(2 if resolve_thumb else 1):
+            s = np.zeros_like(push)
+            np.add.at(s, ea, push[eb]); np.add.at(s, eb, push[ea])
+            push = (0.64 * push + 0.36 * (s / deg_safe[:, None])) if resolve_thumb else (0.72 * push + 0.28 * (s / deg_safe[:, None]))
         co_tgt += push
+
+    if is_mf_pose:
+        # 2b. Пост-сглаживание основания среднего пальца и перепонок (ПОСЛЕ солвера коллизий!), чтобы полностью убрать
+        # острые вертикальные грани и ступеньки между поднятым средним и согнутыми указательным/безымянным пальцами.
+        for _ in range(12):
+            avg = np.zeros_like(co_tgt)
+            np.add.at(avg, ea, co_tgt[eb]); np.add.at(avg, eb, co_tgt[ea])
+            avg /= deg_safe[:, None]
+            wm = (mf_web_w * 0.52)[:, None]
+            co_tgt = co_tgt + wm * (avg - co_tgt)
+            avg2 = np.zeros_like(co_tgt)
+            np.add.at(avg2, ea, co_tgt[eb]); np.add.at(avg2, eb, co_tgt[ea])
+            avg2 /= deg_safe[:, None]
+            # Лёгкая релаксация (0.82 вместо 0.98) мягко снимает острый гребень растянутой перепонки, сохраняя округлость!
+            co_tgt = co_tgt - (wm * 0.82) * (avg2 - co_tgt)
+
+        # 2c. Плавное анатомическое укорачивание среднего пальца в «факе» (~10 мм, с 95,7 до ~85,5 мм):
+        # равномерное сжатие по длине 3 фаланг (10..84 мм от основания), а подушечка и ноготь (>84 мм)
+        # сдвигаются как жёсткий круглый кончик без сплющивания!
+        pb_m1 = arm_ob.pose.bones["Middle01_R"]
+        pb_mt = arm_ob.pose.bones["TipMiddle_R"]
+        u_pose = np.array(pb_mt.tail - pb_m1.head, dtype=np.float64)
+        u_pose /= max(float(np.linalg.norm(u_pose)), 1e-6)
+        p0, p1_s = 0.010, 0.084
+        shrink_total = 0.0105  # 10,5 мм короче — идеальная живая пропорция среднего пальца
+        t_s = np.clip((mf_mid_proj - p0) / max(p1_s - p0, 1e-6), 0.0, 1.0)
+        # Плавный C1-профиль укорочения (0 у перепонки -> shrink_total на кончике без излома на стыке фаланг)
+        shift_len = shrink_total * (0.65 * t_s + 0.35 * (t_s * t_s * (3.0 - 2.0 * t_s))) * smoothstep(0.008, 0.022, mf_mid_proj)
+        co_tgt -= (shift_len * mf_mid_w)[:, None] * u_pose[None, :]
 
     report_collisions("AFTER_SOLVED", co_tgt)
 
@@ -1108,20 +1268,23 @@ def _solve_pose_corrective_delta(arm_ob, hand_r, hand_pose, label, resolve_thumb
         else:
             delta_rest_r[i] = dp
     norms = np.linalg.norm(delta_rest_r, axis=1)
-    over = norms > 0.014
+    max_cap = 0.016 if is_mf_pose else 0.014
+    over = norms > max_cap
     if over.any():
-        delta_rest_r[over] *= (0.014 / norms[over])[:, None]
+        delta_rest_r[over] *= (max_cap / norms[over])[:, None]
     print(f"=== {label} baked: max_delta={norms.max()*1000:.2f} mm, mean={norms[norms>1e-5].mean()*1000:.2f} mm", flush=True)
     return delta_rest_r
 
 
 def bake_thumbsup_corrective_shape(arm_ob, hand_r, hand_l):
-    """Запекает корректирующие формы ThumbsUpSmooth («Класс»), FistSmooth («Кулак») и ThumbsSmooth («Фу»)
-    для обеих рук с драйверами на свойствах скелета."""
+    """Запекает корректирующие формы ThumbsUpSmooth («Класс»), FistSmooth («Кулак»), ThumbsSmooth («Фу»),
+    PointSmooth («Указать») и MiddleFingerSmooth («Фак») для обеих рук с драйверами на свойствах скелета."""
     shapes = [
-        ("ThumbsUpSmooth", "thumbsup_smooth", HAND_THUMBS_UP,   False),
-        ("FistSmooth",     "fist_smooth",     HAND_FIST,        True),
-        ("ThumbsSmooth",   "thumbs_smooth",   HAND_THUMBS_DOWN, False),
+        ("ThumbsUpSmooth",     "thumbsup_smooth",     HAND_THUMBS_UP,     False),
+        ("FistSmooth",         "fist_smooth",         HAND_FIST,          True),
+        ("ThumbsSmooth",       "thumbs_smooth",       HAND_THUMBS_DOWN,   False),
+        ("PointSmooth",        "point_smooth",        HAND_POINT,         False),
+        ("MiddleFingerSmooth", "middlefinger_smooth", HAND_MIDDLE_FINGER, True),
     ]
     deltas = [(name, prop, _solve_pose_corrective_delta(arm_ob, hand_r, pose, name, resolve_thumb=rt))
               for name, prop, pose, rt in shapes]
@@ -1192,9 +1355,90 @@ def key_pose_action(armature, name, setup_fn):
     reset_all_bones(armature)
 
 
+def _pack_spec_vec(spec, has_tt):
+    f = spec["hand"]["fingers"]
+    vals = [
+        *spec["wrist"], *spec["along"], *spec["back"], *spec["elbow_from_wrist"],
+        *f["Index"], *f["Middle"], *f["Ring"], *f["Pinky"],
+        *_thumb9(spec["hand"]["thumb"]),
+        float(spec["hand"].get("cup", 0.0)),
+        float(spec.get("twist_blend", 0.4)),
+    ]
+    if has_tt:
+        for p in spec["thumb_targets"]:
+            vals.extend(p)
+    return np.array(vals, dtype=np.float64)
+
+
+def _unpack_spec_vec(v, has_tt):
+    res = {
+        "wrist": Vector(v[0:3]),
+        "along": Vector(v[3:6]).normalized(),
+        "back": Vector(v[6:9]).normalized(),
+        "elbow_from_wrist": Vector(v[9:12]).normalized(),
+        "hand": {
+            "fingers": {
+                "Index":  tuple(float(x) for x in v[12:17]),
+                "Middle": tuple(float(x) for x in v[17:22]),
+                "Ring":   tuple(float(x) for x in v[22:27]),
+                "Pinky":  tuple(float(x) for x in v[27:32]),
+            },
+            "thumb": tuple(float(x) for x in v[32:41]),
+            "cup": float(v[41]),
+        },
+        "twist_blend": float(v[42]),
+    }
+    if has_tt:
+        res["thumb_targets"] = (Vector(v[43:46]), Vector(v[46:49]), Vector(v[49:52]))
+    return res
+
+
+def _build_pchip_evaluator(times, specs):
+    """Монотонный кубический сплайн Эрмита (Fritsch-Carlson PCHIP): C1-непрерывная скорость через промежуточные фазы
+    подъёма/сгибания (без микро-остановок!) и строго нулевой перелёт (0% overshoot) на полках и у сукна стола."""
+    has_tt = all("thumb_targets" in s and s["thumb_targets"] for s in specs)
+    T = np.asarray(times, dtype=np.float64)
+    Y = np.stack([_pack_spec_vec(s, has_tt) for s in specs], axis=0)
+    m = len(T)
+    D = np.zeros_like(Y)
+    if m > 2:
+        h = (T[1:] - T[:-1])[:, None]
+        sec = (Y[1:] - Y[:-1]) / np.maximum(h, 1e-9)
+        for k in range(1, m - 1):
+            s0, s1 = sec[k - 1], sec[k]
+            h0, h1 = h[k - 1, 0], h[k, 0]
+            w1 = 2.0 * h1 + h0
+            w2 = h1 + 2.0 * h0
+            mono = (s0 * s1) > 1e-12
+            s0_safe = np.where(mono, s0, 1.0)
+            s1_safe = np.where(mono, s1, 1.0)
+            D[k] = np.where(mono, (w1 + w2) / (w1 / s0_safe + w2 / s1_safe), 0.0)
+
+    def eval_at(tq):
+        if tq <= T[0]:
+            return _unpack_spec_vec(Y[0], has_tt)
+        if tq >= T[-1]:
+            return _unpack_spec_vec(Y[-1], has_tt)
+        i = int(np.searchsorted(T, tq, side="right")) - 1
+        i = max(0, min(m - 2, i))
+        dt = max(T[i + 1] - T[i], 1e-9)
+        u = (tq - T[i]) / dt
+        u2 = u * u
+        u3 = u2 * u
+        val = (
+            (2.0 * u3 - 3.0 * u2 + 1.0) * Y[i]
+            + (u3 - 2.0 * u2 + u) * dt * D[i]
+            + (-2.0 * u3 + 3.0 * u2) * Y[i + 1]
+            + (u3 - u2) * dt * D[i + 1]
+        )
+        return _unpack_spec_vec(val, has_tt)
+
+    return eval_at
+
+
 def bake_clip(armature, name, keys, shape_fn=None, shape_prop="thumbsup_smooth"):
-    """Запекает каждый кадр клипа [(frame, left_spec, right_spec), ...] с плавным smoothstep между ключами
-    и (опционально) весами корректирующей формы shape_prop (остальные формы держатся в 0)."""
+    """Запекает клип на 60 FPS по непрерывному сплайну PCHIP между ключами [(t30, left_spec, right_spec), ...]
+    без ступенчатых остановок на промежуточных ключах и с плавными весами корректирующей формы shape_prop."""
     old = bpy.data.actions.get(name)
     if old:
         bpy.data.actions.remove(old)
@@ -1204,15 +1448,15 @@ def bake_clip(armature, name, keys, shape_fn=None, shape_prop="thumbsup_smooth")
     armature.animation_data.action = action
     prev = {}
 
-    def gen_frames():
-        for (f0, l0, r0), (f1, l1, r1) in zip(keys, keys[1:]):
-            for fr in range(f0, f1):
-                t = (fr - f0) / max(1, f1 - f0)
-                t = t * t * (3.0 - 2.0 * t)
-                yield fr, mix_spec(l0, l1, t), mix_spec(r0, r1, t)
-        yield keys[-1]
+    times = [float(k[0]) for k in keys]
+    eval_l = _build_pchip_evaluator(times, [k[1] for k in keys])
+    eval_r = _build_pchip_evaluator(times, [k[2] for k in keys])
+    total_sub = int(round(times[-1] * FPS_SUB))
 
-    for fr, ls, rs in gen_frames():
+    for sub_fr in range(total_sub + 1):
+        t30 = sub_fr / FPS_SUB
+        ls = eval_l(t30)
+        rs = eval_r(t30)
         reset_all_bones(armature)
         set_arm(armature, ls, "_L")
         set_arm(armature, rs, "_R")
@@ -1223,14 +1467,80 @@ def bake_clip(armature, name, keys, shape_fn=None, shape_prop="thumbsup_smooth")
             eu = pb.matrix_basis.to_euler("XYZ", prev[pb.name]) if pb.name in prev else pb.matrix_basis.to_euler("XYZ")
             prev[pb.name] = eu
             pb.rotation_euler = eu
-            pb.keyframe_insert("rotation_euler", frame=fr + 1)
-            pb.keyframe_insert("location", frame=fr + 1)
-        wl, wr = shape_fn(fr) if shape_fn is not None else (0.0, 0.0)
+            pb.keyframe_insert("rotation_euler", frame=sub_fr + 1)
+            pb.keyframe_insert("location", frame=sub_fr + 1)
+        wl, wr = shape_fn(t30) if shape_fn is not None else (0.0, 0.0)
         active = {shape_prop + "_L": wl, shape_prop + "_R": wr}
         for prop in ALL_SHAPE_PROPS:
             if prop in armature:
                 armature[prop] = float(active.get(prop, 0.0))
-                armature.keyframe_insert(f'["{prop}"]', frame=fr + 1)
+                armature.keyframe_insert(f'["{prop}"]', frame=sub_fr + 1)
+    armature.animation_data.action = None
+    reset_all_bones(armature)
+
+
+def bake_idle_finger_tap(armature):
+    """Небольшая фоновая анимация ожидания хода (Take_IdleFingerTap, 60 FPS):
+    ладонь, запястье и большой палец статично лежат на сукне, а 4 пальца делают две живые мягкие
+    волны постукивания по столу (Мизинец -> Безымянный -> Средний -> Указательный) и спокойно ложатся обратно."""
+    name = "Take_IdleFingerTap"
+    old = bpy.data.actions.get(name)
+    if old:
+        bpy.data.actions.remove(old)
+    action = bpy.data.actions.new(name)
+    action.use_fake_user = True
+    armature.animation_data_create()
+    armature.animation_data.action = action
+
+    # Две мягкие ритмичные волны барабана пальцами: (время старта в 30fps-единицах, угол подъёма в MCP)
+    waves = {
+        "Pinky":  [(6.0, 15.0), (40.0, 14.0)],
+        "Ring":   [(10.5, 16.5), (44.5, 15.5)],
+        "Middle": [(15.0, 17.5), (49.0, 16.5)],
+        "Index":  [(19.5, 16.0), (53.5, 15.0)],
+    }
+    dur_up, dur_down = 7.5, 5.5
+    total_t30 = 80
+    total_sub = total_t30 * FPS_SUB
+    prev = {}
+
+    def finger_pulse(fr, pulses):
+        lift = 0.0
+        for t0, amp in pulses:
+            dt = fr - t0
+            if 0.0 <= dt < dur_up:
+                u = dt / dur_up
+                lift = max(lift, amp * 0.5 * (1.0 - math.cos(math.pi * u)))
+            elif dur_up <= dt < dur_up + dur_down:
+                v = (dt - dur_up) / dur_down
+                lift = max(lift, amp * 0.5 * (1.0 + math.cos(math.pi * (v ** 1.15))))
+        return lift
+
+    for sub_fr in range(total_sub + 1):
+        fr = sub_fr / FPS_SUB
+        rs = copy.deepcopy(RIGHT_TABLE)
+        rs["hand"] = copy.deepcopy(HAND_TABLE)
+        for fname, pulses in waves.items():
+            lift = finger_pulse(fr, pulses)
+            if lift > 1e-4:
+                mcp, pip, dip, sp, rl = HAND_TABLE["fingers"][fname]
+                rs["hand"]["fingers"][fname] = (mcp - lift, pip + lift * 0.24, dip + lift * 0.08, sp, rl)
+        reset_all_bones(armature)
+        set_arm(armature, LEFT_FAN, "_L")
+        set_arm(armature, rs, "_R")
+        for pb in armature.pose.bones:
+            if pb.name == "Root" or "Socket" in pb.name:
+                continue
+            pb.rotation_mode = "XYZ"
+            eu = pb.matrix_basis.to_euler("XYZ", prev[pb.name]) if pb.name in prev else pb.matrix_basis.to_euler("XYZ")
+            prev[pb.name] = eu
+            pb.rotation_euler = eu
+            pb.keyframe_insert("rotation_euler", frame=sub_fr + 1)
+            pb.keyframe_insert("location", frame=sub_fr + 1)
+        for prop in ALL_SHAPE_PROPS:
+            if prop in armature:
+                armature[prop] = 0.0
+                armature.keyframe_insert(f'["{prop}"]', frame=sub_fr + 1)
     armature.animation_data.action = None
     reset_all_bones(armature)
 
@@ -1245,118 +1555,163 @@ def build_all_animations(armature):
     key_pose_action(armature, "Pose_TakeCard", lambda: (pose_fingers(armature, HAND_TAKE_CARD, "_L"), pose_fingers(armature, HAND_TAKE_CARD, "_R")))
     key_pose_action(armature, "Pose_PlayCard", lambda: (pose_fingers(armature, HAND_TAKE_CARD, "_L"), pose_fingers(armature, HAND_TAKE_CARD, "_R")))
     key_pose_action(armature, "Pose_Point", lambda: (pose_fingers(armature, HAND_POINT, "_L"), pose_fingers(armature, HAND_POINT, "_R")))
+    key_pose_action(armature, "Pose_MiddleFinger", lambda: (pose_fingers(armature, HAND_MIDDLE_FINGER, "_L"), pose_fingers(armature, HAND_MIDDLE_FINGER, "_R")))
     key_pose_action(armature, "Pose_TapTable", lambda: (pose_fingers(armature, HAND_TABLE, "_L"), pose_fingers(armature, HAND_TABLE, "_R")))
     key_pose_action(armature, "Pose_Fist", lambda: (pose_fingers(armature, HAND_FIST, "_L"), pose_fingers(armature, HAND_FIST, "_R")))
 
     # 2. Игровые клипы Take_*
-    # Дыхание и покой
+    # Дыхание и покой: левая рука с веером мягко дышит, правая статично и плотно лежит на сукне (не парит!).
     bake_clip(armature, "Take_Idle", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (40, moved_spec(LEFT_FAN, in_game.FAN_UP * 0.002), curl_spec(moved_spec(RIGHT_TABLE, in_game.table_dir(0, 0, 0.003)), 1)),
-        (80, moved_spec(LEFT_FAN, in_game.FAN_UP * -0.0015), curl_spec(RIGHT_TABLE, -1)),
+        (40, moved_spec(LEFT_FAN, in_game.FAN_UP * 0.002), RIGHT_TABLE),
+        (80, moved_spec(LEFT_FAN, in_game.FAN_UP * -0.0015), RIGHT_TABLE),
         (120, LEFT_FAN, RIGHT_TABLE),
     ])
     bake_clip(armature, "Take_TableRest", [
         (0, LEFT_TABLE, RIGHT_TABLE),
-        (40, moved_spec(LEFT_TABLE, in_game.table_dir(0, 0, 0.003)), moved_spec(RIGHT_TABLE, in_game.table_dir(0, 0, 0.003))),
-        (80, curl_spec(LEFT_TABLE, -1), curl_spec(RIGHT_TABLE, -1)),
+        (60, LEFT_TABLE, RIGHT_TABLE),
         (120, LEFT_TABLE, RIGHT_TABLE),
     ])
+    bake_idle_finger_tap(armature)
     bake_clip(armature, "Take_HoldCards", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (20, curl_spec(moved_spec(LEFT_FAN, in_game.FAN_UP * 0.004), 3), RIGHT_TABLE),
-        (48, curl_spec(LEFT_FAN, 1), RIGHT_TABLE),
-        (72, LEFT_FAN, RIGHT_TABLE),
+        (24, curl_spec(moved_spec(LEFT_FAN, in_game.FAN_UP * 0.0035), 2.5), RIGHT_TABLE),
+        (54, curl_spec(LEFT_FAN, 0.8), RIGHT_TABLE),
+        (80, LEFT_FAN, RIGHT_TABLE),
     ])
     bake_clip(armature, "Take_DrawCard", [
-        (0, LEFT_FAN, RIGHT_TABLE), (16, LEFT_FAN, TOWARD_DECK_R), (22, LEFT_FAN, curl_spec(TOWARD_DECK_R, 6)),
-        (40, LEFT_FAN, AT_FAN_R), (48, LEFT_FAN, curl_spec(AT_FAN_R, -8)), (64, LEFT_FAN, RIGHT_TABLE),
+        (0, LEFT_FAN, RIGHT_TABLE), (18, LEFT_FAN, TOWARD_DECK_R), (25, LEFT_FAN, curl_spec(TOWARD_DECK_R, 5)),
+        (44, LEFT_FAN, AT_FAN_R), (52, LEFT_FAN, curl_spec(AT_FAN_R, -6)), (70, LEFT_FAN, RIGHT_TABLE),
     ])
     bake_clip(armature, "Take_PlayCard", [
-        (0, LEFT_FAN, RIGHT_TABLE), (14, LEFT_FAN, AT_FAN_R), (18, LEFT_FAN, curl_spec(AT_FAN_R, 6)),
-        (32, LEFT_FAN, OVER_TABLE_R), (36, LEFT_FAN, curl_spec(OVER_TABLE_R, -12)), (54, LEFT_FAN, RIGHT_TABLE),
+        (0, LEFT_FAN, RIGHT_TABLE), (16, LEFT_FAN, AT_FAN_R), (21, LEFT_FAN, curl_spec(AT_FAN_R, 5)),
+        (36, LEFT_FAN, OVER_TABLE_R), (41, LEFT_FAN, curl_spec(OVER_TABLE_R, -10)), (60, LEFT_FAN, RIGHT_TABLE),
     ])
+    # «Указать» (Take_Point): непрерывный плавный подъём без микро-остановок, два мягких акцента и плавный возврат.
+    def shape_in_game_point(fr):
+        if fr <= 9 or fr >= 94: return (0.0, 0.0)
+        if fr < 23: s = float(smoothstep(9.0, 23.0, fr)); return (0.0, s * s)
+        if fr <= 82: return (0.0, 1.0)
+        s = float(smoothstep(94.0, 82.0, fr)); return (0.0, s * s)
+    POINT_BEAT_R = moved_spec(POINT_R, Vector((-0.010, 0.022, 0.010)))
     bake_clip(armature, "Take_Point", [
-        (0, LEFT_FAN, RIGHT_TABLE), (6, LEFT_FAN, HOVER_R), (15, LEFT_FAN, POINT_R),
-        (23, LEFT_FAN, moved_spec(POINT_R, in_game.table_dir(-0.004, 0.025, 0.006))), (31, LEFT_FAN, POINT_R),
-        (46, LEFT_FAN, POINT_R), (56, LEFT_FAN, HOVER_R), (66, LEFT_FAN, RIGHT_TABLE),
-    ])
+        (0, LEFT_FAN, RIGHT_TABLE),
+        (10, LEFT_FAN, IDLE_TEST_R),
+        (23, LEFT_FAN, POINT_R),
+        (34, LEFT_FAN, POINT_BEAT_R),
+        (47, LEFT_FAN, POINT_R),
+        (60, LEFT_FAN, moved_spec(POINT_R, Vector((-0.006, 0.014, 0.007)))),
+        (73, LEFT_FAN, POINT_R),
+        (82, LEFT_FAN, POINT_R),
+        (93, LEFT_FAN, IDLE_TEST_R),
+        (106, LEFT_FAN, RIGHT_TABLE),
+    ], shape_fn=shape_in_game_point, shape_prop="point_smooth")
+
+    # «Фак» (Take_MiddleFinger): большой палец ждёт снаружи, пока указательный уходит под ладонь (0 мм пересечений!).
+    MF_HALF_HAND = copy.deepcopy(HAND_MIDDLE_FINGER)
+    MF_HALF_HAND["thumb"] = anat_thumb(-12, -10, 14, -8, -10)
+    MF_HALF_R = dict(
+        orient_arm_spec(
+            in_game.on_table(0.135, 0.365, 0.195),
+            in_game.on_table(0.150, 0.340, -0.010),
+            in_game.table_dir(-0.04, 0.14, 0.988),
+            in_game.table_dir(0.08, 0.988, -0.14),
+            MF_HALF_HAND,
+        ),
+        twist_blend=0.0,
+    )
+    def shape_in_game_mf(fr):
+        if fr <= 9 or fr >= 100: return (0.0, 0.0)
+        if fr < 25: s = float(smoothstep(9.0, 25.0, fr)); return (0.0, s * s)
+        if fr <= 88: return (0.0, 1.0)
+        s = float(smoothstep(100.0, 88.0, fr)); return (0.0, s * s)
+    bake_clip(armature, "Take_MiddleFinger", [
+        (0, LEFT_FAN, RIGHT_TABLE),
+        (9, LEFT_FAN, IDLE_TEST_R),
+        (16, LEFT_FAN, MF_HALF_R),
+        (25, LEFT_FAN, MIDDLE_FINGER_R),
+        (36, LEFT_FAN, moved_spec(MIDDLE_FINGER_R, Vector((-0.004, 0.014, 0.016)))),
+        (58, LEFT_FAN, MIDDLE_FINGER_R),
+        (74, LEFT_FAN, moved_spec(MIDDLE_FINGER_R, Vector((-0.003, 0.008, 0.010)))),
+        (88, LEFT_FAN, MIDDLE_FINGER_R),
+        (96, LEFT_FAN, MF_HALF_R),
+        (102, LEFT_FAN, IDLE_TEST_R),
+        (114, LEFT_FAN, RIGHT_TABLE),
+    ], shape_fn=shape_in_game_mf, shape_prop="middlefinger_smooth")
     bake_clip(armature, "Take_TapTable", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (6, LEFT_FAN, TAP_UP_R), (10, LEFT_FAN, TAP_DOWN_R),
-        (16, LEFT_FAN, TAP_UP_R), (20, LEFT_FAN, TAP_DOWN_R),
-        (26, LEFT_FAN, TAP_UP_R), (30, LEFT_FAN, TAP_DOWN_R),
-        (44, LEFT_FAN, RIGHT_TABLE),
+        (7, LEFT_FAN, TAP_UP_R), (12, LEFT_FAN, TAP_DOWN_R),
+        (18, LEFT_FAN, TAP_UP_R), (23, LEFT_FAN, TAP_DOWN_R),
+        (29, LEFT_FAN, TAP_UP_R), (34, LEFT_FAN, TAP_DOWN_R),
+        (48, LEFT_FAN, RIGHT_TABLE),
     ])
     bake_clip(armature, "Take_Shrug", [
-        (0, LEFT_FAN, RIGHT_TABLE), (14, SHRUG_L, SHRUG_R), (38, SHRUG_L, curl_spec(SHRUG_R, -3)), (54, LEFT_FAN, RIGHT_TABLE),
+        (0, LEFT_FAN, RIGHT_TABLE), (16, SHRUG_L, SHRUG_R), (40, SHRUG_L, curl_spec(SHRUG_R, -3)), (58, LEFT_FAN, RIGHT_TABLE),
     ])
 
-    # ГЛАВНАЯ АНИМАЦИЯ «КЛАСС» (Take_ThumbsUp):
-    # Правая рука лежит на сукне -> прямо в кадре поднимается над столом -> плавно разворачивается и сжимает 4 пальца,
-    # вытягивая большой палец ровно по модели автора -> живое покачивание ~2.2 сек -> плавно разжимается и ложится обратно!
+    # ГЛАВНАЯ АНИМАЦИЯ «КЛАСС» (Take_ThumbsUp): непрерывный плавный подъём через сплайн без остановок.
     THUMBS_LIFT_R = mix_spec(IDLE_TEST_R, THUMBS_UP_R, 0.35)
     def shape_in_game_thumbs(fr):
-        if fr <= 10 or fr >= 98:
+        if fr <= 10 or fr >= 102:
             return (0.0, 0.0)
-        if fr < 22:
-            s = float(smoothstep(10.0, 22.0, fr))
+        if fr < 25:
+            s = float(smoothstep(10.0, 25.0, fr))
             return (0.0, s * s)
-        if fr <= 90:
+        if fr <= 92:
             return (0.0, 1.0)
-        s = float(smoothstep(98.0, 90.0, fr))
+        s = float(smoothstep(102.0, 92.0, fr))
         return (0.0, s * s)
     bake_clip(armature, "Take_ThumbsUp", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (8, LEFT_FAN, IDLE_TEST_R),
-        (14, LEFT_FAN, THUMBS_LIFT_R),
-        (22, LEFT_FAN, THUMBS_UP_R),
-        (32, LEFT_FAN, moved_spec(THUMBS_UP_R, in_game.table_dir(0, 0.008, 0.012))),
-        (58, LEFT_FAN, THUMBS_UP_R),
-        (76, LEFT_FAN, moved_spec(THUMBS_UP_R, in_game.table_dir(0, 0.005, 0.007))),
-        (90, LEFT_FAN, THUMBS_UP_R),
-        (98, LEFT_FAN, IDLE_TEST_R),
-        (110, LEFT_FAN, RIGHT_TABLE),
+        (9, LEFT_FAN, IDLE_TEST_R),
+        (16, LEFT_FAN, THUMBS_LIFT_R),
+        (25, LEFT_FAN, THUMBS_UP_R),
+        (36, LEFT_FAN, moved_spec(THUMBS_UP_R, in_game.table_dir(0, 0.008, 0.012))),
+        (60, LEFT_FAN, THUMBS_UP_R),
+        (78, LEFT_FAN, moved_spec(THUMBS_UP_R, in_game.table_dir(0, 0.005, 0.007))),
+        (92, LEFT_FAN, THUMBS_UP_R),
+        (101, LEFT_FAN, IDLE_TEST_R),
+        (115, LEFT_FAN, RIGHT_TABLE),
     ], shape_fn=shape_in_game_thumbs)
 
     def shape_in_game_td(fr):
-        if fr <= 9 or fr >= 98: return (0.0, 0.0)
-        if fr < 20: s = float(smoothstep(9.0, 20.0, fr)); return (0.0, s * s)
-        if fr <= 88: return (0.0, 1.0)
-        s = float(smoothstep(98.0, 88.0, fr)); return (0.0, s * s)
+        if fr <= 9 or fr >= 102: return (0.0, 0.0)
+        if fr < 23: s = float(smoothstep(9.0, 23.0, fr)); return (0.0, s * s)
+        if fr <= 90: return (0.0, 1.0)
+        s = float(smoothstep(102.0, 90.0, fr)); return (0.0, s * s)
     bake_clip(armature, "Take_ThumbsDown", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (9, LEFT_FAN, IDLE_TEST_R),
-        (20, LEFT_FAN, THUMBS_DOWN_R),
-        (30, LEFT_FAN, moved_spec(THUMBS_DOWN_R, in_game.table_dir(0, 0.008, -0.012))),
-        (56, LEFT_FAN, THUMBS_DOWN_R),
-        (74, LEFT_FAN, moved_spec(THUMBS_DOWN_R, in_game.table_dir(0, 0.005, -0.008))),
-        (88, LEFT_FAN, THUMBS_DOWN_R),
-        (98, LEFT_FAN, IDLE_TEST_R),
-        (108, LEFT_FAN, RIGHT_TABLE),
+        (10, LEFT_FAN, IDLE_TEST_R),
+        (23, LEFT_FAN, THUMBS_DOWN_R),
+        (34, LEFT_FAN, moved_spec(THUMBS_DOWN_R, in_game.table_dir(0, 0.008, -0.012))),
+        (58, LEFT_FAN, THUMBS_DOWN_R),
+        (76, LEFT_FAN, moved_spec(THUMBS_DOWN_R, in_game.table_dir(0, 0.005, -0.008))),
+        (90, LEFT_FAN, THUMBS_DOWN_R),
+        (100, LEFT_FAN, IDLE_TEST_R),
+        (113, LEFT_FAN, RIGHT_TABLE),
     ], shape_fn=shape_in_game_td, shape_prop="thumbs_smooth")
 
-    # Промежуточная фаза кулака: пальцы сжимаются раньше большого пальца, чтобы большой палец не проходил сквозь указательный!
+    # Промежуточная фаза кулака: большой палец держится чуть шире снаружи, пока 4 пальца полностью сгибаются (0 мм нахлёста!).
     FIST_HALF_HAND = copy.deepcopy(HAND_FIST)
-    FIST_HALF_HAND["thumb"] = anat_thumb(-22, -20, 18, -18, -20)
+    FIST_HALF_HAND["thumb"] = anat_thumb(-14, -12, 16, -10, -12)
     FIST_HALF_R = free_arm_spec((0.155, 0.380, -0.075), (0.265, 0.240, -0.210), 68, 8, 8, FIST_HALF_HAND)
     def shape_in_game_fist(fr):
-        if fr <= 9 or fr >= 99: return (0.0, 0.0)
-        if fr < 20: s = float(smoothstep(9.0, 20.0, fr)); return (0.0, s * s)
-        if fr <= 86: return (0.0, 1.0)
-        s = float(smoothstep(99.0, 86.0, fr)); return (0.0, s * s)
+        if fr <= 9 or fr >= 103: return (0.0, 0.0)
+        if fr < 23: s = float(smoothstep(9.0, 23.0, fr)); return (0.0, s * s)
+        if fr <= 88: return (0.0, 1.0)
+        s = float(smoothstep(103.0, 88.0, fr)); return (0.0, s * s)
     bake_clip(armature, "Take_Fist", [
         (0, LEFT_FAN, RIGHT_TABLE),
-        (8, LEFT_FAN, IDLE_TEST_R),
-        (14, LEFT_FAN, FIST_HALF_R),
-        (20, LEFT_FAN, FIST_R),
-        (28, LEFT_FAN, moved_spec(FIST_R, in_game.table_dir(0, 0.01, 0.014))),
-        (54, LEFT_FAN, FIST_R),
-        (72, LEFT_FAN, moved_spec(FIST_R, in_game.table_dir(0, 0.006, 0.009))),
-        (86, LEFT_FAN, FIST_R),
-        (93, LEFT_FAN, FIST_HALF_R),
-        (99, LEFT_FAN, IDLE_TEST_R),
-        (108, LEFT_FAN, RIGHT_TABLE),
+        (9, LEFT_FAN, IDLE_TEST_R),
+        (15, LEFT_FAN, FIST_HALF_R),
+        (23, LEFT_FAN, FIST_R),
+        (32, LEFT_FAN, moved_spec(FIST_R, in_game.table_dir(0, 0.01, 0.014))),
+        (56, LEFT_FAN, FIST_R),
+        (74, LEFT_FAN, moved_spec(FIST_R, in_game.table_dir(0, 0.006, 0.009))),
+        (88, LEFT_FAN, FIST_R),
+        (95, LEFT_FAN, FIST_HALF_R),
+        (102, LEFT_FAN, IDLE_TEST_R),
+        (114, LEFT_FAN, RIGHT_TABLE),
     ], shape_fn=shape_in_game_fist, shape_prop="fist_smooth")
 
     # 3. Клипы проверки (F, U, J, H) — совместимы со слоями PoseTest и GestureTest!
@@ -1397,7 +1752,7 @@ def build_all_animations(armature):
             (0, IDLE_TEST_L, IDLE_TEST_R),
             (24, l_end, r_end),
         ], shape_fn=_td_shape, shape_prop="thumbs_smooth")
-    print(f"=== BAKED {len(bpy.data.actions)} ACTIONS CLEANLY!", flush=True)
+    print(f"=== BAKED {len(bpy.data.actions)} ACTIONS CLEANLY AT {FPS} FPS!", flush=True)
 
 
 def render_preview():

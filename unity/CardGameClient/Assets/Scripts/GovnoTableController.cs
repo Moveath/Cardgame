@@ -137,15 +137,11 @@ namespace CardGameClient
             }
             var pool = AvatarCatalog.OpponentPortraits(_portraits[0], count - 1);
             var names = new List<string> { PlayerProfile.DisplayName };
-            var fallback = new[] { "Борис", "Вера", "Игорь", "Ольга", "Пётр" };
             _bots = new SimpleGovnoBot[count];
             for (var i = 1; i < count; i++)
             {
                 if (pool.Count > 0) _portraits[i] = pool[(i - 1) % pool.Count];
-                var title = AvatarCatalog.PersonalTitleOf(_portraits[i]) ?? fallback[i - 1];
-                var name = title;
-                for (var suffix = 2; names.Contains(name); suffix++) name = title + " " + suffix;
-                names.Add(name);
+                names.Add(AvatarCatalog.NameForAvatar(_portraits[i], names));
                 _bots[i] = new SimpleGovnoBot(unchecked(seed + i * 7919));
             }
             HubRoster.TryApply("govno", names, _portraits);

@@ -11,19 +11,21 @@ namespace CardGameClient.ThreeD
     /// </summary>
     public sealed class Card3DView : MonoBehaviour
     {
-        private const float FlightTime = .45f, FlightArc = .08f, ReducedFlightTime = .1f;
-        private const float DropHeight = .07f;                  // Карта отпускается над своим местом и падает на сукно.
-        private const float DropSpeed = .35f;
-        private const float SettleTime = .16f, SettleLimit = 1.2f, MinFall = .2f, RestSpeed = .04f;
+        private const float FlightTime = .50f, FlightArc = .075f, ReducedFlightTime = .1f;
+        private const float DropHeight = .065f;                 // Карта отпускается над своим местом и мягко ложится на сукно.
+        private const float DropSpeed = .32f;
+        private const float SettleTime = .19f, SettleLimit = 1.2f, MinFall = .2f, RestSpeed = .04f;
         private const float BodyDepth = .002f;                  // Коллайдер толще самой карты: тонкий проскакивает стол.
         private const float CardMass = .005f, AirDrag = 2f, AirSpin = 3f, Contact = .0008f;
         // Слабая подсветка картинки: значения читаются в тени руки, но карта остаётся картоном под лампой, а не экраном.
+        // На центре стола прямо под лампой картон слегка приглушён (TableFaceTint), чтобы белый фон не выгорал и масти были контрастнее.
         private static readonly Color Glow = new Color(.1f, .1f, .1f);
+        private static readonly Color TableFaceTint = new Color(.84f, .82f, .78f);
         private static readonly Color Dimmed = new Color(.66f, .63f, .6f);
         private static readonly Dictionary<Texture, Material> Materials = new Dictionary<Texture, Material>();
         private static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
         private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
-        private static Material _sideMaterial, _highlightMaterial;
+        private static Material _sideMaterial, _opponentSideMaterial, _highlightMaterial;
         private static PhysicsMaterial _cloth;
         private static MaterialPropertyBlock _tint;
 
@@ -45,9 +47,11 @@ namespace CardGameClient.ThreeD
         private Motion _motion;
         private Target _target;
         private bool _hasTarget;
-        private Vector3 _fromPosition, _toPosition, _fromScale, _toScale;
+        private Vector3 _fromPosition, _toPosition, _fromLocalVel, _toLocalVel, _fromScale, _toScale;
         private Quaternion _fromRotation, _toRotation;
+        private Transform _flyTargetParent;
         private float _time, _duration, _arc, _fallTime;
+        private bool _useHermite, _clampFloorY, _flyWorldSpace;
         private Action _arrived;
 
         /// <summary>Сколько раз карты падали на стол физикой: для проверки.</summary>
@@ -69,7 +73,11 @@ namespace CardGameClient.ThreeD
             view.Card = card;
             go.AddComponent<MeshFilter>().sharedMesh = CardMesh3D.Card;
             view._renderer = go.AddComponent<MeshRenderer>();
-            view._renderer.sharedMaterials = new[] { MaterialFor(LoadTexture(faceUp ? FaceKey(card) : "back")), MaterialFor(LoadTexture("back")), SideMaterial };
+            // У карт в руках соперников (не physical) ставим тёплый матовый обрез и убираем самотень между картами в 1.6 мм,
+            // чтобы верхняя кромка веера на дистанции 2 м не рябила и не давала «белых пикселей»!
+            var sideMat = physical ? SideMaterial : OpponentSideMaterial;
+            view._renderer.sharedMaterials = new[] { MaterialFor(LoadTexture(faceUp ? FaceKey(card) : "back")), MaterialFor(LoadTexture("back")), sideMat };
+            if (!physical) view._renderer.receiveShadows = false;
 
             view._highlight = new GameObject("Selected edge", typeof(MeshFilter), typeof(MeshRenderer));
             view._highlight.transform.SetParent(go.transform, false);
@@ -95,14 +103,32 @@ namespace CardGameClient.ThreeD
             return view;
         }
 
+        private bool _dimmed, _onTable;
+
         public void SetSelected(bool selected) => _highlight.SetActive(selected);
+
+        /// <summary>Карта лежит лицом вверх прямо под яркой лампой стола: убираем лишнее свечение и засвет белого фона.</summary>
+        public void SetOnTable(bool onTable)
+        {
+            if (_onTable == onTable) return;
+            _onTable = onTable;
+            ApplyFaceTint();
+        }
 
         /// <summary>Карта, которой сейчас нельзя ходить. Прозрачность не годится: в веере проступили бы карты под ней.</summary>
         public void SetDimmed(bool dimmed)
         {
+            _dimmed = dimmed;
+            ApplyFaceTint();
+        }
+
+        private void ApplyFaceTint()
+        {
             _tint = _tint ?? new MaterialPropertyBlock();
-            _tint.SetColor(BaseColor, dimmed ? Dimmed : Color.white);
-            _tint.SetColor(EmissionColor, dimmed ? Glow * Dimmed : Glow);
+            var baseColor = _dimmed ? Dimmed : (_onTable ? TableFaceTint : Color.white);
+            var emission = _onTable ? Color.black : (_dimmed ? Glow * Dimmed : Glow);
+            _tint.SetColor(BaseColor, baseColor);
+            _tint.SetColor(EmissionColor, emission);
             _renderer.SetPropertyBlock(_tint, 0);
         }
 
@@ -127,6 +153,40 @@ namespace CardGameClient.ThreeD
         public void Land(Transform parent, Vector3 position, Quaternion rotation, float scale) =>
             Request(new Target { Parent = parent, Position = position, Rotation = rotation, Scale = scale, Land = true });
 
+        /// <summary>Уход в биту: коллайдер выключается, карта чистой дугой перелетает сверху на стопку и ложится рубашкой вверх без протаскивания сквозь нижние карты.</summary>
+        public void SendToDiscard(Transform parent, Vector3 position, Quaternion rotation, float scale, float arc = .085f) =>
+            GlideTo(parent, position, rotation, scale, FlightTime, arc, null, disableCollider: true);
+
+        /// <summary>Управляемый перелёт с заданной длительностью и высотой дуги (сбор кучки на столе, уход в биту/руки, раздача с колоды).</summary>
+        public void GlideTo(Transform parent, Vector3 position, Quaternion rotation, float scale, float duration, float arc = 0f, Action arrived = null, bool disableCollider = false)
+        {
+            StopBody();
+            if (disableCollider)
+            {
+                var col = GetComponent<Collider>();
+                if (col != null) col.enabled = false;
+            }
+            _target = new Target { Parent = parent, Position = position, Rotation = rotation, Scale = scale, Land = false, Arrived = arrived };
+            _hasTarget = true;
+            Fly(parent, position, rotation, scale, arc, Duration(duration), arrived);
+        }
+
+        /// <summary>
+        /// Плавно сдвигает целевой слот уже летящей в веер карты без сброса её текущей дуги и времени полёта:
+        /// когда с колоды или со стола прилетают карты одна за другой, веер раскрывается мягко без дёргания.
+        /// </summary>
+        public bool TryRetargetFanSlot(Transform fanRoot, Vector3 position, Quaternion rotation, float scale)
+        {
+            if (_motion != Motion.Flying) return false;
+            if (transform.parent != fanRoot && (!_flyWorldSpace || _flyTargetParent != fanRoot)) return false;
+            _toPosition = position;
+            _toRotation = rotation;
+            _toScale = Vector3.one * scale;
+            _target = new Target { Parent = fanRoot, Position = position, Rotation = rotation, Scale = scale, Land = false, Arrived = _target.Arrived };
+            _hasTarget = true;
+            return true;
+        }
+
         /// <summary>Рука забирает карту: полёты и падение замирают, новые места запоминаются до LetGo.</summary>
         public void Hold()
         {
@@ -142,6 +202,23 @@ namespace CardGameClient.ThreeD
         {
             _motion = Motion.Still;
             if (_hasTarget) GoToTarget();
+        }
+
+        /// <summary>Рука донесла карту к сукну и мягко отпускает её на ходу: карта плавно и строго сверху опускается на слот (никогда не ныряя сквозь нижнюю карту).</summary>
+        public void ReleaseToTable(Vector3 releaseWorldVelocity = default)
+        {
+            _motion = Motion.Still;
+            if (!_hasTarget) return;
+            var target = _target;
+            var worldGoal = target.Parent != null ? target.Parent.TransformPoint(target.Position) : target.Position;
+            var dist = Vector3.Distance(transform.position, worldGoal);
+            var dur = Duration(Mathf.Clamp(.20f + dist * .34f, .21f, .32f));
+            var localStart = target.Parent != null ? target.Parent.InverseTransformPoint(transform.position) : transform.position;
+            var dy = Mathf.Max(0f, localStart.y - target.Position.y);
+            var localVel = target.Parent != null ? target.Parent.InverseTransformVector(releaseWorldVelocity) : releaseWorldVelocity;
+            // Ограничение вертикальной скорости гарантирует строго монотонный спуск без нырка ниже _toPosition.y!
+            localVel.y = Mathf.Clamp(localVel.y, -(dy / dur) * 1.35f, .06f);
+            FlyHermite(target.Parent, target.Position, target.Rotation, target.Scale, localVel, Vector3.zero, dur, target.Arrived, 0f, true);
         }
 
         private void Request(Target target)
@@ -171,12 +248,48 @@ namespace CardGameClient.ThreeD
                 return;
             }
             var above = target.Position + target.Parent.InverseTransformDirection(Vector3.up) * DropHeight;
-            Fly(target.Parent, above, target.Rotation, target.Scale, FlightArc, Duration(FlightTime), Drop);
+            var endDownVel = target.Parent != null ? target.Parent.InverseTransformVector(Vector3.down * (DropSpeed * .7f)) : Vector3.down * (DropSpeed * .7f);
+            FlyHermite(target.Parent, above, target.Rotation, target.Scale, Vector3.zero, endDownVel, Duration(FlightTime), Drop, FlightArc);
         }
 
         private void Fly(Transform parent, Vector3 position, Quaternion rotation, float scale, float arc, float duration, Action arrived)
         {
             StopBody();
+            // При перелёте между разными родителями (например, со стола/колоды в подвижный веер руки) летим в мировых координатах
+            // к актуальной точке цели и привязываемся к родителю только при приземлении: поворот руки или головы не швыряет карту в потолок!
+            _flyWorldSpace = transform.parent != parent;
+            _flyTargetParent = parent;
+            if (_flyWorldSpace)
+            {
+                transform.SetParent(null, true);
+                _fromPosition = transform.position;
+                _fromRotation = transform.rotation;
+                _fromScale = transform.lossyScale;
+            }
+            else
+            {
+                _fromPosition = transform.localPosition;
+                _fromRotation = transform.localRotation;
+                _fromScale = transform.localScale;
+            }
+            _toPosition = position;
+            _toRotation = rotation;
+            _toScale = Vector3.one * scale;
+            _fromLocalVel = Vector3.zero;
+            _toLocalVel = Vector3.zero;
+            _useHermite = false;
+            _time = 0f;
+            _duration = Mathf.Max(.01f, duration);
+            _arc = arc;
+            _arrived = arrived;
+            _motion = Motion.Flying;
+        }
+
+        private void FlyHermite(Transform parent, Vector3 position, Quaternion rotation, float scale, Vector3 startLocalVel, Vector3 endLocalVel, float duration, Action arrived, float arc = 0f, bool clampFloorY = false)
+        {
+            StopBody();
+            _flyWorldSpace = false;
+            _flyTargetParent = parent;
             if (transform.parent != parent) transform.SetParent(parent, true);
             _fromPosition = transform.localPosition;
             _fromRotation = transform.localRotation;
@@ -184,8 +297,12 @@ namespace CardGameClient.ThreeD
             _toPosition = position;
             _toRotation = rotation;
             _toScale = Vector3.one * scale;
+            _fromLocalVel = startLocalVel;
+            _toLocalVel = endLocalVel;
+            _useHermite = true;
+            _clampFloorY = clampFloorY;
             _time = 0f;
-            _duration = duration;
+            _duration = Mathf.Max(.01f, duration);
             _arc = arc;
             _arrived = arrived;
             _motion = Motion.Flying;
@@ -219,11 +336,49 @@ namespace CardGameClient.ThreeD
             if (_motion != Motion.Flying) return;
             _time += Time.deltaTime;
             var t = Mathf.Clamp01(_time / _duration);
-            var k = Mathf.SmoothStep(0f, 1f, t);
-            transform.localPosition = Vector3.Lerp(_fromPosition, _toPosition, k) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * _arc);
-            transform.localRotation = Quaternion.Slerp(_fromRotation, _toRotation, k);
-            transform.localScale = Vector3.Lerp(_fromScale, _toScale, k);
+            var k = t * t * t * (t * (t * 6f - 15f) + 10f);
+            if (_useHermite)
+            {
+                var t2 = t * t;
+                var t3 = t2 * t;
+                var h00 = 2f * t3 - 3f * t2 + 1f;
+                var h10 = t3 - 2f * t2 + t;
+                var h01 = -2f * t3 + 3f * t2;
+                var h11 = t3 - t2;
+                var bell = Mathf.Sin(t * Mathf.PI);
+                var pos = h00 * _fromPosition + h10 * (_fromLocalVel * _duration) + h01 * _toPosition + h11 * (_toLocalVel * _duration)
+                    + Vector3.up * (bell * bell * _arc);
+                if (_clampFloorY) pos.y = Mathf.Max(pos.y, _toPosition.y);
+                transform.localPosition = pos;
+                // При подхвате с начальной скоростью вращение и масштаб идут мягко с первой миллисекунды без «ступеньки» на старте.
+                var rotK = _fromLocalVel.sqrMagnitude > 1e-4f ? 1f - (1f - t) * (1f - t) : k;
+                transform.localRotation = Quaternion.Slerp(_fromRotation, _toRotation, rotK);
+                transform.localScale = Vector3.Lerp(_fromScale, _toScale, rotK);
+            }
+            else if (_flyWorldSpace)
+            {
+                var goalPos = _flyTargetParent != null ? _flyTargetParent.TransformPoint(_toPosition) : _toPosition;
+                var goalRot = _flyTargetParent != null ? _flyTargetParent.rotation * _toRotation : _toRotation;
+                var goalScale = _flyTargetParent != null ? Vector3.Scale(_flyTargetParent.lossyScale, _toScale) : _toScale;
+                transform.position = Vector3.Lerp(_fromPosition, goalPos, k) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * _arc);
+                transform.rotation = Quaternion.Slerp(_fromRotation, goalRot, k);
+                transform.localScale = Vector3.Lerp(_fromScale, goalScale, k);
+            }
+            else
+            {
+                transform.localPosition = Vector3.Lerp(_fromPosition, _toPosition, k) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * _arc);
+                transform.localRotation = Quaternion.Slerp(_fromRotation, _toRotation, k);
+                transform.localScale = Vector3.Lerp(_fromScale, _toScale, k);
+            }
             if (t < 1f) return;
+            if (_flyWorldSpace && _flyTargetParent != null)
+            {
+                transform.SetParent(_flyTargetParent, false);
+                transform.localPosition = _toPosition;
+                transform.localRotation = _toRotation;
+                transform.localScale = _toScale;
+                _flyWorldSpace = false;
+            }
             _motion = Motion.Still;
             var arrived = _arrived;
             _arrived = null;
@@ -256,7 +411,8 @@ namespace CardGameClient.ThreeD
 
         private static float Duration(float normal) => ReducedMotion ? Mathf.Min(normal, ReducedFlightTime) : normal;
 
-        private static Material SideMaterial => _sideMaterial != null ? _sideMaterial : _sideMaterial = Table3DArt.Lit("card side", new Color(.93f, .89f, .8f), .25f);
+        private static Material SideMaterial => _sideMaterial != null ? _sideMaterial : _sideMaterial = Table3DArt.Lit("card side", new Color(.84f, .79f, .68f), 0f);
+        private static Material OpponentSideMaterial => _opponentSideMaterial != null ? _opponentSideMaterial : _opponentSideMaterial = Table3DArt.Lit("card opp side", new Color(.28f, .29f, .19f), 0f);
 
         private static Material HighlightMaterial => _highlightMaterial != null ? _highlightMaterial : _highlightMaterial = Table3DArt.Unlit("card highlight", new Color(1f, .79f, .32f));
 
@@ -269,6 +425,9 @@ namespace CardGameClient.ThreeD
         {
             // Play запускается без перезагрузки скриптов: таблица переживает остановку игры, а материалы в ней уже удалены.
             if (Materials.TryGetValue(texture, out var material) && material != null) return material;
+            // Трилинейная + анизотропная фильтрация убирают рябь мелкого золотого узора рубашки и мастей под острым углом к столу.
+            texture.filterMode = FilterMode.Trilinear;
+            texture.anisoLevel = 8;
             material = new Material(Table3DArt.Template("Card")) { name = "card " + texture.name };
             material.SetTexture("_BaseMap", texture);
             material.SetTexture("_EmissionMap", texture);

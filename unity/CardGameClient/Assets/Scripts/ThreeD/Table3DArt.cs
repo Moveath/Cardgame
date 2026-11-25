@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
 namespace CardGameClient.ThreeD
@@ -60,8 +61,25 @@ namespace CardGameClient.ThreeD
             return go;
         }
 
+        /// <summary>Хрустальный стакан с золотым ободком и трефой: стеклянный корпус не отбрасывает сплошную чёрную тень.</summary>
+        public static GameObject SpawnGlass(Transform parent, Vector3 worldPosition, Quaternion worldRotation, string label = "WhiskeyGlass")
+        {
+            var go = Spawn("whiskey_glass", parent);
+            go.name = label;
+            go.transform.SetPositionAndRotation(worldPosition, worldRotation);
+            foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>())
+            {
+                if (renderer.name.Contains("GlassBody")) renderer.shadowCastingMode = ShadowCastingMode.Off;
+            }
+            return go;
+        }
+
         private static Material Slot(string name)
         {
+            if (name.Contains("chair_pbr")) return Template("Chair");
+            if (name.Contains("glass_crystal")) return Template("CrystalGlass");
+            if (name.Contains("glass_gold")) return Template("GlassGold");
+            if (name.Contains("glass_club")) return Template("GlassClub");
             if (name.Contains("gold")) return Lit("gold", new Color(.95f, .66f, .24f), .62f, .35f);
             if (name.Contains("wood")) return Lit("wood", new Color(.27f, .12f, .07f), .5f);
             if (name.Contains("velvet")) return Lit("velvet", new Color(.46f, .05f, .09f), .12f);

@@ -24,9 +24,6 @@ namespace CardGameClient
         private bool _hubBankJobMatch;
         private int _hubCaughtCheats, _hubCheatsPlayed, _hubTimesCaught;
 
-        // Пул имён ботов — до 7 штук, чтобы хватило на стол максимального размера (8 игроков).
-        private static readonly string[] BotNamePool = { "Борис", "Вера", "Игорь", "Ольга", "Пётр", "Марина", "Сергей" };
-
         private static readonly Color ActiveGlow = new Color(1f, 0.85f, 0.3f);
         private static readonly Color TransferChipColor = new Color(0.42f, 0.28f, 0.55f);
 
@@ -639,37 +636,11 @@ namespace CardGameClient
         private List<string> BuildPlayerNames(int playerCount)
         {
             var names = new List<string> { HumanName };
-            var fromPool = 0;
 
             for (var player = 1; player < playerCount; player++)
             {
-                // Лицо реального человека приносит с собой и имя: иначе за столом сидит
-                // «Вера» с лицом Данила. Выдуманным персонажам имя берём из списка.
-                var title = AvatarCatalog.PersonalTitleOf(PortraitFor(player));
-                if (title != null)
-                {
-                    // Если друзей меньше, чем мест, один и тот же приходит вторым образом.
-                    // Имена всё равно должны различаться, иначе в логе ходов не разобрать,
-                    // кто есть кто.
-                    var personal = title;
-                    for (var repeat = 2; names.Contains(personal); repeat++)
-                    {
-                        personal = title + " " + repeat;
-                    }
-
-                    names.Add(personal);
-                    continue;
-                }
-
-                var name = BotNamePool[fromPool % BotNamePool.Length];
-                while (names.Contains(name) && fromPool < BotNamePool.Length)
-                {
-                    fromPool++;
-                    name = BotNamePool[fromPool % BotNamePool.Length];
-                }
-
-                fromPool++;
-                names.Add(name);
+                // Друзья всегда получают своё имя (Марат, Аслан и т.д.), стартовые — случайное имя своего пола.
+                names.Add(AvatarCatalog.NameForAvatar(PortraitFor(player), names));
             }
 
             HubRoster.TryApply("durak", names, _playerPortraits);
